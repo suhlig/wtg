@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/urfave/cli/v3"
 	"golang.org/x/sync/errgroup"
@@ -35,6 +36,20 @@ func (r opResult) render() string {
 		return ui.Fail.Render(r.sym + " " + r.msg)
 	default:
 		return r.sym + " " + r.msg
+	}
+}
+
+// renderSym returns just the styled symbol character for use in progress output.
+func (r opResult) renderSym() string {
+	switch r.sym {
+	case ui.SymOK, ui.SymUp:
+		return ui.OK.Render(r.sym)
+	case ui.SymWarn:
+		return ui.Warn.Render(r.sym)
+	case ui.SymFail:
+		return ui.Fail.Render(r.sym)
+	default:
+		return r.sym
 	}
 }
 
@@ -94,12 +109,18 @@ local branches (equivalent to git fetch origin). Runs in parallel.`,
 etc.) if it has no local changes. Repos with uncommitted changes or a
 diverged branch are skipped with a warning. Runs in parallel.`,
 				ShellComplete: completeRepos,
+				Flags: []cli.Flag{
+					&cli.BoolFlag{
+						Name:  "progress",
+						Usage: "show live per-repo progress indicators",
+					},
+				},
 				Action: func(ctx context.Context, cmd *cli.Command) error {
 					cfg, err := config.Load(cmd.String("config"))
 					if err != nil {
 						return err
 					}
-					return RunSync(cfg, runner, cmd.Args().Slice(), os.Stdout)
+					return RunSync(cfg, runner, cmd.Args().Slice(), cmd.Bool("progress"), os.Stdout)
 				},
 			},
 		},
@@ -181,8 +202,11 @@ func RunFetch(cfg *config.Config, runner git.Runner, args []string, out io.Write
 
 // RunSync fetches and fast-forwards each repo's default branch. If args is
 // empty, all discovered repos are synced. Otherwise, args are short names
-// (relative to discovery.root_dir) to sync.
-func RunSync(cfg *config.Config, runner git.Runner, args []string, out io.Writer) error {
+// (relative to discovery.root_dir) to sync. When progress is true, a bracketed
+// row of placeholder dots is printed upfront — one per repo — and each dot is
+// replaced in-place with the result symbol (✓ ↑ ⚠ !) as soon as that repo
+// finishes, by reprinting the whole line from column 0 with \r.
+func RunSync(cfg *config.Config, runner git.Runner, args []string, progress bool, out io.Writer) error {
 	paths, err := resolveRepoPaths(cfg, args)
 	if err != nil {
 		return err
@@ -190,16 +214,52 @@ func RunSync(cfg *config.Config, runner git.Runner, args []string, out io.Writer
 
 	results := make([]opResult, len(paths))
 
+	// syms holds the current display symbol for each repo slot.
+	syms := make([]string, len(paths))
+	for i := range syms {
+		syms[i] = "·"
+	}
+
+	// printProgress rewrites the whole progress line from column 0.
+	// Must be called with mu held.
+	printProgress := func() {
+		var b strings.Builder
+		b.WriteRune('\r')
+		b.WriteRune('[')
+		for _, s := range syms {
+			b.WriteString(s)
+		}
+		b.WriteRune(']')
+		fmt.Fprint(out, b.String())
+	}
+
+	var mu sync.Mutex
+	if progress && len(paths) > 0 {
+		mu.Lock()
+		printProgress()
+		mu.Unlock()
+	}
+
 	var g errgroup.Group
 	for i, p := range paths {
 		g.Go(func() error {
 			name, _ := filepath.Rel(cfg.Discovery.RootDir, p)
 			sym, msg := syncOne(p, runner)
 			results[i] = opResult{name, sym, msg}
+			if progress {
+				mu.Lock()
+				syms[i] = results[i].renderSym()
+				printProgress()
+				mu.Unlock()
+			}
 			return nil
 		})
 	}
 	_ = g.Wait() // goroutines always return nil; outcomes are written to results[i]
+
+	if progress {
+		fmt.Fprintln(out)
+	}
 
 	tbl := ui.NewTableWriter(out)
 	for _, r := range results {
