@@ -33,7 +33,7 @@ func syncRunner(defaultBranch string, statusSeq []git.RepoStatus, fetchErr, ffEr
 func runSync(t *testing.T, root string, runner *testRunner, args ...string) string {
 	t.Helper()
 	var out bytes.Buffer
-	if err := RunSync(discoverCfg(root, 2), runner, args, &out); err != nil {
+	if err := RunSync(discoverCfg(root, 2), runner, args, false, &out); err != nil {
 		t.Fatalf("RunSync: %v", err)
 	}
 	return out.String()
@@ -224,7 +224,7 @@ func TestRunSync_Parallel(t *testing.T) {
 
 		done := make(chan error, 1)
 		go func() {
-			done <- RunSync(discoverCfg(root, 1), r, nil, io.Discard)
+			done <- RunSync(discoverCfg(root, 1), r, nil, false, io.Discard)
 		}()
 
 		synctest.Wait()
@@ -299,10 +299,50 @@ func TestRunSync_NamedRepos(t *testing.T) {
 	}
 }
 
+func TestRunSync_Progress(t *testing.T) {
+	root := t.TempDir()
+	makeRepo(t, root, "api")
+	makeRepo(t, root, "frontend")
+
+	clean := git.RepoStatus{Branch: "main"}
+	r := &testRunner{
+		defaultBranchFn: func(string) (string, error) { return "main", nil },
+		statusFn:        func(string) (git.RepoStatus, error) { return clean, nil },
+		fetchFn:         func(string) error { return nil },
+	}
+
+	var out bytes.Buffer
+	if err := RunSync(discoverCfg(root, 2), r, nil, true, &out); err != nil {
+		t.Fatalf("RunSync: %v", err)
+	}
+	got := out.String()
+	// Progress line comes before the table; find it via the first newline.
+	firstNewline := strings.Index(got, "\n")
+	if firstNewline < 0 {
+		t.Fatalf("expected newline in progress output, got %q", got)
+	}
+	// The final reprint is at the end of the progress section; grab everything
+	// after the last \r before the newline — that's the definitive progress line.
+	progressSection := got[:firstNewline]
+	lastCR := strings.LastIndex(progressSection, "\r")
+	if lastCR < 0 {
+		t.Fatalf("expected \\r in progress output, got %q", progressSection)
+	}
+	progressLine := progressSection[lastCR+1:]
+	// Must be bracketed.
+	if !strings.HasPrefix(progressLine, "[") || !strings.HasSuffix(progressLine, "]") {
+		t.Errorf("progress line not bracketed: %q", progressLine)
+	}
+	// Two repos succeed → two ✓ symbols inside the brackets (may be ANSI-wrapped).
+	if strings.Count(progressLine, ui.SymOK) != 2 {
+		t.Errorf("expected two %s inside brackets, got %q", ui.SymOK, progressLine)
+	}
+}
+
 func TestRunSync_UnknownRepo(t *testing.T) {
 	root := t.TempDir()
 	var out bytes.Buffer
-	err := RunSync(discoverCfg(root, 2), &testRunner{}, []string{"no-such-repo"}, &out)
+	err := RunSync(discoverCfg(root, 2), &testRunner{}, []string{"no-such-repo"}, false, &out)
 	if err == nil {
 		t.Fatal("expected error for unknown repo")
 	}
@@ -310,7 +350,7 @@ func TestRunSync_UnknownRepo(t *testing.T) {
 
 func TestRunSync_NoRootDir(t *testing.T) {
 	var out bytes.Buffer
-	err := RunSync(discoverCfg("", 2), &testRunner{}, nil, &out)
+	err := RunSync(discoverCfg("", 2), &testRunner{}, nil, false, &out)
 	if err == nil {
 		t.Fatal("expected error when root_dir is empty")
 	}
