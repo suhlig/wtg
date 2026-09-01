@@ -41,6 +41,43 @@ func runSync(t *testing.T, root string, runner *testRunner, args ...string) stri
 
 // --- syncOne ---
 
+func TestSyncOne_SkippedNoRemotes(t *testing.T) {
+	root := t.TempDir()
+	r := &testRunner{
+		remotesListFn: func(string) ([]string, error) { return nil, nil },
+	}
+	sym, msg := syncOne(root, r)
+	if sym != "" || msg != "" {
+		t.Errorf("expected empty sym/msg for no-remote repo, got sym=%q msg=%q", sym, msg)
+	}
+}
+
+func TestRunSync_SkipsRepoWithNoRemotes(t *testing.T) {
+	root := t.TempDir()
+	makeRepo(t, root, "no-remote")
+	makeRepo(t, root, "has-remote")
+
+	r := &testRunner{
+		remotesListFn: func(repoPath string) ([]string, error) {
+			if strings.HasSuffix(repoPath, "no-remote") {
+				return nil, nil
+			}
+			return []string{"origin"}, nil
+		},
+		defaultBranchFn: func(string) (string, error) { return "main", nil },
+		statusFn:        func(string) (git.RepoStatus, error) { return git.RepoStatus{Branch: "main"}, nil },
+		fetchFn:         func(string) error { return nil },
+		fastForwardFn:   func(string, string) error { return nil },
+	}
+	got := runSync(t, root, r)
+	if strings.Contains(got, "no-remote") {
+		t.Errorf("repo without remotes should be silently omitted: %q", got)
+	}
+	if !strings.Contains(got, "has-remote") {
+		t.Errorf("repo with remote should appear: %q", got)
+	}
+}
+
 func TestSyncOne_UpToDate(t *testing.T) {
 	root := t.TempDir()
 	clean := git.RepoStatus{Branch: "main"}
