@@ -339,6 +339,43 @@ func TestRunSync_Progress(t *testing.T) {
 	}
 }
 
+// TestRunSync_ProgressWrap verifies that when the progress bar is wider than
+// the terminal, cursor-up escape sequences are emitted before each \r so the
+// bar overwrites itself rather than printing new lines.
+func TestRunSync_ProgressWrap(t *testing.T) {
+	root := t.TempDir()
+	// Create 5 repos; simulate a terminal only 3 columns wide so the bar
+	// ( "[·····]" = 7 chars ) wraps across 3 terminal lines.
+	for _, name := range []string{"a", "b", "c", "d", "e"} {
+		makeRepo(t, root, name)
+	}
+
+	clean := git.RepoStatus{Branch: "main"}
+	r := &testRunner{
+		defaultBranchFn: func(string) (string, error) { return "main", nil },
+		statusFn:        func(string) (git.RepoStatus, error) { return clean, nil },
+		fetchFn:         func(string) error { return nil },
+	}
+
+	// Override the terminal-width function for this test.
+	orig := termWidthFn
+	termWidthFn = func() int { return 3 }
+	t.Cleanup(func() { termWidthFn = orig })
+
+	var out bytes.Buffer
+	if err := RunSync(discoverCfg(root, 5), r, nil, true, &out); err != nil {
+		t.Fatalf("RunSync: %v", err)
+	}
+	got := out.String()
+
+	// With 5 slots + 2 brackets = 7 chars and termWidth=3, each reprint (after
+	// the first) must be preceded by at least one \x1b[A cursor-up sequence.
+	const cursorUp = "\x1b[A"
+	if !strings.Contains(got, cursorUp) {
+		t.Errorf("expected cursor-up escape in output when bar wraps, got %q", got)
+	}
+}
+
 func TestRunSync_UnknownRepo(t *testing.T) {
 	root := t.TempDir()
 	var out bytes.Buffer

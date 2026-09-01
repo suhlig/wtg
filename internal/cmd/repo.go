@@ -12,11 +12,19 @@ import (
 
 	"github.com/urfave/cli/v3"
 	"golang.org/x/sync/errgroup"
+	"golang.org/x/term"
 
 	"github.com/geoffamey/wtg/internal/config"
 	"github.com/geoffamey/wtg/internal/git"
 	"github.com/geoffamey/wtg/internal/ui"
 )
+
+// termWidthFn returns the current terminal column count, or 0 if unknown.
+// It is a variable so tests can override it to simulate narrow terminals.
+var termWidthFn = func() int {
+	w, _, _ := term.GetSize(int(os.Stdout.Fd()))
+	return w
+}
 
 // opResult holds the outcome of one parallel operation for display in a table.
 type opResult struct {
@@ -226,10 +234,24 @@ func RunSync(cfg *config.Config, runner git.Runner, args []string, progress bool
 		syms[i] = "·"
 	}
 
-	// printProgress rewrites the whole progress line from column 0.
-	// Must be called with mu held.
+	// termWidth is the terminal column count, or 0 when unknown (not a tty).
+	termWidth := termWidthFn()
+
+	// printProgress rewrites the progress bar from column 0, even when the bar
+	// wraps across multiple terminal lines.  When the bar occupies more than one
+	// line we first move the cursor back up to the first line with ANSI cursor-up
+	// sequences (\x1b[A), then CR to column 0, before reprinting.
+	// When termWidth is unknown (0) we fall back to plain \r — same as before.
 	printProgress := func() {
 		var b strings.Builder
+		if termWidth > 0 {
+			// Total visible columns: len(syms) slots + 2 brackets.
+			// Number of extra wrapped lines (beyond the first):
+			extraLines := (len(syms) + 2) / termWidth
+			for range extraLines {
+				b.WriteString("\x1b[A") // cursor up one line
+			}
+		}
 		b.WriteRune('\r')
 		b.WriteRune('[')
 		for _, s := range syms {
