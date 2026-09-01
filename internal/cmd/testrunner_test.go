@@ -25,6 +25,7 @@ type testRunner struct {
 	pushFn               func(repoPath, branch string) error
 	rebaseFn             func(repoPath, onto string) error
 	remoteURLFn          func(repoPath, remote string) (string, error)
+	remotesListFn        func(repoPath string) ([]string, error)
 }
 
 func (r *testRunner) WorktreeAdd(repoPath, worktreePath, branch, base string, createBranch bool) error {
@@ -130,4 +131,11 @@ func (r *testRunner) RemoteURL(repoPath, remote string) (string, error) {
 		panic(fmt.Sprintf("unexpected RemoteURL(%q, %q)", repoPath, remote))
 	}
 	return r.remoteURLFn(repoPath, remote)
+}
+
+func (r *testRunner) Remotes(repoPath string) ([]string, error) {
+	if r.remotesListFn == nil {
+		return []string{"origin"}, nil // default: has a remote, so nothing is skipped
+	}
+	return r.remotesListFn(repoPath)
 }

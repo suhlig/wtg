@@ -8,14 +8,23 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/urfave/cli/v3"
 	"golang.org/x/sync/errgroup"
+	"golang.org/x/term"
 
 	"github.com/geoffamey/wtg/internal/config"
 	"github.com/geoffamey/wtg/internal/git"
 	"github.com/geoffamey/wtg/internal/ui"
 )
+
+// termWidthFn returns the current terminal column count, or 0 if unknown.
+// It is a variable so tests can override it to simulate narrow terminals.
+var termWidthFn = func() int {
+	w, _, _ := term.GetSize(int(os.Stdout.Fd()))
+	return w
+}
 
 // opResult holds the outcome of one parallel operation for display in a table.
 type opResult struct {
@@ -35,6 +44,20 @@ func (r opResult) render() string {
 		return ui.Fail.Render(r.sym + " " + r.msg)
 	default:
 		return r.sym + " " + r.msg
+	}
+}
+
+// renderSym returns just the styled symbol character for use in progress output.
+func (r opResult) renderSym() string {
+	switch r.sym {
+	case ui.SymOK, ui.SymUp:
+		return ui.OK.Render(r.sym)
+	case ui.SymWarn:
+		return ui.Warn.Render(r.sym)
+	case ui.SymFail:
+		return ui.Fail.Render(r.sym)
+	default:
+		return r.sym
 	}
 }
 
@@ -94,12 +117,18 @@ local branches (equivalent to git fetch origin). Runs in parallel.`,
 etc.) if it has no local changes. Repos with uncommitted changes or a
 diverged branch are skipped with a warning. Runs in parallel.`,
 				ShellComplete: completeRepos,
+				Flags: []cli.Flag{
+					&cli.BoolFlag{
+						Name:  "progress",
+						Usage: "show live per-repo progress indicators",
+					},
+				},
 				Action: func(ctx context.Context, cmd *cli.Command) error {
 					cfg, err := config.Load(cmd.String("config"))
 					if err != nil {
 						return err
 					}
-					return RunSync(cfg, runner, cmd.Args().Slice(), os.Stdout)
+					return RunSync(cfg, runner, cmd.Args().Slice(), cmd.Bool("progress"), os.Stdout)
 				},
 			},
 		},
@@ -161,6 +190,9 @@ func RunFetch(cfg *config.Config, runner git.Runner, args []string, out io.Write
 	for i, p := range paths {
 		g.Go(func() error {
 			name, _ := filepath.Rel(cfg.Discovery.RootDir, p)
+			if skip, _ := hasNoRemotes(p, runner); skip {
+				return nil
+			}
 			if err := runner.Fetch(p); err != nil {
 				results[i] = opResult{name, ui.SymFail, err.Error()}
 			} else {
@@ -173,6 +205,9 @@ func RunFetch(cfg *config.Config, runner git.Runner, args []string, out io.Write
 
 	tbl := ui.NewTableWriter(out)
 	for _, r := range results {
+		if r.name == "" {
+			continue
+		}
 		tbl.Row(r.name, r.render())
 	}
 	tbl.Flush()
@@ -181,8 +216,11 @@ func RunFetch(cfg *config.Config, runner git.Runner, args []string, out io.Write
 
 // RunSync fetches and fast-forwards each repo's default branch. If args is
 // empty, all discovered repos are synced. Otherwise, args are short names
-// (relative to discovery.root_dir) to sync.
-func RunSync(cfg *config.Config, runner git.Runner, args []string, out io.Writer) error {
+// (relative to discovery.root_dir) to sync. When progress is true, a bracketed
+// row of placeholder dots is printed upfront — one per repo — and each dot is
+// replaced in-place with the result symbol (✓ ↑ ⚠ !) as soon as that repo
+// finishes, by reprinting the whole line from column 0 with \r.
+func RunSync(cfg *config.Config, runner git.Runner, args []string, progress bool, out io.Writer) error {
 	paths, err := resolveRepoPaths(cfg, args)
 	if err != nil {
 		return err
@@ -190,28 +228,99 @@ func RunSync(cfg *config.Config, runner git.Runner, args []string, out io.Writer
 
 	results := make([]opResult, len(paths))
 
+	// syms holds the current display symbol for each repo slot.
+	syms := make([]string, len(paths))
+	for i := range syms {
+		syms[i] = "·"
+	}
+
+	// termWidth is the terminal column count, or 0 when unknown (not a tty).
+	termWidth := termWidthFn()
+
+	// printProgress rewrites the progress bar from column 0, even when the bar
+	// wraps across multiple terminal lines.  When the bar occupies more than one
+	// line we first move the cursor back up to the first line with ANSI cursor-up
+	// sequences (\x1b[A), then CR to column 0, before reprinting.
+	// When termWidth is unknown (0) we fall back to plain \r — same as before.
+	printProgress := func() {
+		var b strings.Builder
+		if termWidth > 0 {
+			// Total visible columns: len(syms) slots + 2 brackets.
+			// Number of extra wrapped lines (beyond the first):
+			extraLines := (len(syms) + 2) / termWidth
+			for range extraLines {
+				b.WriteString("\x1b[A") // cursor up one line
+			}
+		}
+		b.WriteRune('\r')
+		b.WriteRune('[')
+		for _, s := range syms {
+			b.WriteString(s)
+		}
+		b.WriteRune(']')
+		fmt.Fprint(out, b.String())
+	}
+
+	var mu sync.Mutex
+	if progress && len(paths) > 0 {
+		mu.Lock()
+		printProgress()
+		mu.Unlock()
+	}
+
 	var g errgroup.Group
 	for i, p := range paths {
 		g.Go(func() error {
 			name, _ := filepath.Rel(cfg.Discovery.RootDir, p)
 			sym, msg := syncOne(p, runner)
+			if sym == "" && msg == "" {
+				return nil // repo has no remotes; leave results[i] as zero value
+			}
 			results[i] = opResult{name, sym, msg}
+			if progress {
+				mu.Lock()
+				syms[i] = results[i].renderSym()
+				printProgress()
+				mu.Unlock()
+			}
 			return nil
 		})
 	}
 	_ = g.Wait() // goroutines always return nil; outcomes are written to results[i]
 
+	if progress {
+		fmt.Fprintln(out)
+	}
+
 	tbl := ui.NewTableWriter(out)
 	for _, r := range results {
+		if r.name == "" {
+			continue
+		}
 		tbl.Row(r.name, r.render())
 	}
 	tbl.Flush()
 	return nil
 }
 
+// hasNoRemotes reports true when the repo has no configured remotes.
+// Errors from Remotes() are treated as "has remotes" so unexpected failures
+// still surface through the normal fetch/sync path rather than being swallowed.
+func hasNoRemotes(repoPath string, runner git.Runner) (bool, error) {
+	remotes, err := runner.Remotes(repoPath)
+	if err != nil {
+		return false, err
+	}
+	return len(remotes) == 0, nil
+}
+
 // syncOne performs the fetch + fast-forward for a single repo and returns a
 // symbol and human-readable message describing the outcome.
 func syncOne(repoPath string, runner git.Runner) (string, string) {
+	if skip, _ := hasNoRemotes(repoPath, runner); skip {
+		return "", "" // sentinel: caller must check for empty name in results
+	}
+
 	defaultBranch, err := runner.DefaultBranch(repoPath)
 	if err != nil {
 		return ui.SymFail, fmt.Sprintf("error: %v", err)
@@ -254,19 +363,31 @@ func syncOne(repoPath string, runner git.Runner) (string, string) {
 	return ui.SymUp, fmt.Sprintf("fast-forwarded to origin/%s (%d %s)", defaultBranch, n, commits)
 }
 
-// resolveRepoPath converts a short repo name to an absolute path, checking
-// that a git repo actually exists there.
-func resolveRepoPath(rootDir, name string) (string, error) {
+// resolveRepoPath converts a repo name to an absolute path, checking that a
+// git repo actually exists there. The name may be the full slash-separated
+// path relative to the discovery root or a unique basename (see repoInSet).
+func resolveRepoPath(rootDir string, maxDepth int, name string) (string, error) {
 	p := filepath.Join(rootDir, filepath.FromSlash(name))
-	if !isGitRepo(p) {
-		return "", fmt.Errorf("repo %q not found under %s", name, rootDir)
+	if isGitRepo(p) {
+		return p, nil
 	}
-	return p, nil
+	// Not a direct path — resolve through the discovered set, which also lets a
+	// unique basename address a repo nested under org/group directories.
+	allPaths, err := discoverRepoPaths(rootDir, maxDepth)
+	if err != nil {
+		return "", fmt.Errorf("scan %s: %w", rootDir, err)
+	}
+	names, byName := repoNamesIndex(rootDir, allPaths)
+	canonical, err := resolveRepoName(rootDir, names, name)
+	if err != nil {
+		return "", err
+	}
+	return byName[canonical], nil
 }
 
 // resolveRepoPaths returns paths for all repos to operate on. When args is
 // empty it discovers all repos under cfg.Discovery.RootDir (sorted); otherwise
-// it resolves each named arg to an absolute path.
+// it resolves each named arg to an absolute path (see resolveRepoPath).
 func resolveRepoPaths(cfg *config.Config, args []string) ([]string, error) {
 	if len(args) == 0 {
 		paths, err := discoverRepoPaths(cfg.Discovery.RootDir, cfg.Discovery.MaxDepth)
@@ -278,7 +399,7 @@ func resolveRepoPaths(cfg *config.Config, args []string) ([]string, error) {
 	}
 	paths := make([]string, 0, len(args))
 	for _, name := range args {
-		p, err := resolveRepoPath(cfg.Discovery.RootDir, name)
+		p, err := resolveRepoPath(cfg.Discovery.RootDir, cfg.Discovery.MaxDepth, name)
 		if err != nil {
 			return nil, err
 		}
