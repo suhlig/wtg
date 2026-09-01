@@ -60,4 +60,5 @@ type Runner interface {
 
 	// Info
 	RemoteURL(repoPath, remote string) (string, error)
+	Remotes(repoPath string) ([]string, error) // list configured remote names
 }

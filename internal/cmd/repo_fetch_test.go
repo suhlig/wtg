@@ -74,6 +74,29 @@ func TestRunFetch_UnknownRepo(t *testing.T) {
 	}
 }
 
+func TestRunFetch_SkipsRepoWithNoRemotes(t *testing.T) {
+	root := t.TempDir()
+	makeRepo(t, root, "no-remote")
+	makeRepo(t, root, "has-remote")
+
+	r := &testRunner{
+		remotesListFn: func(repoPath string) ([]string, error) {
+			if strings.HasSuffix(repoPath, "no-remote") {
+				return nil, nil
+			}
+			return []string{"origin"}, nil
+		},
+		fetchFn: func(string) error { return nil },
+	}
+	got := runFetch(t, root, r)
+	if strings.Contains(got, "no-remote") {
+		t.Errorf("repo without remotes should be silently omitted: %q", got)
+	}
+	if !strings.Contains(got, "has-remote") {
+		t.Errorf("repo with remote should appear: %q", got)
+	}
+}
+
 func TestRunFetch_NoRootDir(t *testing.T) {
 	var out bytes.Buffer
 	err := RunFetch(discoverCfg("", 2), &testRunner{}, nil, &out)

@@ -198,3 +198,14 @@ func (r *SystemRunner) Rebase(repoPath, onto string) error {
 func (r *SystemRunner) RemoteURL(repoPath, remote string) (string, error) {
 	return r.run(repoPath, "remote", "get-url", remote)
 }
+
+func (r *SystemRunner) Remotes(repoPath string) ([]string, error) {
+	out, err := r.run(repoPath, "remote")
+	if err != nil {
+		return nil, err
+	}
+	if out == "" {
+		return nil, nil
+	}
+	return strings.Split(out, "\n"), nil
+}

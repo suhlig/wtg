@@ -161,6 +161,9 @@ func RunFetch(cfg *config.Config, runner git.Runner, args []string, out io.Write
 	for i, p := range paths {
 		g.Go(func() error {
 			name, _ := filepath.Rel(cfg.Discovery.RootDir, p)
+			if skip, _ := hasNoRemotes(p, runner); skip {
+				return nil
+			}
 			if err := runner.Fetch(p); err != nil {
 				results[i] = opResult{name, ui.SymFail, err.Error()}
 			} else {
@@ -173,6 +176,9 @@ func RunFetch(cfg *config.Config, runner git.Runner, args []string, out io.Write
 
 	tbl := ui.NewTableWriter(out)
 	for _, r := range results {
+		if r.name == "" {
+			continue
+		}
 		tbl.Row(r.name, r.render())
 	}
 	tbl.Flush()
@@ -195,6 +201,9 @@ func RunSync(cfg *config.Config, runner git.Runner, args []string, out io.Writer
 		g.Go(func() error {
 			name, _ := filepath.Rel(cfg.Discovery.RootDir, p)
 			sym, msg := syncOne(p, runner)
+			if sym == "" && msg == "" {
+				return nil // repo has no remotes; leave results[i] as zero value
+			}
 			results[i] = opResult{name, sym, msg}
 			return nil
 		})
@@ -203,15 +212,33 @@ func RunSync(cfg *config.Config, runner git.Runner, args []string, out io.Writer
 
 	tbl := ui.NewTableWriter(out)
 	for _, r := range results {
+		if r.name == "" {
+			continue
+		}
 		tbl.Row(r.name, r.render())
 	}
 	tbl.Flush()
 	return nil
 }
 
+// hasNoRemotes reports true when the repo has no configured remotes.
+// Errors from Remotes() are treated as "has remotes" so unexpected failures
+// still surface through the normal fetch/sync path rather than being swallowed.
+func hasNoRemotes(repoPath string, runner git.Runner) (bool, error) {
+	remotes, err := runner.Remotes(repoPath)
+	if err != nil {
+		return false, err
+	}
+	return len(remotes) == 0, nil
+}
+
 // syncOne performs the fetch + fast-forward for a single repo and returns a
 // symbol and human-readable message describing the outcome.
 func syncOne(repoPath string, runner git.Runner) (string, string) {
+	if skip, _ := hasNoRemotes(repoPath, runner); skip {
+		return "", "" // sentinel: caller must check for empty name in results
+	}
+
 	defaultBranch, err := runner.DefaultBranch(repoPath)
 	if err != nil {
 		return ui.SymFail, fmt.Sprintf("error: %v", err)
