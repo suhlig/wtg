@@ -37,12 +37,14 @@ func execSpace(t *testing.T, name string, repos []string) *state.Space {
 	return sp
 }
 
+// --- sequential mode tests ---
+
 func TestRunSpaceExec_RunsInEachWorktree(t *testing.T) {
 	isolateState(t)
 	execSpace(t, "feat", []string{"api", "svc"})
 
 	var out bytes.Buffer
-	if err := RunSpaceExec("feat", []string{"echo", "hello"}, &out); err != nil {
+	if err := RunSpaceExec("feat", []string{"echo", "hello"}, false, &out); err != nil {
 		t.Fatalf("RunSpaceExec: %v", err)
 	}
 	got := out.String()
@@ -59,7 +61,7 @@ func TestRunSpaceExec_OutputInRepoOrder(t *testing.T) {
 	execSpace(t, "feat", []string{"api", "svc"})
 
 	var out bytes.Buffer
-	if err := RunSpaceExec("feat", []string{"echo", "hello"}, &out); err != nil {
+	if err := RunSpaceExec("feat", []string{"echo", "hello"}, false, &out); err != nil {
 		t.Fatalf("RunSpaceExec: %v", err)
 	}
 	got := out.String()
@@ -74,7 +76,7 @@ func TestRunSpaceExec_ContinuesAfterFailure(t *testing.T) {
 
 	var out bytes.Buffer
 	// 'false' exits with code 1.
-	err := RunSpaceExec("feat", []string{"false"}, &out)
+	err := RunSpaceExec("feat", []string{"false"}, false, &out)
 	if err == nil {
 		t.Fatal("expected error when command fails")
 	}
@@ -87,7 +89,7 @@ func TestRunSpaceExec_ContinuesAfterFailure(t *testing.T) {
 func TestRunSpaceExec_UnknownSpace(t *testing.T) {
 	isolateState(t)
 	var out bytes.Buffer
-	if err := RunSpaceExec("nonexistent", []string{"echo", "hi"}, &out); err == nil {
+	if err := RunSpaceExec("nonexistent", []string{"echo", "hi"}, false, &out); err == nil {
 		t.Fatal("expected error for unknown space")
 	}
 }
@@ -106,7 +108,7 @@ func TestRunSpaceExec_SkipsSymlinks(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if err := RunSpaceExec("feat", []string{"echo", "hello"}, &out); err != nil {
+	if err := RunSpaceExec("feat", []string{"echo", "hello"}, false, &out); err != nil {
 		t.Fatalf("RunSpaceExec: %v", err)
 	}
 	got := out.String()
@@ -138,7 +140,7 @@ func TestRunSpaceExec_PassesStdinThrough(t *testing.T) {
 	defer func() { os.Stdin = origStdin }()
 
 	var out bytes.Buffer
-	if err := RunSpaceExec("feat", []string{"cat"}, &out); err != nil {
+	if err := RunSpaceExec("feat", []string{"cat"}, false, &out); err != nil {
 		t.Fatalf("RunSpaceExec: %v", err)
 	}
 	if !strings.Contains(out.String(), "hello from stdin") {
@@ -151,12 +153,132 @@ func TestRunSpaceExec_RunsInWorktreeDir(t *testing.T) {
 	sp := execSpace(t, "feat", []string{"api"})
 
 	var out bytes.Buffer
-	if err := RunSpaceExec("feat", []string{"pwd"}, &out); err != nil {
+	if err := RunSpaceExec("feat", []string{"pwd"}, false, &out); err != nil {
 		t.Fatalf("RunSpaceExec: %v", err)
 	}
 	// pwd output should be the worktree path.
 	want := sp.Repos[0].WorktreePath
 	if !strings.Contains(out.String(), want) {
 		t.Errorf("expected cwd %q in output: %q", want, out.String())
+	}
+}
+
+// --- parallel mode tests ---
+
+func TestRunSpaceExec_Parallel_RunsInEachWorktree(t *testing.T) {
+	isolateState(t)
+	// Override terminal width to 0 so progress bar uses plain \r (no ANSI cursor-up).
+	orig := execTermWidthFn
+	execTermWidthFn = func() int { return 0 }
+	defer func() { execTermWidthFn = orig }()
+
+	execSpace(t, "feat", []string{"api", "svc"})
+
+	var out bytes.Buffer
+	if err := RunSpaceExec("feat", []string{"echo", "hello"}, true, &out); err != nil {
+		t.Fatalf("RunSpaceExec parallel: %v", err)
+	}
+	got := out.String()
+	if !strings.Contains(got, "api") || !strings.Contains(got, "svc") {
+		t.Errorf("output missing repo headers: %q", got)
+	}
+	if strings.Count(got, "hello") != 2 {
+		t.Errorf("expected 'hello' twice (once per repo): %q", got)
+	}
+}
+
+func TestRunSpaceExec_Parallel_OutputInRepoOrder(t *testing.T) {
+	isolateState(t)
+	orig := execTermWidthFn
+	execTermWidthFn = func() int { return 0 }
+	defer func() { execTermWidthFn = orig }()
+
+	execSpace(t, "feat", []string{"api", "svc"})
+
+	var out bytes.Buffer
+	if err := RunSpaceExec("feat", []string{"echo", "hello"}, true, &out); err != nil {
+		t.Fatalf("RunSpaceExec parallel: %v", err)
+	}
+	got := out.String()
+	if strings.Index(got, "api") > strings.Index(got, "svc") {
+		t.Errorf("repos should appear in state order even when run in parallel: %q", got)
+	}
+}
+
+func TestRunSpaceExec_Parallel_ContinuesAfterFailure(t *testing.T) {
+	isolateState(t)
+	orig := execTermWidthFn
+	execTermWidthFn = func() int { return 0 }
+	defer func() { execTermWidthFn = orig }()
+
+	execSpace(t, "feat", []string{"api", "svc"})
+
+	var out bytes.Buffer
+	err := RunSpaceExec("feat", []string{"false"}, true, &out)
+	if err == nil {
+		t.Fatal("expected error when command fails")
+	}
+	if !strings.Contains(err.Error(), "api") || !strings.Contains(err.Error(), "svc") {
+		t.Errorf("error should name all failed repos: %v", err)
+	}
+}
+
+func TestRunSpaceExec_Parallel_SkipsSymlinks(t *testing.T) {
+	isolateState(t)
+	orig := execTermWidthFn
+	execTermWidthFn = func() int { return 0 }
+	defer func() { execTermWidthFn = orig }()
+
+	sp := execSpace(t, "feat", []string{"api"})
+	sp.Repos = append(sp.Repos, state.RepoEntry{
+		Name:         "shared",
+		RepoPath:     "/repos/shared",
+		WorktreePath: "/nonexistent/shared",
+		Symlink:      true,
+	})
+	if err := state.Save(sp); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	var out bytes.Buffer
+	if err := RunSpaceExec("feat", []string{"echo", "hello"}, true, &out); err != nil {
+		t.Fatalf("RunSpaceExec parallel: %v", err)
+	}
+	got := out.String()
+	if strings.Count(got, "hello") != 1 {
+		t.Errorf("expected 'hello' once (symlink repo skipped): %q", got)
+	}
+	if !strings.Contains(got, "shared") || !strings.Contains(got, "skipped") {
+		t.Errorf("expected skip notice for symlink repo: %q", got)
+	}
+}
+
+func TestRunSpaceExec_Parallel_OutputIsComplete(t *testing.T) {
+	isolateState(t)
+	orig := execTermWidthFn
+	execTermWidthFn = func() int { return 0 }
+	defer func() { execTermWidthFn = orig }()
+
+	execSpace(t, "feat", []string{"api", "svc"})
+
+	var out bytes.Buffer
+	if err := RunSpaceExec("feat", []string{"echo", "hello"}, true, &out); err != nil {
+		t.Fatalf("RunSpaceExec parallel: %v", err)
+	}
+	got := out.String()
+	// Each repo's section must contain the output followed by the result symbol.
+	apiIdx := strings.Index(got, "api")
+	svcIdx := strings.Index(got, "svc")
+	if apiIdx < 0 || svcIdx < 0 {
+		t.Fatalf("missing repo sections: %q", got)
+	}
+	// Verify "hello" appears in each section (before the next section header).
+	apiSection := got[apiIdx:svcIdx]
+	svcSection := got[svcIdx:]
+	if !strings.Contains(apiSection, "hello") {
+		t.Errorf("api section missing output: %q", apiSection)
+	}
+	if !strings.Contains(svcSection, "hello") {
+		t.Errorf("svc section missing output: %q", svcSection)
 	}
 }
