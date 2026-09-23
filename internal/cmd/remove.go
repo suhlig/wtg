@@ -24,13 +24,16 @@ func RemoveCommand(runner git.Runner) *cli.Command {
 		Name:      "remove",
 		Aliases:   []string{"rm"},
 		Usage:     "remove repos from a workspace",
-		ArgsUsage: "<workspace> <repo>...",
+		ArgsUsage: "[<workspace>] <repo>...",
 		Description: `Removes the specified repos' worktrees from a workspace and updates go.work.
 By default, branches are left untouched — use --delete-branch (-d) or
 --force-delete-branch (-D) to also delete them.
 
 Prompts for confirmation if any repo has uncommitted changes or unpushed
-commits. To remove all repos at once, use wtg delete instead.`,
+commits. To remove all repos at once, use wtg delete instead.
+
+The workspace argument is optional when the current directory is inside a
+known workspace — it will be inferred automatically.`,
 		ShellComplete: completeSpaceMembers,
 		Flags: []cli.Flag{
 			&cli.BoolFlag{
@@ -45,16 +48,20 @@ commits. To remove all repos at once, use wtg delete instead.`,
 			},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
-			if cmd.Args().Len() < 2 {
-				return fmt.Errorf("usage: wtg remove <workspace> <repo>...") //nolint:staticcheck // It's ok that this ends with punctuation
+			if cmd.Args().Len() < 1 {
+				return fmt.Errorf("usage: wtg remove [<workspace>] <repo>...") //nolint:staticcheck
 			}
 			cfg, err := config.Load(cmd.Root().String("config"))
 			if err != nil {
 				return err
 			}
+			spaceName, repos, err := resolveSpaceAndRepos(cmd.Args().Slice())
+			if err != nil {
+				return err
+			}
 			return RunSpaceRemove(cfg, runner, SpaceRemoveArgs{
-				Name:         cmd.Args().First(),
-				Repos:        cmd.Args().Tail(),
+				Name:         spaceName,
+				Repos:        repos,
 				DeleteBranch: cmd.Bool("delete-branch"),
 				ForceBranch:  cmd.Bool("force-delete-branch"),
 			}, os.Stdin, os.Stdout)

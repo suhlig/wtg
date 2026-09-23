@@ -22,7 +22,7 @@ func AddCommand(runner git.Runner) *cli.Command {
 	return &cli.Command{
 		Name:      "add",
 		Usage:     "add repos to a workspace",
-		ArgsUsage: "<workspace> <repo>...",
+		ArgsUsage: "[<workspace>] <repo>...",
 		Description: `Creates a new worktree for each specified repo inside an existing workspace,
 checking out the workspace's branch. Updates go.work automatically if the
 workspace already has one.
@@ -31,19 +31,26 @@ If the branch already exists in a repo (locally or on the remote) it is
 checked out as-is — no reset or rebase is performed.
 
 Paths in always.secrets are copied from each source repo into its new
-worktree when present.`,
+worktree when present.
+
+The workspace argument is optional when the current directory is inside a
+known workspace — it will be inferred automatically.`,
 		ShellComplete: completeSpaceThenRepos,
 		Action: func(ctx context.Context, cmd *cli.Command) error {
-			if cmd.Args().Len() < 2 {
-				return fmt.Errorf("usage: wtg add <workspace> <repo>")
+			if cmd.Args().Len() < 1 {
+				return fmt.Errorf("usage: wtg add [<workspace>] <repo>...") //nolint:staticcheck
 			}
 			cfg, err := config.Load(cmd.Root().String("config"))
 			if err != nil {
 				return err
 			}
+			spaceName, repos, err := resolveSpaceAndRepos(cmd.Args().Slice())
+			if err != nil {
+				return err
+			}
 			return RunSpaceAdd(cfg, runner, SpaceAddArgs{
-				Name:  cmd.Args().First(),
-				Repos: cmd.Args().Tail(),
+				Name:  spaceName,
+				Repos: repos,
 			}, os.Stdout)
 		},
 	}

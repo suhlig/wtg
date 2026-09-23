@@ -524,3 +524,68 @@ func TestRunSpaceAdd_AlwaysSecrets_SymlinkUpgrade_CopiesIntoWorktree(t *testing.
 		t.Error("docs should be a worktree directory after upgrade, not a symlink")
 	}
 }
+
+// --- resolveSpaceAndRepos ---
+
+func TestResolveSpaceAndRepos_ExplicitWorkspace(t *testing.T) {
+	isolateState(t)
+	makeSpace(t, "feat", "geoff/feat", t.TempDir(), []string{"api"}, "/repos")
+
+	spaceName, repos, err := resolveSpaceAndRepos([]string{"feat", "svc", "web"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if spaceName != "feat" {
+		t.Errorf("spaceName = %q, want feat", spaceName)
+	}
+	if len(repos) != 2 || repos[0] != "svc" || repos[1] != "web" {
+		t.Errorf("repos = %v, want [svc web]", repos)
+	}
+}
+
+func TestResolveSpaceAndRepos_InferFromCWD(t *testing.T) {
+	isolateState(t)
+	spacePath := t.TempDir()
+	makeSpace(t, "feat", "geoff/feat", spacePath, []string{"api"}, "/repos")
+
+	t.Chdir(spacePath)
+
+	spaceName, repos, err := resolveSpaceAndRepos([]string{"svc"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if spaceName != "feat" {
+		t.Errorf("spaceName = %q, want feat", spaceName)
+	}
+	if len(repos) != 1 || repos[0] != "svc" {
+		t.Errorf("repos = %v, want [svc]", repos)
+	}
+}
+
+func TestResolveSpaceAndRepos_InferFromCWD_NotInAnySpace(t *testing.T) {
+	isolateState(t)
+
+	_, _, err := resolveSpaceAndRepos([]string{"svc"})
+	if err == nil {
+		t.Fatal("expected error when CWD is not inside any workspace")
+	}
+}
+
+func TestResolveSpaceAndRepos_ExplicitWorkspaceNoRepos(t *testing.T) {
+	isolateState(t)
+	makeSpace(t, "feat", "geoff/feat", t.TempDir(), []string{"api"}, "/repos")
+
+	_, _, err := resolveSpaceAndRepos([]string{"feat"})
+	if err == nil {
+		t.Fatal("expected error when workspace given but no repos follow")
+	}
+}
+
+func TestResolveSpaceAndRepos_NoArgs(t *testing.T) {
+	isolateState(t)
+
+	_, _, err := resolveSpaceAndRepos([]string{})
+	if err == nil {
+		t.Fatal("expected error for empty args")
+	}
+}

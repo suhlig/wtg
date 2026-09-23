@@ -282,3 +282,88 @@ func TestRunSpaceExec_Parallel_OutputIsComplete(t *testing.T) {
 		t.Errorf("svc section missing output: %q", svcSection)
 	}
 }
+
+// --- resolveExecArgs ---
+
+func TestResolveExecArgs_ExplicitWorkspace(t *testing.T) {
+	isolateState(t)
+	execSpace(t, "feat", []string{"api"})
+
+	spaceName, execArgs, err := resolveExecArgs([]string{"feat", "git", "status"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if spaceName != "feat" {
+		t.Errorf("spaceName = %q, want feat", spaceName)
+	}
+	if len(execArgs) != 2 || execArgs[0] != "git" || execArgs[1] != "status" {
+		t.Errorf("execArgs = %v, want [git status]", execArgs)
+	}
+}
+
+func TestResolveExecArgs_InferFromCWD(t *testing.T) {
+	isolateState(t)
+	sp := execSpace(t, "feat", []string{"api"})
+
+	// t.Chdir sets PWD so os.Getwd() returns the logical path that matches sp.Path.
+	t.Chdir(sp.Repos[0].WorktreePath)
+
+	spaceName, execArgs, err := resolveExecArgs([]string{"echo", "hi"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if spaceName != "feat" {
+		t.Errorf("spaceName = %q, want feat", spaceName)
+	}
+	if len(execArgs) != 2 || execArgs[0] != "echo" || execArgs[1] != "hi" {
+		t.Errorf("execArgs = %v, want [echo hi]", execArgs)
+	}
+}
+
+func TestResolveExecArgs_InferFromCWD_NotInAnySpace(t *testing.T) {
+	isolateState(t) // empty state — no spaces
+
+	_, _, err := resolveExecArgs([]string{"echo", "hi"})
+	if err == nil {
+		t.Fatal("expected error when CWD is not inside any workspace")
+	}
+}
+
+func TestResolveExecArgs_NoArgs(t *testing.T) {
+	isolateState(t)
+
+	_, _, err := resolveExecArgs([]string{})
+	if err == nil {
+		t.Fatal("expected error for empty args")
+	}
+}
+
+func TestResolveExecArgs_ExplicitWorkspaceNoCmd(t *testing.T) {
+	isolateState(t)
+	execSpace(t, "feat", []string{"api"})
+
+	_, _, err := resolveExecArgs([]string{"feat"})
+	if err == nil {
+		t.Fatal("expected error when workspace given but no command follows")
+	}
+}
+
+func TestRunSpaceExec_InferFromCWD(t *testing.T) {
+	isolateState(t)
+	sp := execSpace(t, "feat", []string{"api", "svc"})
+
+	// t.Chdir sets PWD so os.Getwd() returns the logical path that matches sp.Path.
+	t.Chdir(sp.Repos[0].WorktreePath)
+
+	var out bytes.Buffer
+	spaceName, execArgs, err := resolveExecArgs([]string{"echo", "hello"})
+	if err != nil {
+		t.Fatalf("resolveExecArgs: %v", err)
+	}
+	if err := RunSpaceExec(spaceName, execArgs, false, &out); err != nil {
+		t.Fatalf("RunSpaceExec: %v", err)
+	}
+	if strings.Count(out.String(), "hello") != 2 {
+		t.Errorf("expected 'hello' twice (once per repo): %q", out.String())
+	}
+}
