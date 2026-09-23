@@ -7,9 +7,11 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
+	"github.com/google/shlex"
 	"github.com/urfave/cli/v3"
 
 	"github.com/geoffamey/wtg/internal/config"
@@ -71,7 +73,7 @@ func ConfigCommand() *cli.Command {
 		Usage: "show and manage the wtg config file",
 		Description: `With no subcommand, prints the resolved config file's raw contents
 (or a note if none exists). Use the subcommands to scaffold a config
-file or print its resolved path.`,
+file, edit it in an editor, or print its resolved path.`,
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			return runConfigPrint(config.ResolvePath(cmd.String("config")), os.Stdout, os.Stderr)
 		},
@@ -99,6 +101,13 @@ already exists; pass --force to overwrite. -o sets the output path;
 						out = config.DefaultPath()
 					}
 					return runConfigInit(out, cmd.Bool("force"), os.Stdout)
+				},
+			},
+			{
+				Name:  "edit",
+				Usage: "open the resolved config file in $EDITOR",
+				Action: func(ctx context.Context, cmd *cli.Command) error {
+					return runConfigEdit(config.ResolvePath(cmd.String("config")))
 				},
 			},
 			{
@@ -159,5 +168,48 @@ func runConfigInit(path string, force bool, out io.Writer) error {
 			fmt.Fprintf(out, "Note: %s still exists but is now shadowed by config.toml.\n", legacy)
 		}
 	}
+	return nil
+}
+
+// runConfigEdit launches the user's preferred editor to edit the config file at path.
+func runConfigEdit(path string) error {
+	editorCmd := resolveEditor()
+	if len(editorCmd) == 0 {
+		return errors.New("no editor found (set $VISUAL or $EDITOR)")
+	}
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("create config dir: %w", err)
+	}
+
+	args := append(editorCmd[1:], path)
+	c := exec.Command(editorCmd[0], args...)
+	c.Stdin = os.Stdin
+	c.Stdout = os.Stdout
+	c.Stderr = os.Stderr
+	if err := c.Run(); err != nil {
+		return fmt.Errorf("run editor %s: %w", editorCmd[0], err)
+	}
+	return nil
+}
+
+// resolveEditor looks up the editor command from $VISUAL, $EDITOR, or standard fallback binaries.
+func resolveEditor() []string {
+	for _, env := range []string{"VISUAL", "EDITOR"} {
+		val := strings.TrimSpace(os.Getenv(env))
+		if val != "" {
+			parts, err := shlex.Split(val)
+			if err == nil && len(parts) > 0 {
+				return parts
+			}
+		}
+	}
+
+	for _, fallback := range []string{"nano", "vim", "vi"} {
+		if p, err := exec.LookPath(fallback); err == nil && p != "" {
+			return []string{fallback}
+		}
+	}
+
 	return nil
 }

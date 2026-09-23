@@ -186,6 +186,137 @@ func TestConfigTemplate_CoversAllKeys(t *testing.T) {
 	}
 }
 
+func TestResolveEditor(t *testing.T) {
+	t.Run("VISUAL takes precedence over EDITOR", func(t *testing.T) {
+		t.Setenv("VISUAL", "code --wait")
+		t.Setenv("EDITOR", "nano")
+		got := resolveEditor()
+		want := []string{"code", "--wait"}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("resolveEditor() = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("EDITOR is used when VISUAL is empty", func(t *testing.T) {
+		t.Setenv("VISUAL", "")
+		t.Setenv("EDITOR", "vim -u NONE")
+		got := resolveEditor()
+		want := []string{"vim", "-u", "NONE"}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("resolveEditor() = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("Fallback to PATH binaries when env vars unset", func(t *testing.T) {
+		t.Setenv("VISUAL", "")
+		t.Setenv("EDITOR", "")
+		// Create a temp dir with a fake 'nano' binary and set PATH to only that dir
+		tmpDir := t.TempDir()
+		nanoPath := filepath.Join(tmpDir, "nano")
+		if err := os.WriteFile(nanoPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("PATH", tmpDir)
+
+		got := resolveEditor()
+		want := []string{"nano"}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("resolveEditor() = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("Returns nil when no editor found", func(t *testing.T) {
+		t.Setenv("VISUAL", "")
+		t.Setenv("EDITOR", "")
+		t.Setenv("PATH", t.TempDir()) // empty directory
+
+		got := resolveEditor()
+		if got != nil {
+			t.Errorf("resolveEditor() = %v, want nil", got)
+		}
+	})
+}
+
+func TestRunConfigEdit(t *testing.T) {
+	t.Run("Executes editor with config path", func(t *testing.T) {
+		dir := t.TempDir()
+		configPath := filepath.Join(dir, "nested", "config.toml")
+		recordedArgsFile := filepath.Join(dir, "args.txt")
+
+		// Create a helper script that records its arguments
+		scriptPath := filepath.Join(dir, "mock-editor.sh")
+		scriptContent := "#!/bin/sh\nprintf '%s\\n' \"$@\" > " + recordedArgsFile + "\n"
+		if err := os.WriteFile(scriptPath, []byte(scriptContent), 0o755); err != nil {
+			t.Fatal(err)
+		}
+
+		t.Setenv("VISUAL", scriptPath+" --flag")
+		t.Setenv("EDITOR", "")
+
+		if err := runConfigEdit(configPath); err != nil {
+			t.Fatalf("runConfigEdit: %v", err)
+		}
+
+		// Ensure the directory was created
+		if _, err := os.Stat(filepath.Dir(configPath)); err != nil {
+			t.Errorf("expected config dir to be created: %v", err)
+		}
+
+		// Verify args passed to editor
+		data, err := os.ReadFile(recordedArgsFile)
+		if err != nil {
+			t.Fatalf("read args: %v", err)
+		}
+		lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+		wantLines := []string{"--flag", configPath}
+		if !reflect.DeepEqual(lines, wantLines) {
+			t.Errorf("editor args = %v, want %v", lines, wantLines)
+		}
+	})
+
+	t.Run("Errors when no editor found", func(t *testing.T) {
+		t.Setenv("VISUAL", "")
+		t.Setenv("EDITOR", "")
+		t.Setenv("PATH", t.TempDir())
+
+		err := runConfigEdit(filepath.Join(t.TempDir(), "config.toml"))
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "no editor found") {
+			t.Errorf("expected 'no editor found' error, got %v", err)
+		}
+	})
+}
+
+func TestConfigEditCommand(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.toml")
+	recordedArgsFile := filepath.Join(dir, "args.txt")
+
+	scriptPath := filepath.Join(dir, "mock-editor.sh")
+	scriptContent := "#!/bin/sh\nprintf '%s\\n' \"$@\" > " + recordedArgsFile + "\n"
+	if err := os.WriteFile(scriptPath, []byte(scriptContent), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("VISUAL", scriptPath)
+	t.Setenv("EDITOR", "")
+
+	app := configApp()
+	if err := app.Run(context.Background(), []string{"wtg", "--config", configPath, "config", "edit"}); err != nil {
+		t.Fatalf("config edit: %v", err)
+	}
+
+	data, err := os.ReadFile(recordedArgsFile)
+	if err != nil {
+		t.Fatalf("read args: %v", err)
+	}
+	if strings.TrimSpace(string(data)) != configPath {
+		t.Errorf("args = %q, want %q", strings.TrimSpace(string(data)), configPath)
+	}
+}
+
 func koanfTags(t reflect.Type) []string {
 	var tags []string
 	for i := 0; i < t.NumField(); i++ {

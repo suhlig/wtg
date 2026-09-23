@@ -87,8 +87,8 @@ wtg config init
 ```
 
 It writes every setting commented out with its default; uncomment and edit the
-lines you want to override. `wtg config` prints the resolved file, and
-`wtg config path` prints its path. A minimal config looks like:
+lines you want to override. `wtg config` prints the resolved file, `wtg config edit`
+opens it in `$EDITOR`, and `wtg config path` prints its path. A minimal config looks like:
 
 ```toml
 [discovery]
