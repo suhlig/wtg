@@ -117,3 +117,43 @@ func TestRunSpacePush_Parallel(t *testing.T) {
 		}
 	})
 }
+
+// --- resolveSpaceArg (push) ---
+
+func TestResolveSpaceArg_Explicit(t *testing.T) {
+	isolateState(t)
+	makeSpace(t, "feat", "geoff/feat", t.TempDir(), []string{"api"}, "/repos")
+
+	name, err := resolveSpaceArg("feat", false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if name != "feat" {
+		t.Errorf("name = %q, want feat", name)
+	}
+}
+
+func TestResolveSpaceArg_InferFromCWD(t *testing.T) {
+	isolateState(t)
+	spacePath := t.TempDir()
+	makeSpace(t, "feat", "geoff/feat", spacePath, []string{"api"}, "/repos")
+
+	t.Chdir(spacePath)
+
+	name, err := resolveSpaceArg("", true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if name != "feat" {
+		t.Errorf("name = %q, want feat", name)
+	}
+}
+
+func TestResolveSpaceArg_InferFromCWD_NotInAnySpace(t *testing.T) {
+	isolateState(t)
+
+	_, err := resolveSpaceArg("", true)
+	if err == nil {
+		t.Fatal("expected error when CWD is not inside any workspace")
+	}
+}

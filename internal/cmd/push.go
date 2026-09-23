@@ -20,15 +20,19 @@ func PushCommand(runner git.Runner) *cli.Command {
 	return &cli.Command{
 		Name:      "push",
 		Usage:     "push all branches in a workspace to origin",
-		ArgsUsage: "<workspace>",
+		ArgsUsage: "[<workspace>]",
 		Description: `Pushes the workspace's branch from each repo's worktree to origin in
-parallel. Repos that fail are reported individually; others are not affected.`,
+parallel. Repos that fail are reported individually; others are not affected.
+
+The workspace argument is optional when the current directory is inside a
+known workspace — it will be inferred automatically.`,
 		ShellComplete: completeSpaces,
 		Action: func(ctx context.Context, cmd *cli.Command) error {
-			if cmd.Args().Len() == 0 {
-				return fmt.Errorf("missing required argument: <workspace>")
+			spaceName, err := resolveSpaceArg(cmd.Args().First(), cmd.Args().Len() == 0)
+			if err != nil {
+				return err
 			}
-			return RunSpacePush(runner, cmd.Args().First(), os.Stdout)
+			return RunSpacePush(runner, spaceName, os.Stdout)
 		},
 	}
 }

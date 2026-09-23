@@ -29,7 +29,7 @@ func ExecCommand() *cli.Command {
 	return &cli.Command{
 		Name:      "exec",
 		Usage:     "run a command in each repo of a workspace",
-		ArgsUsage: "<workspace> -- <cmd> [<args>...]",
+		ArgsUsage: "[<workspace>] -- <cmd> [<args>...]",
 		Description: `Runs a command in each repo's worktree, streaming output as it goes.
 A header line identifies each repo. Execution continues even if a command
 fails — all repos are attempted and failures are reported at the end.
@@ -38,10 +38,13 @@ With --parallel, all commands run concurrently. A progress indicator shows
 live status. Output for each repo is buffered and printed serially in repo
 order once all commands complete.
 
-Use -- to separate the workspace name from the command:
+The workspace argument is optional when the current directory is inside a
+known workspace — it will be inferred automatically. Use -- to separate the
+workspace name from the command:
 
    wtg exec myfeature -- git status
-   wtg exec myfeature -- go test ./...`,
+   wtg exec myfeature -- go test ./...
+   wtg exec -- git status            # workspace inferred from CWD`,
 		ShellComplete: completeSpaceAtFirst,
 		Flags: []cli.Flag{
 			&cli.BoolFlag{
@@ -50,12 +53,84 @@ Use -- to separate the workspace name from the command:
 			},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
-			if cmd.Args().Len() < 2 {
-				return fmt.Errorf("usage: wtg exec <workspace> -- <cmd> [<args>...]")
+			spaceName, execArgs, err := resolveExecArgs(cmd.Args().Slice())
+			if err != nil {
+				return err
 			}
-			return RunSpaceExec(cmd.Args().First(), cmd.Args().Tail(), cmd.Bool("parallel"), os.Stdout)
+			return RunSpaceExec(spaceName, execArgs, cmd.Bool("parallel"), os.Stdout)
 		},
 	}
+}
+
+// resolveSpaceArg returns a workspace name for commands that take an optional
+// single workspace argument. When omitted (empty=="") it infers the workspace
+// from the current working directory. Returns an error when the CWD is not
+// inside any known workspace.
+func resolveSpaceArg(arg string, omitted bool) (string, error) {
+	if !omitted {
+		return arg, nil
+	}
+	spaces, err := state.List()
+	if err != nil {
+		return "", fmt.Errorf("list spaces: %w", err)
+	}
+	sp := spaceContainingCWD(spaces)
+	if sp == nil {
+		return "", fmt.Errorf("no workspace found for current directory; specify one explicitly")
+	}
+	return sp.Name, nil
+}
+
+// resolveSpaceAndRepos separates the optional workspace name from a list of
+// repo names (used by `wtg add` and `wtg remove`). If the first argument names
+// a known space it is used as the workspace and the remainder are repo names;
+// otherwise the workspace is inferred from the current working directory and
+// all arguments are treated as repo names. Returns an error when no repos are
+// provided after resolution, or when CWD inference fails.
+func resolveSpaceAndRepos(args []string) (spaceName string, repos []string, err error) {
+	if len(args) == 0 {
+		return "", nil, fmt.Errorf("no repos specified")
+	}
+
+	// Try treating the first argument as an explicit workspace name.
+	if _, loadErr := state.Load(args[0]); loadErr == nil {
+		if len(args) < 2 {
+			return "", nil, fmt.Errorf("no repos specified")
+		}
+		return args[0], args[1:], nil
+	}
+
+	// First arg is not a known space — infer workspace from CWD.
+	name, err := resolveSpaceArg("", true)
+	if err != nil {
+		return "", nil, err
+	}
+	return name, args, nil
+}
+
+// resolveExecArgs separates the optional workspace name from the command
+// arguments. If the first argument names a known space it is used; otherwise
+// the workspace is inferred from the current working directory. An error is
+// returned when neither succeeds or when no command arguments remain.
+func resolveExecArgs(args []string) (spaceName string, execArgs []string, err error) {
+	if len(args) == 0 {
+		return "", nil, fmt.Errorf("usage: wtg exec [<workspace>] -- <cmd> [<args>...]")
+	}
+
+	// Try treating the first argument as an explicit workspace name.
+	if _, loadErr := state.Load(args[0]); loadErr == nil {
+		if len(args) < 2 {
+			return "", nil, fmt.Errorf("usage: wtg exec [<workspace>] -- <cmd> [<args>...]")
+		}
+		return args[0], args[1:], nil
+	}
+
+	// First arg is not a known space — infer workspace from CWD.
+	name, err := resolveSpaceArg("", true)
+	if err != nil {
+		return "", nil, err
+	}
+	return name, args, nil
 }
 
 // RunSpaceExec runs a command in each worktree of the named space. When
