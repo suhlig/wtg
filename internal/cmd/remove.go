@@ -257,6 +257,7 @@ func RunSpaceRemove(cfg *config.Config, runner git.Runner, args SpaceRemoveArgs,
 	}
 
 	fmt.Fprintf(out, "%s removed from space %q\n", ui.SymOK, args.Name)
+	fmt.Fprintf(out, "Workspace root: %s\n", sp.Path)
 
 	removedNames := make([]string, len(toRemove))
 	for i, r := range toRemove {
