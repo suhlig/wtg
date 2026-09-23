@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `wtg config edit` command to open the resolved config file in `$VISUAL` / `$EDITOR` (with fallback to `nano`, `vim`, `vi`)
 - Repos can be addressed by their unique basename (e.g. `dspictl` for `github.com/suhlig/dspictl`) in `wtg new`, `add`, `remove`, and `wtg repo` commands; ambiguous basenames error with the list of matching repos
 
 ### Changed

@@ -326,6 +326,7 @@ can't offer shell completion and don't scale as the number of settings grows.
   with every setting shown commented out alongside its default. It refuses if the
   target exists (`--force` overwrites); `-o PATH` redirects output and `-o -` writes
   to stdout.
+- `wtg config edit` opens the resolved config file in `$VISUAL` / `$EDITOR` (or fallbacks).
 - `wtg config path` prints the resolved config path (the existing `config.toml`, else
   a legacy `config.yaml`, else the default `config.toml` path).
 
