@@ -221,6 +221,7 @@ func RunSpaceAdd(cfg *config.Config, runner git.Runner, args SpaceAddArgs, out i
 		addedNames[i] = t.name
 	}
 	tbl.Flush()
+	fmt.Fprintf(out, "Workspace root: %s\n", sp.Path)
 
 	if sp, err := state.Load(args.Name); err == nil {
 		runSpaceScript(cfg, "add", sp, addedNames, out)
