@@ -131,7 +131,7 @@ func RunSpaceDelete(cfg *config.Config, runner git.Runner, args SpaceDeleteArgs,
 		}
 	}
 	tbl.Flush()
-	fmt.Fprintf(out, "Workspace root: %s\n", sp.Path)
+	fmt.Fprintf(out, "Deleting workspace root: %s\n", sp.Path)
 
 	if hadError {
 		return fmt.Errorf("some worktrees could not be removed; space %q not deleted from state", args.Name)
