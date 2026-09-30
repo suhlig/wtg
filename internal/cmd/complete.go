@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path"
-	"path/filepath"
 	"sort"
 
 	"github.com/urfave/cli/v3"
@@ -57,10 +55,10 @@ func completeSpaces(_ context.Context, cmd *cli.Command) {
 // basename when it uniquely identifies the repo within names, otherwise the
 // full slash-separated path. This mirrors how repo names are resolved.
 func completionName(names []string, name string) string {
-	base := path.Base(name)
+	base := pathBase(name)
 	count := 0
 	for _, n := range names {
-		if path.Base(n) == base {
+		if pathBase(n) == base {
 			count++
 		}
 	}
@@ -70,24 +68,33 @@ func completionName(names []string, name string) string {
 	return name
 }
 
+// pathBase returns the last element of a slash-separated path.
+func pathBase(p string) string {
+	for i := len(p) - 1; i >= 0; i-- {
+		if p[i] == '/' {
+			return p[i+1:]
+		}
+	}
+	return p
+}
+
 // completeRepos outputs discovered repo names for shell completion.
 func completeRepos(_ context.Context, cmd *cli.Command) {
 	cfg, err := config.Load(cmd.Root().String("config"))
-	if err != nil || cfg.Discovery.RootDir == "" {
+	if err != nil {
 		return
 	}
-	paths, err := discoverRepoPaths(cfg.Discovery.RootDir, cfg.Discovery.MaxDepth)
+	roots := cfg.DiscoveryRootDirs()
+	if len(roots) == 0 {
+		return
+	}
+	paths, err := discoverAllRepoPaths(roots, cfg.Discovery.MaxDepth)
 	if err != nil {
 		return
 	}
 	sort.Strings(paths)
-	names := make([]string, len(paths))
-	for i, p := range paths {
-		rel, _ := filepath.Rel(cfg.Discovery.RootDir, p)
-		names[i] = filepath.ToSlash(rel)
-	}
-	for _, n := range names {
-		fmt.Fprintln(os.Stdout, completionName(names, n))
+	for _, p := range paths {
+		fmt.Fprintln(os.Stdout, repoName(roots, p))
 	}
 	emitFlags(cmd)
 }

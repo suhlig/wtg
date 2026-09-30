@@ -45,33 +45,44 @@ func targetsFromState(sp *state.Space) []*repoTarget {
 	return targets
 }
 
-// buildTargets resolves the set of repos to include in a space. Each name is
-// matched against the discovered repos: an exact slash-separated path wins,
-// otherwise a unique basename match is accepted (see repoInSet).
-func buildTargets(rootDir, spacePath string, allPaths, names []string) ([]*repoTarget, error) {
-	allNames, byName := repoNamesIndex(rootDir, allPaths)
+// buildTargets resolves the set of repos to include in a space.
+func buildTargets(roots []string, spacePath string, allPaths, names []string) ([]*repoTarget, error) {
 	if len(names) == 0 {
-		targets := make([]*repoTarget, 0, len(allNames))
-		for _, name := range allNames {
+		targets := make([]*repoTarget, 0, len(allPaths))
+		for _, p := range allPaths {
+			name := repoName(roots, p)
 			targets = append(targets, &repoTarget{
 				name:         name,
-				repoPath:     byName[name],
+				repoPath:     p,
 				worktreePath: filepath.Join(spacePath, filepath.FromSlash(name)),
 			})
 		}
 		return targets, nil
 	}
 
+	allNames := make([]string, 0, len(allPaths))
+	byName := make(map[string]string, len(allPaths))
+	for _, p := range allPaths {
+		name := repoName(roots, p)
+		allNames = append(allNames, name)
+		byName[name] = p
+	}
 	targets := make([]*repoTarget, 0, len(names))
 	for _, input := range names {
-		name, err := resolveRepoName(rootDir, allNames, input)
+		canonical, ok, err := repoInSet(allNames, input)
 		if err != nil {
 			return nil, err
 		}
+		if !ok {
+			if len(roots) == 1 {
+				return nil, fmt.Errorf("repo %q not found under %s", input, roots[0])
+			}
+			return nil, fmt.Errorf("repo %q not found under any discovery root dir", input)
+		}
 		targets = append(targets, &repoTarget{
-			name:         name,
-			repoPath:     byName[name],
-			worktreePath: filepath.Join(spacePath, filepath.FromSlash(name)),
+			name:         canonical,
+			repoPath:     byName[canonical],
+			worktreePath: filepath.Join(spacePath, filepath.FromSlash(canonical)),
 		})
 	}
 	return targets, nil

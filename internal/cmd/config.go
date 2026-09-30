@@ -28,8 +28,15 @@ const configTemplate = `# wtg configuration. Every setting is shown commented ou
 # pulled into a space by its short name. (default: ~/repos)
 # root_dir = "~/repos"
 
-# How many directory levels below root_dir to descend while scanning. Raise this
-# if your clones are nested under org or group subdirectories. (default: 2)
+# Additional directories to scan for repos. Use this instead of (or together
+# with) root_dir when your clones live in multiple top-level directories.
+# All configured roots are searched; repos are identified by their path
+# relative to whichever root they were found under.
+# root_dirs = ["~/repos", "~/work/repos"]
+
+# How many directory levels below each root dir to descend while scanning.
+# Raise this if your clones are nested under org or group subdirectories.
+# (default: 2)
 # max_depth = 2
 
 [spaces]

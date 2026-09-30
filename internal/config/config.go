@@ -33,8 +33,9 @@ type AlwaysConfig struct {
 
 // DiscoveryConfig controls repo scanning.
 type DiscoveryConfig struct {
-	RootDir  string `koanf:"root_dir"  yaml:"root_dir"`
-	MaxDepth int    `koanf:"max_depth" yaml:"max_depth"`
+	RootDir  string   `koanf:"root_dir"  yaml:"root_dir"`
+	RootDirs []string `koanf:"root_dirs" yaml:"root_dirs"`
+	MaxDepth int      `koanf:"max_depth" yaml:"max_depth"`
 }
 
 // SpacesConfig controls workspace directory placement.
@@ -141,6 +142,18 @@ func Load(path string) (*Config, error) {
 	}
 
 	cfg.Discovery.RootDir = expandTilde(cfg.Discovery.RootDir)
+	for i, d := range cfg.Discovery.RootDirs {
+		cfg.Discovery.RootDirs[i] = expandTilde(d)
+	}
+	// When root_dirs is explicitly set, the default root_dir (~/repos) is
+	// irrelevant — the user has opted into the multi-root model. Clear it so
+	// DiscoveryRootDirs() doesn't append a directory that may not exist.
+	if len(cfg.Discovery.RootDirs) > 0 {
+		defaultRootDir := expandTilde("~/repos")
+		if cfg.Discovery.RootDir == defaultRootDir {
+			cfg.Discovery.RootDir = ""
+		}
+	}
 	cfg.Spaces.RootDir = expandTilde(cfg.Spaces.RootDir)
 	for i, f := range cfg.Always.Files {
 		cfg.Always.Files[i] = expandTilde(f)
@@ -148,6 +161,27 @@ func Load(path string) (*Config, error) {
 	cfg.Always.Run = expandTilde(cfg.Always.Run)
 
 	return &cfg, nil
+}
+
+// DiscoveryRootDirs returns the deduplicated, ordered list of root directories
+// to scan for repos. It merges the legacy singular discovery.root_dir with the
+// new discovery.root_dirs list, preferring root_dirs when both are set but
+// still including root_dir if it is not already present in root_dirs.
+func (c *Config) DiscoveryRootDirs() []string {
+	var dirs []string
+	seen := make(map[string]bool)
+	// Add multi-root entries first.
+	for _, d := range c.Discovery.RootDirs {
+		if d != "" && !seen[d] {
+			seen[d] = true
+			dirs = append(dirs, d)
+		}
+	}
+	// Append the singular root_dir if it is not already represented.
+	if c.Discovery.RootDir != "" && !seen[c.Discovery.RootDir] {
+		dirs = append(dirs, c.Discovery.RootDir)
+	}
+	return dirs
 }
 
 // expandTilde replaces a leading ~/ with the user's home directory.

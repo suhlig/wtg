@@ -280,6 +280,98 @@ func TestLoad_AlwaysEmpty_ByDefault(t *testing.T) {
 	}
 }
 
+func TestDiscoveryRootDirs_SingleRootDir(t *testing.T) {
+	cfg := &Config{Discovery: DiscoveryConfig{RootDir: "/a/repos"}}
+	got := cfg.DiscoveryRootDirs()
+	if len(got) != 1 || got[0] != "/a/repos" {
+		t.Errorf("got %v, want [/a/repos]", got)
+	}
+}
+
+func TestDiscoveryRootDirs_MultipleRootDirs(t *testing.T) {
+	cfg := &Config{Discovery: DiscoveryConfig{RootDirs: []string{"/a/repos", "/b/repos"}}}
+	got := cfg.DiscoveryRootDirs()
+	if len(got) != 2 || got[0] != "/a/repos" || got[1] != "/b/repos" {
+		t.Errorf("got %v", got)
+	}
+}
+
+func TestDiscoveryRootDirs_MergesBoth(t *testing.T) {
+	cfg := &Config{
+		Discovery: DiscoveryConfig{
+			RootDir:  "/c/repos",
+			RootDirs: []string{"/a/repos", "/b/repos"},
+		},
+	}
+	got := cfg.DiscoveryRootDirs()
+	// root_dirs come first; root_dir appended if not already present
+	if len(got) != 3 || got[0] != "/a/repos" || got[1] != "/b/repos" || got[2] != "/c/repos" {
+		t.Errorf("got %v", got)
+	}
+}
+
+func TestDiscoveryRootDirs_DedupesRootDir(t *testing.T) {
+	cfg := &Config{
+		Discovery: DiscoveryConfig{
+			RootDir:  "/a/repos",
+			RootDirs: []string{"/a/repos", "/b/repos"},
+		},
+	}
+	got := cfg.DiscoveryRootDirs()
+	if len(got) != 2 || got[0] != "/a/repos" || got[1] != "/b/repos" {
+		t.Errorf("got %v, want [/a/repos /b/repos]", got)
+	}
+}
+
+func TestLoad_RootDirs(t *testing.T) {
+	path := writeConfig(t, `
+discovery:
+  root_dirs:
+    - ~/alpha
+    - ~/beta
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	home, _ := os.UserHomeDir()
+	want := []string{filepath.Join(home, "alpha"), filepath.Join(home, "beta")}
+	if len(cfg.Discovery.RootDirs) != 2 || cfg.Discovery.RootDirs[0] != want[0] || cfg.Discovery.RootDirs[1] != want[1] {
+		t.Errorf("RootDirs: got %v, want %v", cfg.Discovery.RootDirs, want)
+	}
+	// When only root_dirs is set, DiscoveryRootDirs must NOT append the default ~/repos.
+	roots := cfg.DiscoveryRootDirs()
+	if len(roots) != 2 || roots[0] != want[0] || roots[1] != want[1] {
+		t.Errorf("DiscoveryRootDirs: got %v, want %v", roots, want)
+	}
+}
+
+func TestLoad_RootDirs_DefaultRootDirNotAppended(t *testing.T) {
+	// Regression: when root_dirs is set, the default root_dir (~/repos) must not
+	// be silently appended to DiscoveryRootDirs even if ~/repos does not exist.
+	path := writeConfig(t, `
+discovery:
+  root_dirs:
+    - ~/git
+    - ~/.dotfiles
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	roots := cfg.DiscoveryRootDirs()
+	home, _ := os.UserHomeDir()
+	defaultRoot := filepath.Join(home, "repos")
+	for _, r := range roots {
+		if r == defaultRoot {
+			t.Errorf("DiscoveryRootDirs should not contain default ~/repos when root_dirs is set; got %v", roots)
+		}
+	}
+	if len(roots) != 2 {
+		t.Errorf("DiscoveryRootDirs: got %v, want exactly [~/git ~/.dotfiles]", roots)
+	}
+}
+
 // writeConfig writes YAML content to a temp file and returns its path.
 func writeConfig(t *testing.T, content string) string {
 	t.Helper()

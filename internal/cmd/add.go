@@ -104,16 +104,17 @@ func RunSpaceAdd(cfg *config.Config, runner git.Runner, args SpaceAddArgs, out i
 		}
 	}
 
-	allPaths, err := discoverRepoPaths(cfg.Discovery.RootDir, cfg.Discovery.MaxDepth)
+	roots := cfg.DiscoveryRootDirs()
+	allPaths, err := discoverAllRepoPaths(roots, cfg.Discovery.MaxDepth)
 	if err != nil {
-		return fmt.Errorf("scan %s: %w", cfg.Discovery.RootDir, err)
+		return err
 	}
 	sort.Strings(allPaths)
 
 	// Build repoTargets for brand-new repos (not upgrades).
 	var newTargets []*repoTarget
 	if len(toAdd) > 0 {
-		newTargets, err = buildTargets(cfg.Discovery.RootDir, sp.Path, allPaths, toAdd)
+		newTargets, err = buildTargets(roots, sp.Path, allPaths, toAdd)
 		if err != nil {
 			return err
 		}
