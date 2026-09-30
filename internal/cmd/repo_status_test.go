@@ -166,9 +166,13 @@ func TestRunRepoStatus_NamedRepo(t *testing.T) {
 }
 
 func TestRunRepoStatus_NoRootDir(t *testing.T) {
+	// When no root dirs are configured, RunRepoStatus succeeds with no output.
 	var out bytes.Buffer
-	if err := RunRepoStatus(discoverCfg("", 2), &testRunner{}, nil, false, &out); err == nil {
-		t.Fatal("expected error for empty root_dir")
+	if err := RunRepoStatus(discoverCfg("", 2), &testRunner{}, nil, false, &out); err != nil {
+		t.Fatalf("unexpected error with no root dirs: %v", err)
+	}
+	if out.Len() != 0 {
+		t.Errorf("expected no output, got: %q", out.String())
 	}
 }
 

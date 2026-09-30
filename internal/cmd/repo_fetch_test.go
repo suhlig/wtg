@@ -98,10 +98,13 @@ func TestRunFetch_SkipsRepoWithNoRemotes(t *testing.T) {
 }
 
 func TestRunFetch_NoRootDir(t *testing.T) {
+	// When no root dirs are configured, Run succeeds but produces no output.
 	var out bytes.Buffer
-	err := RunFetch(discoverCfg("", 2), &testRunner{}, nil, &out)
-	if err == nil {
-		t.Fatal("expected error when root_dir is empty")
+	if err := RunFetch(discoverCfg("", 2), &testRunner{}, nil, &out); err != nil {
+		t.Fatalf("unexpected error with no root dirs: %v", err)
+	}
+	if out.Len() != 0 {
+		t.Errorf("expected no output, got: %q", out.String())
 	}
 }
 

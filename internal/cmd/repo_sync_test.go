@@ -386,9 +386,12 @@ func TestRunSync_UnknownRepo(t *testing.T) {
 }
 
 func TestRunSync_NoRootDir(t *testing.T) {
+	// When no root dirs are configured, RunSync succeeds with no output.
 	var out bytes.Buffer
-	err := RunSync(discoverCfg("", 2), &testRunner{}, nil, false, &out)
-	if err == nil {
-		t.Fatal("expected error when root_dir is empty")
+	if err := RunSync(discoverCfg("", 2), &testRunner{}, nil, false, &out); err != nil {
+		t.Fatalf("unexpected error with no root dirs: %v", err)
+	}
+	if out.Len() != 0 {
+		t.Errorf("expected no output, got: %q", out.String())
 	}
 }

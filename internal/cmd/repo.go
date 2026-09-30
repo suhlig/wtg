@@ -143,6 +143,39 @@ func discoverRepoPaths(root string, maxDepth int) ([]string, error) {
 	return scanDir(root, maxDepth, 0)
 }
 
+// discoverAllRepoPaths scans each root in roots and returns the combined,
+// deduplicated list of absolute repo paths (sorted by root order, then path).
+func discoverAllRepoPaths(roots []string, maxDepth int) ([]string, error) {
+	seen := make(map[string]bool)
+	var all []string
+	for _, root := range roots {
+		paths, err := discoverRepoPaths(root, maxDepth)
+		if err != nil {
+			return nil, fmt.Errorf("scan %s: %w", root, err)
+		}
+		for _, p := range paths {
+			if !seen[p] {
+				seen[p] = true
+				all = append(all, p)
+			}
+		}
+	}
+	return all, nil
+}
+
+// repoName returns the short display name for a repo at absPath, computed as
+// its path relative to whichever root in roots is a prefix of it. Falls back
+// to absPath if no root matches.
+func repoName(roots []string, absPath string) string {
+	for _, root := range roots {
+		rel, err := filepath.Rel(root, absPath)
+		if err == nil && !strings.HasPrefix(rel, "..") {
+			return filepath.ToSlash(rel)
+		}
+	}
+	return absPath
+}
+
 func scanDir(dir string, maxDepth, depth int) ([]string, error) {
 	if isGitRepo(dir) {
 		return []string{dir}, nil
@@ -177,19 +210,20 @@ func isGitRepo(path string) bool {
 
 // RunFetch fetches from origin for each repo without fast-forwarding. If args
 // is empty, all discovered repos are fetched. Otherwise args are short names
-// (relative to discovery.root_dir) to fetch.
+// (relative to a discovery root dir) to fetch.
 func RunFetch(cfg *config.Config, runner git.Runner, args []string, out io.Writer) error {
 	paths, err := resolveRepoPaths(cfg, args)
 	if err != nil {
 		return err
 	}
 
+	roots := cfg.DiscoveryRootDirs()
 	results := make([]opResult, len(paths))
 
 	var g errgroup.Group
 	for i, p := range paths {
 		g.Go(func() error {
-			name, _ := filepath.Rel(cfg.Discovery.RootDir, p)
+			name := repoName(roots, p)
 			if skip, _ := hasNoRemotes(p, runner); skip {
 				return nil
 			}
@@ -216,7 +250,7 @@ func RunFetch(cfg *config.Config, runner git.Runner, args []string, out io.Write
 
 // RunSync fetches and fast-forwards each repo's default branch. If args is
 // empty, all discovered repos are synced. Otherwise, args are short names
-// (relative to discovery.root_dir) to sync. When progress is true, a bracketed
+// (relative to a discovery root dir) to sync. When progress is true, a bracketed
 // row of placeholder dots is printed upfront — one per repo — and each dot is
 // replaced in-place with the result symbol (✓ ↑ ⚠ !) as soon as that repo
 // finishes, by reprinting the whole line from column 0 with \r.
@@ -226,6 +260,7 @@ func RunSync(cfg *config.Config, runner git.Runner, args []string, progress bool
 		return err
 	}
 
+	roots := cfg.DiscoveryRootDirs()
 	results := make([]opResult, len(paths))
 
 	// syms holds the current display symbol for each repo slot.
@@ -271,7 +306,7 @@ func RunSync(cfg *config.Config, runner git.Runner, args []string, progress bool
 	var g errgroup.Group
 	for i, p := range paths {
 		g.Go(func() error {
-			name, _ := filepath.Rel(cfg.Discovery.RootDir, p)
+			name := repoName(roots, p)
 			sym, msg := syncOne(p, runner)
 			if sym == "" && msg == "" {
 				return nil // repo has no remotes; leave results[i] as zero value
@@ -363,43 +398,37 @@ func syncOne(repoPath string, runner git.Runner) (string, string) {
 	return ui.SymUp, fmt.Sprintf("fast-forwarded to origin/%s (%d %s)", defaultBranch, n, commits)
 }
 
-// resolveRepoPath converts a repo name to an absolute path, checking that a
-// git repo actually exists there. The name may be the full slash-separated
-// path relative to the discovery root or a unique basename (see repoInSet).
-func resolveRepoPath(rootDir string, maxDepth int, name string) (string, error) {
-	p := filepath.Join(rootDir, filepath.FromSlash(name))
-	if isGitRepo(p) {
-		return p, nil
+// resolveRepoPath converts a short repo name to an absolute path by searching
+// each root in roots, checking that a git repo actually exists there.
+func resolveRepoPath(roots []string, name string) (string, error) {
+	for _, rootDir := range roots {
+		p := filepath.Join(rootDir, filepath.FromSlash(name))
+		if isGitRepo(p) {
+			return p, nil
+		}
 	}
-	// Not a direct path — resolve through the discovered set, which also lets a
-	// unique basename address a repo nested under org/group directories.
-	allPaths, err := discoverRepoPaths(rootDir, maxDepth)
-	if err != nil {
-		return "", fmt.Errorf("scan %s: %w", rootDir, err)
+	if len(roots) == 1 {
+		return "", fmt.Errorf("repo %q not found under %s", name, roots[0])
 	}
-	names, byName := repoNamesIndex(rootDir, allPaths)
-	canonical, err := resolveRepoName(rootDir, names, name)
-	if err != nil {
-		return "", err
-	}
-	return byName[canonical], nil
+	return "", fmt.Errorf("repo %q not found under any discovery root dir", name)
 }
 
 // resolveRepoPaths returns paths for all repos to operate on. When args is
-// empty it discovers all repos under cfg.Discovery.RootDir (sorted); otherwise
-// it resolves each named arg to an absolute path (see resolveRepoPath).
+// empty it discovers all repos under all configured root dirs (sorted);
+// otherwise it resolves each named arg to an absolute path.
 func resolveRepoPaths(cfg *config.Config, args []string) ([]string, error) {
+	roots := cfg.DiscoveryRootDirs()
 	if len(args) == 0 {
-		paths, err := discoverRepoPaths(cfg.Discovery.RootDir, cfg.Discovery.MaxDepth)
+		paths, err := discoverAllRepoPaths(roots, cfg.Discovery.MaxDepth)
 		if err != nil {
-			return nil, fmt.Errorf("scan %s: %w", cfg.Discovery.RootDir, err)
+			return nil, err
 		}
 		sort.Strings(paths)
 		return paths, nil
 	}
 	paths := make([]string, 0, len(args))
 	for _, name := range args {
-		p, err := resolveRepoPath(cfg.Discovery.RootDir, cfg.Discovery.MaxDepth, name)
+		p, err := resolveRepoPath(roots, name)
 		if err != nil {
 			return nil, err
 		}
@@ -418,6 +447,7 @@ func RunRepoStatus(cfg *config.Config, runner git.Runner, args []string, long bo
 		return err
 	}
 
+	roots := cfg.DiscoveryRootDirs()
 	type statusResult struct {
 		name string
 		cols []string
@@ -427,7 +457,7 @@ func RunRepoStatus(cfg *config.Config, runner git.Runner, args []string, long bo
 	var g errgroup.Group
 	for i, p := range paths {
 		g.Go(func() error {
-			name, _ := filepath.Rel(cfg.Discovery.RootDir, p)
+			name := repoName(roots, p)
 			results[i] = statusResult{name, repoStatusCols(p, runner, long)}
 			return nil
 		})
