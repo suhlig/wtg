@@ -6,8 +6,10 @@
 
 ## Installation
 
+For using this fork:
+
 ```sh
-go install github.com/geoffamey/wtg@latest
+go install github.com/suhlig/wtg@latest
 ```
 
 ### Shell completions
@@ -15,84 +17,33 @@ go install github.com/geoffamey/wtg@latest
 **bash** — add to `~/.bashrc`:
 ```bash
 source <(wtg completion bash)
-wcd() { cd "$(wtg path "$1")"; }
-_wcd_completion() {
-  local cur="${COMP_WORDS[COMP_CWORD]}"
-  local opts
-  opts=$(wtg path --generate-shell-completion 2>/dev/null | cut -d: -f1)
-  COMPREPLY=($(compgen -W "${opts}" -- "${cur}"))
-}
-complete -F _wcd_completion wcd
 ```
 
 **zsh** — add to `~/.zshrc`:
 ```zsh
 source <(wtg completion zsh)
-wcd() { cd "$(wtg path "$1")"; }
 ```
 
 **fish** — add to `~/.config/fish/conf.d/wtg.fish`:
 ```fish
 if status is-interactive
-    wtg completion fish | source
-    function wcd
-        cd (wtg path $argv[1])
-    end
-    complete -c wcd -f -a '(wtg path --generate-shell-completion 2>/dev/null)'
+  wtg completion fish | source
 end
 ```
 
-`wcd <workspace>` is a shell helper that `cd`s into the workspace root. Since
-`cd` must run in the current shell it can't be a standalone command. The fish
-`complete` line gives `wcd` the same workspace-name tab completion as `wtg path`.
-
-### Coding-agent plugins
-
-This repo is a plugin marketplace for both Claude Code and Codex. Both plugins use the
-same `wtg-setup` and `wtg` skills from this repository.
-
-For Claude Code:
-
-```
-/plugin marketplace add geoffamey/wtg
-/plugin install wtg@wtg
-```
-
-Use `/plugin` to manage or update it later.
-
-For Codex:
-
-```sh
-codex plugin marketplace add geoffamey/wtg
-codex plugin add wtg@wtg
-```
-
-To refresh the Codex marketplace and reinstall the current plugin version:
-
-```sh
-codex plugin marketplace upgrade wtg
-codex plugin add wtg@wtg
-```
-
-Start a new Claude Code or Codex session after installing or updating so the refreshed
-skills are available.
-
 ## Configuration
 
-Run `wtg config init` to scaffold a commented config file at
-`~/.config/wtg/config.toml`:
+Run `wtg config init` to scaffold a commented config file at `~/.config/wtg/config.toml`:
 
 ```sh
 wtg config init
 ```
 
-It writes every setting commented out with its default; uncomment and edit the
-lines you want to override. `wtg config` prints the resolved file, `wtg config edit`
-opens it in `$EDITOR`, and `wtg config path` prints its path. A minimal config looks like:
+It writes every setting commented out with its default; uncomment and edit the lines you want to override. `wtg config` prints the resolved file, `wtg config edit` opens it in `$EDITOR`, and `wtg config path` prints its path. A minimal config looks like:
 
 ```toml
 [discovery]
-root_dir = "~/repos"       # where wtg scans for git repos
+root_dir = "~/repos"       # where wtg scans for git repos (or use root_dirs = ["~/repos", "~/work/repos"])
 max_depth = 2
 
 [spaces]
@@ -102,18 +53,11 @@ root_dir = "~/workspaces"  # where workspaces are created
 branch_prefix = ""         # prepended to workspace names, e.g. "yourname/"
 ```
 
-YAML is still accepted: a file ending in `.yaml`/`.yml` loads via its extension,
-so an existing `config.yaml` keeps working.
+YAML is still accepted: a file ending in `.yaml`/`.yml` loads via its extension, so an existing `config.yaml` keeps working.
 
-`discovery.root_dir` should contain your regular repo clones, each sitting on
-their default branch (`main`, `master`, etc.) and otherwise left untouched.
-`wtg` creates worktrees alongside them — it never modifies the main clones.
+`discovery.root_dir` (or `discovery.root_dirs` for multiple search directories) should contain your regular repo clones, each sitting on their default branch (`main`, `master`, etc.) and otherwise left untouched. `wtg` creates worktrees alongside them — it never modifies the main clones.
 
-Repos are addressed by their slash-separated path relative to
-`discovery.root_dir`, e.g. `github.com/suhlig/dspictl`. A repo nested under org
-or group directories can also be addressed by its basename (`dspictl`) as long
-as no other discovered repo shares that basename; otherwise `wtg` errors and
-lists the matching repos, and you use the full path to disambiguate.
+Repos are addressed by their slash-separated path relative to their discovery root directory, e.g. `github.com/suhlig/rustomato`. A repo nested under org or group directories can also be addressed by its basename (`rustomato`) as long as no other discovered repo shares that basename; otherwise `wtg` errors and lists the matching repos, and you use the full path to disambiguate.
 
 Override with `--config <path>` or the `WTG_CONFIG` environment variable.
 
@@ -183,23 +127,38 @@ wtg delete my-feature -d         # also delete branches if merged
 wtg delete my-feature -D         # force-delete branches
 ```
 
-### `wtg add <workspace> <repo>...`
+### `wtg add [<workspace>] <repo>...`
 
 Add repos to an existing workspace. Creates worktrees on the workspace's branch
-and updates `go.work`.
+and updates `go.work`. When run from inside a workspace directory, the workspace
+argument can be omitted.
 
 ```sh
 wtg add my-feature infra logging
+wtg add infra logging             # workspace inferred from CWD
 ```
 
-### `wtg remove <workspace> <repo>...`
+### `wtg remove [<workspace>] <repo>...`
 
 Remove repos from a workspace. Prompts if there are uncommitted changes or
-unpushed commits. Use `wtg delete` to remove the whole workspace.
+unpushed commits. Use `wtg delete` to remove the whole workspace. When run from
+inside a workspace directory, the workspace argument can be omitted.
 
 ```sh
 wtg remove my-feature logging
 wtg remove my-feature logging -d  # also delete the branch
+wtg remove logging                # workspace inferred from CWD
+```
+
+### `wtg push [<workspace>]`
+
+Push the workspace's branch from each repo's worktree to origin in parallel.
+When run from inside a workspace directory, the workspace argument can be
+omitted.
+
+```sh
+wtg push my-feature
+wtg push                          # workspace inferred from CWD
 ```
 
 ### `wtg status [<workspace>...]`
@@ -221,26 +180,25 @@ my-feature  ~/workspaces/my-feature
   frontend  [geoff/my-feature]  ✓ clean
 ```
 
-### `wtg exec <workspace> -- <cmd> [<args>...]`
+### `wtg exec [<workspace>] [--parallel] -- <cmd> [<args>...]`
 
-Run a command in each repo's worktree sequentially. Execution continues even if
-a command fails — all repos are attempted and failures are reported at the end.
+Run a command in each repo's worktree sequentially, streaming output as it goes. With `--parallel`, commands run in all repos concurrently with a live progress indicator, buffering per-repo output until complete.
+
+Execution continues even if a command fails — all repos are attempted and failures are reported at the end. When run from inside a workspace directory, the workspace argument can be omitted.
 
 ```sh
 wtg exec my-feature -- git status
-wtg exec my-feature -- go test ./...
-wtg exec my-feature -- git push origin HEAD
+wtg exec my-feature --parallel -- go test ./...
+wtg exec -- git status            # workspace inferred from CWD
 ```
 
 ## Repo commands
 
-These operate on your main repo clones, not workspace worktrees. Useful for
-keeping clones up to date before starting a new feature.
+These operate on your main repo clones, not workspace worktrees. Useful for keeping clones up to date before starting a new feature.
 
 ### `wtg repo sync [<repo>...]`
 
-Fetch and fast-forward each repo's default branch. Repos with local changes are
-skipped with a warning.
+Fetch and fast-forward each repo's default branch. Repos with local changes are skipped with a warning.
 
 ```sh
 wtg repo sync               # sync all repos
