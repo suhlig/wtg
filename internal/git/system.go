@@ -32,7 +32,7 @@ func (e *runError) Error() string {
 // run executes git -C repoPath <args> and returns trimmed stdout.
 // Any non-zero exit is returned as a *runError.
 func (r *SystemRunner) run(repoPath string, args ...string) (string, error) {
-	cmd := exec.Command("git", append([]string{"-C", repoPath}, args...)...)
+	cmd := exec.Command("git", append([]string{"-C", repoPath}, args...)...) // #nosec G204 -- git with caller-controlled args
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()

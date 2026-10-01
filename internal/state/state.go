@@ -65,14 +65,14 @@ func Load(name string) (*Space, error) {
 
 // Save writes the space state to disk, creating the state directory if needed.
 func Save(space *Space) error {
-	if err := os.MkdirAll(DataDir(), 0o755); err != nil {
+	if err := os.MkdirAll(DataDir(), 0o750); err != nil {
 		return fmt.Errorf("create state dir: %w", err)
 	}
 	data, err := yaml.Marshal(space)
 	if err != nil {
 		return fmt.Errorf("marshal space %q: %w", space.Name, err)
 	}
-	if err := os.WriteFile(spacePath(space.Name), data, 0o644); err != nil {
+	if err := os.WriteFile(spacePath(space.Name), data, 0o600); err != nil {
 		return fmt.Errorf("write space %q: %w", space.Name, err)
 	}
 	return nil

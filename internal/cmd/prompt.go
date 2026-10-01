@@ -9,7 +9,7 @@ import (
 
 // confirm writes a [y/N] prompt and returns true only if the user types "y" or "Y".
 func confirm(r *bufio.Reader, out io.Writer, message string) (bool, error) {
-	fmt.Fprintf(out, "%s [y/N]: ", message)
+	_, _ = fmt.Fprintf(out, "%s [y/N]: ", message)
 	line, err := r.ReadString('\n')
 	if err != nil && err != io.EOF {
 		return false, err

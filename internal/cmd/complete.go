@@ -94,7 +94,7 @@ func completeRepos(_ context.Context, cmd *cli.Command) {
 	}
 	sort.Strings(paths)
 	for _, p := range paths {
-		fmt.Fprintln(os.Stdout, repoName(roots, p))
+		_, _ = fmt.Fprintln(os.Stdout, repoName(roots, p))
 	}
 	emitFlags(cmd)
 }

@@ -179,7 +179,7 @@ func TestConfigPrint_Missing(t *testing.T) {
 // TestConfigTemplate_CoversAllKeys guards against the hand-written template drifting
 // from the Config struct: every koanf key (section and leaf) must appear in it.
 func TestConfigTemplate_CoversAllKeys(t *testing.T) {
-	for _, key := range koanfTags(reflect.TypeOf(config.Config{})) {
+	for _, key := range koanfTags(reflect.TypeFor[config.Config]()) {
 		if !strings.Contains(configTemplate, key) {
 			t.Errorf("config template is missing key %q", key)
 		}
@@ -319,9 +319,8 @@ func TestConfigEditCommand(t *testing.T) {
 
 func koanfTags(t reflect.Type) []string {
 	var tags []string
-	for i := 0; i < t.NumField(); i++ {
-		f := t.Field(i)
-		tag := strings.Split(f.Tag.Get("koanf"), ",")[0]
+	for f := range t.Fields() {
+		tag, _, _ := strings.Cut(f.Tag.Get("koanf"), ",")
 		if tag == "" {
 			continue
 		}

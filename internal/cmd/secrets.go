@@ -25,7 +25,7 @@ func validateSecretPath(rel string) error {
 	if cleaned == "." || cleaned == "" {
 		return fmt.Errorf("empty path")
 	}
-	for _, p := range strings.Split(cleaned, string(filepath.Separator)) {
+	for p := range strings.SplitSeq(cleaned, string(filepath.Separator)) {
 		if p == ".." {
 			return fmt.Errorf("path escape not allowed: %s", rel)
 		}
@@ -38,14 +38,14 @@ func copySecretFileStep(src, dst string) saga.Step {
 	return saga.Step{
 		Name: fmt.Sprintf("copy %s", filepath.Base(src)),
 		Do: func(ctx context.Context) error {
-			data, err := os.ReadFile(src)
+			data, err := os.ReadFile(src) // #nosec G304 -- src is a user-provided secrets path
 			if err != nil {
 				return fmt.Errorf("read %s: %w", src, err)
 			}
-			if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			if err := os.MkdirAll(filepath.Dir(dst), 0o750); err != nil {
 				return fmt.Errorf("mkdir %s: %w", filepath.Dir(dst), err)
 			}
-			return os.WriteFile(dst, data, 0o644)
+			return os.WriteFile(dst, data, 0o600) // #nosec G703 -- dst is a user-provided secrets path
 		},
 		Undo: func(ctx context.Context) error {
 			if err := os.Remove(dst); err != nil && !errors.Is(err, fs.ErrNotExist) {

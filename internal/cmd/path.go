@@ -28,7 +28,7 @@ wcd shell helper, which uses it to cd into a workspace by name.`,
 			if err != nil {
 				return err
 			}
-			fmt.Fprintln(os.Stdout, sp.Path)
+			_, _ = fmt.Fprintln(os.Stdout, sp.Path)
 			return nil
 		},
 	}

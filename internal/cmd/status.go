@@ -49,12 +49,12 @@ Use --long (-l) to expand each dirty repo with its individual file changes.`,
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(os.Stdout, "%s\n", ui.SectionHeader("REPOS"))
+			_, _ = fmt.Fprintf(os.Stdout, "%s\n", ui.SectionHeader("REPOS"))
 			if err := RunRepoStatus(cfg, runner, nil, false, os.Stdout); err != nil {
 				return err
 			}
-			fmt.Fprintln(os.Stdout)
-			fmt.Fprintf(os.Stdout, "%s\n", ui.SectionHeader("SPACES"))
+			_, _ = fmt.Fprintln(os.Stdout)
+			_, _ = fmt.Fprintf(os.Stdout, "%s\n", ui.SectionHeader("SPACES"))
 			return RunSpaceStatus(runner, nil, detailed, os.Stdout)
 		},
 	}
@@ -84,7 +84,7 @@ func RunSpaceStatus(runner git.Runner, names []string, detailed bool, out io.Wri
 
 		for i, sp := range spaces {
 			if i > 0 {
-				fmt.Fprintln(out)
+				_, _ = fmt.Fprintln(out)
 			}
 			if err := printSpaceDetail(runner, sp, detailed, out); err != nil {
 				return err
@@ -95,7 +95,7 @@ func RunSpaceStatus(runner git.Runner, names []string, detailed bool, out io.Wri
 
 	for i, name := range names {
 		if i > 0 {
-			fmt.Fprintln(out)
+			_, _ = fmt.Fprintln(out)
 		}
 		sp, err := state.Load(name)
 		if err != nil {
@@ -134,7 +134,7 @@ type repoStatusResult struct {
 // printSpaceDetail prints the space header followed by a per-repo status table.
 // When detailed is true it appends modified-file listings under each dirty repo.
 func printSpaceDetail(runner git.Runner, sp *state.Space, detailed bool, out io.Writer) error {
-	fmt.Fprintf(out, "%s  %s\n",
+	_, _ = fmt.Fprintf(out, "%s  %s\n",
 		ui.Bold.Render(sp.Name),
 		ui.Muted.Render(sp.Path),
 	)
@@ -179,7 +179,7 @@ func printSpaceDetail(runner git.Runner, sp *state.Space, detailed bool, out io.
 	lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
 	for i, rs := range results {
 		if i < len(lines) {
-			fmt.Fprintln(out, lines[i])
+			_, _ = fmt.Fprintln(out, lines[i])
 		}
 		if rs.entry.Symlink {
 			continue
@@ -201,7 +201,7 @@ func printSpaceDetail(runner git.Runner, sp *state.Space, detailed bool, out io.
 				if y != ' ' && y != '?' {
 					yStr = ui.Warn.Render(string(y))
 				}
-				fmt.Fprintf(out, "    %s%s  %s\n", xStr, yStr, f.Path)
+				_, _ = fmt.Fprintf(out, "    %s%s  %s\n", xStr, yStr, f.Path)
 			}
 		}
 	}

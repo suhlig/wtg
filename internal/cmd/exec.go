@@ -156,23 +156,23 @@ func runSpaceExecSerial(sp *state.Space, args []string, out io.Writer) error {
 	var failed []string
 	for i, r := range sp.Repos {
 		if i > 0 {
-			fmt.Fprintln(out)
+			_, _ = fmt.Fprintln(out)
 		}
-		fmt.Fprintf(out, "%s\n", ui.SectionHeader(r.Name))
+		_, _ = fmt.Fprintf(out, "%s\n", ui.SectionHeader(r.Name))
 		if r.Symlink {
-			fmt.Fprintf(out, "%s\n", ui.Warn.Render(ui.SymWarn+" skipped — symlink (always.repos)"))
+			_, _ = fmt.Fprintf(out, "%s\n", ui.Warn.Render(ui.SymWarn+" skipped — symlink (always.repos)"))
 			continue
 		}
-		cmd := exec.Command(args[0], args[1:]...) //nolint:gosec
+		cmd := exec.Command(args[0], args[1:]...) // #nosec G204
 		cmd.Dir = r.WorktreePath
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = out
 		cmd.Stderr = out
 		if err := cmd.Run(); err != nil {
 			failed = append(failed, r.Name)
-			fmt.Fprintf(out, "%s\n", ui.Fail.Render(ui.SymFail+" failed"))
+			_, _ = fmt.Fprintf(out, "%s\n", ui.Fail.Render(ui.SymFail+" failed"))
 		} else {
-			fmt.Fprintf(out, "%s\n", ui.OK.Render(ui.SymOK+" ok"))
+			_, _ = fmt.Fprintf(out, "%s\n", ui.OK.Render(ui.SymOK+" ok"))
 		}
 	}
 
@@ -216,7 +216,7 @@ func runSpaceExecParallel(sp *state.Space, args []string, out io.Writer) error {
 			b.WriteString(s)
 		}
 		b.WriteRune(']')
-		fmt.Fprint(out, b.String())
+		_, _ = fmt.Fprint(out, b.String())
 	}
 
 	var mu sync.Mutex
@@ -228,9 +228,7 @@ func runSpaceExecParallel(sp *state.Space, args []string, out io.Writer) error {
 
 	var wg sync.WaitGroup
 	for i, r := range repos {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			res := execResult{name: r.Name}
 			if r.Symlink {
 				res.skipped = true
@@ -242,7 +240,7 @@ func runSpaceExecParallel(sp *state.Space, args []string, out io.Writer) error {
 				return
 			}
 			var buf bytes.Buffer
-			cmd := exec.Command(args[0], args[1:]...) //nolint:gosec
+			cmd := exec.Command(args[0], args[1:]...) // #nosec G204
 			cmd.Dir = r.WorktreePath
 			cmd.Stdin = os.Stdin
 			cmd.Stdout = &buf
@@ -260,30 +258,30 @@ func runSpaceExecParallel(sp *state.Space, args []string, out io.Writer) error {
 			printProgress()
 			mu.Unlock()
 			results[i] = res
-		}()
+		})
 	}
 	wg.Wait()
 
 	// End progress line.
-	fmt.Fprintln(out)
+	_, _ = fmt.Fprintln(out)
 
 	// Print each repo's output serially in repo order.
 	var failed []string
 	for i, res := range results {
 		if i > 0 {
-			fmt.Fprintln(out)
+			_, _ = fmt.Fprintln(out)
 		}
-		fmt.Fprintf(out, "%s\n", ui.SectionHeader(res.name))
+		_, _ = fmt.Fprintf(out, "%s\n", ui.SectionHeader(res.name))
 		if res.skipped {
-			fmt.Fprintf(out, "%s\n", ui.Warn.Render(ui.SymWarn+" skipped — symlink (always.repos)"))
+			_, _ = fmt.Fprintf(out, "%s\n", ui.Warn.Render(ui.SymWarn+" skipped — symlink (always.repos)"))
 			continue
 		}
-		out.Write(res.output) //nolint:errcheck
+		_, _ = out.Write(res.output)
 		if res.failed {
 			failed = append(failed, res.name)
-			fmt.Fprintf(out, "%s\n", ui.Fail.Render(ui.SymFail+" failed"))
+			_, _ = fmt.Fprintf(out, "%s\n", ui.Fail.Render(ui.SymFail+" failed"))
 		} else {
-			fmt.Fprintf(out, "%s\n", ui.OK.Render(ui.SymOK+" ok"))
+			_, _ = fmt.Fprintf(out, "%s\n", ui.OK.Render(ui.SymOK+" ok"))
 		}
 	}
 

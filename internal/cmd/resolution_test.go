@@ -32,8 +32,7 @@ func TestRepoInSet_AmbiguousBasename(t *testing.T) {
 	if ok || got != "" {
 		t.Fatalf("expected no match, got %q ok=%v", got, ok)
 	}
-	var ae *ambiguousRepoError
-	if !errors.As(err, &ae) {
+	if _, ok := errors.AsType[*ambiguousRepoError](err); !ok {
 		t.Fatalf("expected *ambiguousRepoError, got %T", err)
 	}
 	if !strings.Contains(err.Error(), "ambiguous") || !strings.Contains(err.Error(), "aaa/dup") {

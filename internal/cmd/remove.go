@@ -156,7 +156,7 @@ func RunSpaceRemove(cfg *config.Config, runner git.Runner, args SpaceRemoveArgs,
 	needsForce := len(warnings) > 0
 	if needsForce {
 		for _, w := range warnings {
-			fmt.Fprintf(out, "  %s %s\n", ui.SymWarn, w)
+			_, _ = fmt.Fprintf(out, "  %s %s\n", ui.SymWarn, w)
 		}
 		ok, err := confirm(bufio.NewReader(in), out, "Remove repos anyway?")
 		if err != nil {
@@ -206,12 +206,12 @@ func RunSpaceRemove(cfg *config.Config, runner git.Runner, args SpaceRemoveArgs,
 			// The worktree's parent dirs were pruned above (or never existed if
 			// the worktree was externally deleted); recreate them before
 			// symlinking, mirroring symlinkStep in workspace.go.
-			if err := os.MkdirAll(filepath.Dir(r.WorktreePath), 0o755); err != nil {
-				fmt.Fprintf(out, "  %s could not restore symlink for %s: %v\n", ui.SymWarn, r.Name, err)
+			if err := os.MkdirAll(filepath.Dir(r.WorktreePath), 0o750); err != nil {
+				_, _ = fmt.Fprintf(out, "  %s could not restore symlink for %s: %v\n", ui.SymWarn, r.Name, err)
 				continue
 			}
 			if err := os.Symlink(r.RepoPath, r.WorktreePath); err != nil {
-				fmt.Fprintf(out, "  %s could not restore symlink for %s: %v\n", ui.SymWarn, r.Name, err)
+				_, _ = fmt.Fprintf(out, "  %s could not restore symlink for %s: %v\n", ui.SymWarn, r.Name, err)
 				continue
 			}
 			keepEntries = append(keepEntries, state.RepoEntry{
@@ -237,15 +237,15 @@ func RunSpaceRemove(cfg *config.Config, runner git.Runner, args SpaceRemoveArgs,
 			remainingGoWorkspace = true
 			goVersion := detectGoVersion(remainingTargets, hasGoMod)
 			if err := writeGoWork(goWorkPath, sp.Path, remainingTargets, hasGoMod, goVersion); err != nil {
-				fmt.Fprintf(out, "  %s could not update go.work: %v\n", ui.SymWarn, err)
+				_, _ = fmt.Fprintf(out, "  %s could not update go.work: %v\n", ui.SymWarn, err)
 			}
 		} else {
 			if err := os.Remove(goWorkPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
-				fmt.Fprintf(out, "  %s could not remove go.work: %v\n", ui.SymWarn, err)
+				_, _ = fmt.Fprintf(out, "  %s could not remove go.work: %v\n", ui.SymWarn, err)
 			}
 		}
 		if err := os.Remove(goWorkSumPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			fmt.Fprintf(out, "  %s could not remove go.work.sum: %v\n", ui.SymWarn, err)
+			_, _ = fmt.Fprintf(out, "  %s could not remove go.work.sum: %v\n", ui.SymWarn, err)
 		}
 	}
 
@@ -256,8 +256,8 @@ func RunSpaceRemove(cfg *config.Config, runner git.Runner, args SpaceRemoveArgs,
 		return fmt.Errorf("save state: %w", err)
 	}
 
-	fmt.Fprintf(out, "%s removed from space %q\n", ui.SymOK, args.Name)
-	fmt.Fprintf(out, "Workspace root: %s\n", sp.Path)
+	_, _ = fmt.Fprintf(out, "%s removed from space %q\n", ui.SymOK, args.Name)
+	_, _ = fmt.Fprintf(out, "Workspace root: %s\n", sp.Path)
 
 	removedNames := make([]string, len(toRemove))
 	for i, r := range toRemove {

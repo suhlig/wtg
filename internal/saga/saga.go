@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 )
 
 // Step is one unit of work within a saga, paired with its compensation.
@@ -33,10 +34,10 @@ func Run(ctx context.Context, steps []Step) error {
 	for _, step := range steps {
 		if err := step.Do(ctx); err != nil {
 			// Unwind completed steps in reverse order.
-			for i := len(done) - 1; i >= 0; i-- {
-				if cerr := done[i].Undo(ctx); cerr != nil {
+			for _, d := range slices.Backward(done) {
+				if cerr := d.Undo(ctx); cerr != nil {
 					slog.Default().Error("saga compensation failed",
-						"step", done[i].Name,
+						"step", d.Name,
 						"error", cerr,
 					)
 				}

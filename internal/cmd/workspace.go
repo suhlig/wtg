@@ -284,7 +284,7 @@ func worktreeStep(runner git.Runner, t *repoTarget, branch, base string) saga.St
 		Name: fmt.Sprintf("create worktree %s", t.name),
 		Do: func(ctx context.Context) error {
 			parentDir := filepath.Dir(t.worktreePath)
-			if err := os.MkdirAll(parentDir, 0o755); err != nil {
+			if err := os.MkdirAll(parentDir, 0o750); err != nil {
 				return fmt.Errorf("create parent dir: %w", err)
 			}
 			effectiveBase := base
@@ -322,7 +322,7 @@ func symlinkStep(t *repoTarget) saga.Step {
 		Name: fmt.Sprintf("create symlink %s", t.name),
 		Do: func(ctx context.Context) error {
 			parentDir := filepath.Dir(t.worktreePath)
-			if err := os.MkdirAll(parentDir, 0o755); err != nil {
+			if err := os.MkdirAll(parentDir, 0o750); err != nil {
 				return fmt.Errorf("create parent dir: %w", err)
 			}
 			return os.Symlink(t.repoPath, t.worktreePath)
@@ -344,11 +344,11 @@ func copyFileStep(src, dstDir string) saga.Step {
 	return saga.Step{
 		Name: fmt.Sprintf("copy %s", filepath.Base(src)),
 		Do: func(ctx context.Context) error {
-			data, err := os.ReadFile(src)
+			data, err := os.ReadFile(src) // #nosec G304 -- src is a user-provided path
 			if err != nil {
 				return fmt.Errorf("read %s: %w", src, err)
 			}
-			return os.WriteFile(dst, data, 0o644)
+			return os.WriteFile(dst, data, 0o600) // #nosec G703 -- dst is a user-provided path
 		},
 		Undo: func(ctx context.Context) error {
 			if err := os.Remove(dst); err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -363,7 +363,7 @@ func copyFileStep(src, dstDir string) saga.Step {
 // content (or removes the file) on rollback.
 func goWorkStep(goWorkPath, spacePath string, targets []*repoTarget, hasGoMod []bool, goVersion string) saga.Step {
 	// Capture existing content before the saga runs so undo can restore it.
-	oldContent, _ := os.ReadFile(goWorkPath)
+	oldContent, _ := os.ReadFile(goWorkPath) // #nosec G304,G306,G703 -- path derived from workspace root; go.work needs 0644
 	return saga.Step{
 		Name: "write go.work",
 		Do: func(ctx context.Context) error {
@@ -371,7 +371,7 @@ func goWorkStep(goWorkPath, spacePath string, targets []*repoTarget, hasGoMod []
 		},
 		Undo: func(ctx context.Context) error {
 			if oldContent != nil {
-				return os.WriteFile(goWorkPath, oldContent, 0o644)
+				return os.WriteFile(goWorkPath, oldContent, 0o644) // #nosec G304,G306,G703 -- path derived from workspace root; go.work needs 0644
 			}
 			if err := os.Remove(goWorkPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
 				return err
@@ -407,7 +407,7 @@ func writeGoWork(goWorkPath, spacePath string, targets []*repoTarget, hasGoMod [
 	}
 	b.WriteString(")\n")
 
-	return os.WriteFile(goWorkPath, []byte(b.String()), 0o644)
+	return os.WriteFile(goWorkPath, []byte(b.String()), 0o644) // #nosec G304,G306,G703 -- path derived from workspace root; go.work needs 0644
 }
 
 // buildSpaceState constructs the state.Space value to persist.

@@ -67,6 +67,6 @@ func (t *Table) Row(fields ...string) {
 // Flush finalises the table alignment and writes all output.
 func (t *Table) Flush() {
 	if s := t.tbl.String(); s != "" {
-		fmt.Fprintln(t.w, s)
+		_, _ = fmt.Fprintln(t.w, s)
 	}
 }

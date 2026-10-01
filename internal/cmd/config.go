@@ -121,7 +121,7 @@ already exists; pass --force to overwrite. -o sets the output path;
 				Name:  "path",
 				Usage: "print the resolved config file path",
 				Action: func(ctx context.Context, cmd *cli.Command) error {
-					fmt.Fprintln(os.Stdout, config.ResolvePath(cmd.String("config")))
+					_, _ = fmt.Fprintln(os.Stdout, config.ResolvePath(cmd.String("config")))
 					return nil
 				},
 			},
@@ -132,9 +132,9 @@ already exists; pass --force to overwrite. -o sets the output path;
 // runConfigPrint writes the raw contents of the file at path to out, or a note to
 // note if it does not exist.
 func runConfigPrint(path string, out, note io.Writer) error {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- path is user-supplied config file location
 	if errors.Is(err, fs.ErrNotExist) {
-		fmt.Fprintf(note, "no config file at %s (run `wtg config init` to create one)\n", path)
+		_, _ = fmt.Fprintf(note, "no config file at %s (run `wtg config init` to create one)\n", path)
 		return nil
 	}
 	if err != nil {
@@ -161,18 +161,18 @@ func runConfigInit(path string, force bool, out io.Writer) error {
 			return fmt.Errorf("config already exists at %s (use --force to overwrite)", path)
 		}
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil { // #nosec G301 -- user config dir
 		return fmt.Errorf("create config dir: %w", err)
 	}
-	if err := os.WriteFile(path, []byte(configTemplate), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(configTemplate), 0o600); err != nil {
 		return fmt.Errorf("write config: %w", err)
 	}
-	fmt.Fprintf(out, "Config written to %s\n", path)
+	_, _ = fmt.Fprintf(out, "Config written to %s\n", path)
 	// A sibling config.yaml still loads, but config.toml now takes precedence;
 	// warn so its settings don't silently appear to vanish.
 	if legacy := filepath.Join(filepath.Dir(path), "config.yaml"); legacy != path {
 		if _, err := os.Stat(legacy); err == nil {
-			fmt.Fprintf(out, "Note: %s still exists but is now shadowed by config.toml.\n", legacy)
+			_, _ = fmt.Fprintf(out, "Note: %s still exists but is now shadowed by config.toml.\n", legacy)
 		}
 	}
 	return nil
@@ -185,12 +185,12 @@ func runConfigEdit(path string) error {
 		return errors.New("no editor found (set $VISUAL or $EDITOR)")
 	}
 
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil { // #nosec G301 -- user config dir
 		return fmt.Errorf("create config dir: %w", err)
 	}
 
 	args := append(editorCmd[1:], path)
-	c := exec.Command(editorCmd[0], args...)
+	c := exec.Command(editorCmd[0], args...) // #nosec G204 -- user-configured editor
 	c.Stdin = os.Stdin
 	c.Stdout = os.Stdout
 	c.Stderr = os.Stderr

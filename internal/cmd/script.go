@@ -30,7 +30,7 @@ func runSpaceScript(cfg *config.Config, event string, sp *state.Space, eventRepo
 		paths[i] = r.WorktreePath
 	}
 
-	cmd := exec.Command(cfg.Always.Run)
+	cmd := exec.Command(cfg.Always.Run) // #nosec G204 -- user-configured always.run script
 	cmd.Env = append(os.Environ(),
 		"WTG_SPACE_NAME="+sp.Name,
 		"WTG_SPACE_ROOT="+sp.Path,
@@ -43,7 +43,7 @@ func runSpaceScript(cfg *config.Config, event string, sp *state.Space, eventRepo
 	cmd.Stdout = out
 	cmd.Stderr = out
 	if err := cmd.Run(); err != nil {
-		fmt.Fprintf(out, "  %s always.run script failed: %v\n", ui.SymWarn, err)
+		_, _ = fmt.Fprintf(out, "  %s always.run script failed: %v\n", ui.SymWarn, err)
 	}
 }
 

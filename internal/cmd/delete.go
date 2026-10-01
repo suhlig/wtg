@@ -101,7 +101,7 @@ func RunSpaceDelete(cfg *config.Config, runner git.Runner, args SpaceDeleteArgs,
 	needsForce := len(warnings) > 0
 	if needsForce {
 		for _, w := range warnings {
-			fmt.Fprintf(out, "  %s %s\n", ui.SymWarn, w)
+			_, _ = fmt.Fprintf(out, "  %s %s\n", ui.SymWarn, w)
 		}
 		ok, err := confirm(bufio.NewReader(in), out, "Delete workspace anyway?")
 		if err != nil {
@@ -131,7 +131,7 @@ func RunSpaceDelete(cfg *config.Config, runner git.Runner, args SpaceDeleteArgs,
 		}
 	}
 	tbl.Flush()
-	fmt.Fprintf(out, "Deleting workspace root: %s\n", sp.Path)
+	_, _ = fmt.Fprintf(out, "Deleting workspace root: %s\n", sp.Path)
 
 	if hadError {
 		return fmt.Errorf("some worktrees could not be removed; space %q not deleted from state", args.Name)
@@ -141,7 +141,7 @@ func RunSpaceDelete(cfg *config.Config, runner git.Runner, args SpaceDeleteArgs,
 	// will be left in a broken state after the directory is removed.
 	if cwd, err := os.Getwd(); err == nil {
 		if cwd == sp.Path || strings.HasPrefix(cwd, sp.Path+string(filepath.Separator)) {
-			fmt.Fprintf(out, "  %s your working directory is inside the space; cd elsewhere after deletion\n", ui.SymWarn)
+			_, _ = fmt.Fprintf(out, "  %s your working directory is inside the space; cd elsewhere after deletion\n", ui.SymWarn)
 		}
 	}
 
@@ -151,11 +151,11 @@ func RunSpaceDelete(cfg *config.Config, runner git.Runner, args SpaceDeleteArgs,
 	if sp.GoWorkspace {
 		goWorkPath := filepath.Join(sp.Path, "go.work")
 		if err := os.Remove(goWorkPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			fmt.Fprintf(out, "  %s could not remove go.work: %v\n", ui.SymWarn, err)
+			_, _ = fmt.Fprintf(out, "  %s could not remove go.work: %v\n", ui.SymWarn, err)
 		}
 		goWorkSumPath := filepath.Join(sp.Path, "go.work.sum")
 		if err := os.Remove(goWorkSumPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			fmt.Fprintf(out, "  %s could not remove go.work.sum: %v\n", ui.SymWarn, err)
+			_, _ = fmt.Fprintf(out, "  %s could not remove go.work.sum: %v\n", ui.SymWarn, err)
 		}
 	}
 
@@ -163,14 +163,14 @@ func RunSpaceDelete(cfg *config.Config, runner git.Runner, args SpaceDeleteArgs,
 	for _, f := range cfg.Always.Files {
 		dst := filepath.Join(sp.Path, filepath.Base(f))
 		if err := os.Remove(dst); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			fmt.Fprintf(out, "  %s could not remove %s: %v\n", ui.SymWarn, filepath.Base(f), err)
+			_, _ = fmt.Fprintf(out, "  %s could not remove %s: %v\n", ui.SymWarn, filepath.Base(f), err)
 		}
 	}
 
 	// Remove the space root directory. Only succeeds when empty; if the user
 	// placed other files there, report a warning so they can clean up manually.
 	if err := os.Remove(sp.Path); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		fmt.Fprintf(out, "  %s could not remove space directory %s: %v\n", ui.SymWarn, sp.Path, err)
+		_, _ = fmt.Fprintf(out, "  %s could not remove space directory %s: %v\n", ui.SymWarn, sp.Path, err)
 	}
 
 	if err := state.Delete(args.Name); err != nil {

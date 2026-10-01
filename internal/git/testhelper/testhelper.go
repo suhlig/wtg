@@ -85,10 +85,10 @@ func (r *Repo) Commit(message string) {
 func (r *Repo) WriteFile(name, content string) {
 	r.t.Helper()
 	full := filepath.Join(r.Path, name)
-	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(full), 0o750); err != nil {
 		r.t.Fatalf("testhelper: mkdir %s: %v", filepath.Dir(full), err)
 	}
-	if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(full, []byte(content), 0o600); err != nil {
 		r.t.Fatalf("testhelper: write %s: %v", name, err)
 	}
 }
@@ -96,7 +96,7 @@ func (r *Repo) WriteFile(name, content string) {
 // GitCmd runs a git command in the repo directory, failing the test on error.
 func (r *Repo) GitCmd(args ...string) {
 	r.t.Helper()
-	cmd := exec.Command("git", args...)
+	cmd := exec.Command("git", args...) // #nosec G204 -- test helper: git with test-controlled args
 	cmd.Dir = r.Path
 	out, err := cmd.CombinedOutput()
 	if err != nil {

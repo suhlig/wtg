@@ -293,7 +293,7 @@ func RunSync(cfg *config.Config, runner git.Runner, args []string, progress bool
 			b.WriteString(s)
 		}
 		b.WriteRune(']')
-		fmt.Fprint(out, b.String())
+		_, _ = fmt.Fprint(out, b.String())
 	}
 
 	var mu sync.Mutex
@@ -324,7 +324,7 @@ func RunSync(cfg *config.Config, runner git.Runner, args []string, progress bool
 	_ = g.Wait() // goroutines always return nil; outcomes are written to results[i]
 
 	if progress {
-		fmt.Fprintln(out)
+		_, _ = fmt.Fprintln(out)
 	}
 
 	tbl := ui.NewTableWriter(out)

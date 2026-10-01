@@ -173,7 +173,7 @@ func RunSpaceNew(cfg *config.Config, runner git.Runner, args SpaceNewArgs, out i
 		return err
 	}
 
-	fmt.Fprintf(out, "%s created space %q on branch %s\n", ui.SymOK, args.Name, branch)
+	_, _ = fmt.Fprintf(out, "%s created space %q on branch %s\n", ui.SymOK, args.Name, branch)
 	tbl := ui.NewTableWriter(out)
 	for _, t := range targets {
 		tbl.Row("  "+t.name, t.worktreePath)
@@ -182,7 +182,7 @@ func RunSpaceNew(cfg *config.Config, runner git.Runner, args SpaceNewArgs, out i
 		tbl.Row("  "+t.name, ui.Muted.Render(ui.SymLink+" "+t.repoPath))
 	}
 	tbl.Flush()
-	fmt.Fprintf(out, "Workspace root: %s\n", spacePath)
+	_, _ = fmt.Fprintf(out, "Workspace root: %s\n", spacePath)
 
 	sp := buildSpaceState(args.Name, spacePath, branch, anyGoMod, allTargets)
 	runSpaceScript(cfg, "create", sp, repoNames(sp), out)

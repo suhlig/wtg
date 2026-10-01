@@ -214,7 +214,7 @@ func RunSpaceAdd(cfg *config.Config, runner git.Runner, args SpaceAddArgs, out i
 		return err
 	}
 
-	fmt.Fprintf(out, "%s added to space %q\n", ui.SymOK, args.Name)
+	_, _ = fmt.Fprintf(out, "%s added to space %q\n", ui.SymOK, args.Name)
 	tbl := ui.NewTableWriter(out)
 	addedNames := make([]string, len(allNew))
 	for i, t := range allNew {
@@ -222,7 +222,7 @@ func RunSpaceAdd(cfg *config.Config, runner git.Runner, args SpaceAddArgs, out i
 		addedNames[i] = t.name
 	}
 	tbl.Flush()
-	fmt.Fprintf(out, "Workspace root: %s\n", sp.Path)
+	_, _ = fmt.Fprintf(out, "Workspace root: %s\n", sp.Path)
 
 	if sp, err := state.Load(args.Name); err == nil {
 		runSpaceScript(cfg, "add", sp, addedNames, out)
