@@ -8,8 +8,8 @@ import (
 
 	"github.com/urfave/cli/v3"
 
-	"github.com/geoffamey/wtg/internal/config"
-	"github.com/geoffamey/wtg/internal/state"
+	"github.com/suhlig/wtg/internal/config"
+	"github.com/suhlig/wtg/internal/state"
 )
 
 // emitFlags prints all visible flags for cmd in --name:usage form, for use by

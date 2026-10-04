@@ -9,8 +9,8 @@ import (
 	"testing"
 	"testing/synctest"
 
-	"github.com/geoffamey/wtg/internal/git"
-	"github.com/geoffamey/wtg/internal/ui"
+	"github.com/suhlig/wtg/internal/git"
+	"github.com/suhlig/wtg/internal/ui"
 )
 
 // syncRunner builds a testRunner configured for sync scenarios.

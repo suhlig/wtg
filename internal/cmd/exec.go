@@ -13,8 +13,8 @@ import (
 	"github.com/urfave/cli/v3"
 	"golang.org/x/term"
 
-	"github.com/geoffamey/wtg/internal/state"
-	"github.com/geoffamey/wtg/internal/ui"
+	"github.com/suhlig/wtg/internal/state"
+	"github.com/suhlig/wtg/internal/ui"
 )
 
 // execTermWidthFn returns the current terminal column count, or 0 if unknown.

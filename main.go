@@ -8,8 +8,8 @@ import (
 
 	"github.com/urfave/cli/v3"
 
-	"github.com/geoffamey/wtg/internal/cmd"
-	"github.com/geoffamey/wtg/internal/git"
+	"github.com/suhlig/wtg/internal/cmd"
+	"github.com/suhlig/wtg/internal/git"
 )
 
 func main() {

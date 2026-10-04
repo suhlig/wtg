@@ -7,7 +7,7 @@ import (
 
 	"github.com/urfave/cli/v3"
 
-	"github.com/geoffamey/wtg/internal/state"
+	"github.com/suhlig/wtg/internal/state"
 )
 
 // PathCommand returns the `wtg path` command (hidden; used by shell wcd functions).

@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/geoffamey/wtg/internal/config"
-	"github.com/geoffamey/wtg/internal/git"
-	"github.com/geoffamey/wtg/internal/state"
+	"github.com/suhlig/wtg/internal/config"
+	"github.com/suhlig/wtg/internal/git"
+	"github.com/suhlig/wtg/internal/state"
 )
 
 // deleteRunner builds a testRunner for delete scenarios. statusFn is called for

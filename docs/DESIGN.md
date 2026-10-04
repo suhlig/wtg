@@ -332,3 +332,15 @@ can't offer shell completion and don't scale as the number of settings grows.
 
 Config is TOML-primary. Both TOML and YAML load: the parser is chosen by file
 extension, so a pre-existing `config.yaml` keeps working without migration.
+
+## Fork Maintenance
+
+This fork (`github.com/suhlig/wtg`) renames the module path from upstream's `github.com/geoffamey/wtg` so it installs directly with `go install github.com/suhlig/wtg@latest`. Go requires a module's declared path to match the path it is installed from, and a `replace` directive cannot bridge the gap: `replace` only applies in the main module and is ignored by `go install pkg@version`, and the `internal/` package rule blocks aliasing the old path to the new one (a package under `github.com/geoffamey/wtg/internal/...` is not importable from `github.com/suhlig/wtg`).
+
+The rename touches every internal import line, so merging upstream changes conflicts on import blocks. Enable `git rerere` once and Git replays the same resolution automatically on every future merge:
+
+```sh
+git config rerere.enabled true
+```
+
+Conflicts are limited to hunks that touch import blocks; upstream changes elsewhere in a file merge cleanly.

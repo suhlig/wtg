@@ -7,9 +7,9 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/geoffamey/wtg/internal/config"
-	"github.com/geoffamey/wtg/internal/state"
-	"github.com/geoffamey/wtg/internal/ui"
+	"github.com/suhlig/wtg/internal/config"
+	"github.com/suhlig/wtg/internal/state"
+	"github.com/suhlig/wtg/internal/ui"
 )
 
 // runSpaceScript invokes cfg.Always.Run (when set) after a space lifecycle

@@ -11,7 +11,7 @@ import (
 
 	"github.com/urfave/cli/v3"
 
-	"github.com/geoffamey/wtg/internal/config"
+	"github.com/suhlig/wtg/internal/config"
 )
 
 // configApp wraps ConfigCommand in a root carrying the global --config flag.

@@ -13,10 +13,10 @@ import (
 
 	"github.com/urfave/cli/v3"
 
-	"github.com/geoffamey/wtg/internal/config"
-	"github.com/geoffamey/wtg/internal/git"
-	"github.com/geoffamey/wtg/internal/state"
-	"github.com/geoffamey/wtg/internal/ui"
+	"github.com/suhlig/wtg/internal/config"
+	"github.com/suhlig/wtg/internal/git"
+	"github.com/suhlig/wtg/internal/state"
+	"github.com/suhlig/wtg/internal/ui"
 )
 
 // DeleteCommand returns the `wtg delete` command.

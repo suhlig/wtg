@@ -38,7 +38,7 @@ If this fails, direct the user to https://go.dev/doc/install and wait for confir
 ## Step 2: Install wtg
 
 ```bash
-go install github.com/geoffamey/wtg@latest
+go install github.com/suhlig/wtg@latest
 ```
 
 ## Step 3: Check PATH
@@ -217,7 +217,7 @@ set `always.run` to its path. The script receives its context (event type, space
 path, branch, repos) through environment variables. Don't reproduce the variable list
 here — it drifts. Read the authoritative reference before writing the script:
 
-https://raw.githubusercontent.com/geoffamey/wtg/main/docs/always.md
+https://raw.githubusercontent.com/suhlig/wtg/main/docs/always.md
 
 That doc names every variable and its format and shows how to dispatch on the event type.
 If the user isn't sure they want a hook, leave `always.run` unset — it's easy to add

@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/geoffamey/wtg/internal/git"
-	"github.com/geoffamey/wtg/internal/ui"
+	"github.com/suhlig/wtg/internal/git"
+	"github.com/suhlig/wtg/internal/ui"
 )
 
 func statusRunner(st git.RepoStatus, defaultBranch string) *testRunner {

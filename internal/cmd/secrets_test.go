@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/geoffamey/wtg/internal/config"
+	"github.com/suhlig/wtg/internal/config"
 )
 
 func TestValidateSecretPath(t *testing.T) {

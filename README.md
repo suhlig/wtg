@@ -213,3 +213,13 @@ Show branch, dirty status, and ahead/behind counts for each main repo clone.
 wtg repo status
 wtg repo status --long  # also show remote URL and local path
 ```
+
+## Development
+
+This fork renames the module path to `github.com/suhlig/wtg` so it installs via `go install github.com/suhlig/wtg@latest`. Upstream declares `github.com/geoffamey/wtg`, so merging upstream changes conflicts on the internal import lines. Enable [`git rerere`](https://git-scm.com/docs/git-rerere) once and Git replays the same resolution automatically on every future merge:
+
+```sh
+git config rerere.enabled true
+```
+
+Conflicts are limited to hunks that touch import blocks; changes elsewhere in a file merge cleanly.

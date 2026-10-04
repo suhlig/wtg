@@ -15,10 +15,10 @@ import (
 
 	"golang.org/x/mod/modfile"
 
-	"github.com/geoffamey/wtg/internal/git"
-	"github.com/geoffamey/wtg/internal/saga"
-	"github.com/geoffamey/wtg/internal/state"
-	"github.com/geoffamey/wtg/internal/ui"
+	"github.com/suhlig/wtg/internal/git"
+	"github.com/suhlig/wtg/internal/saga"
+	"github.com/suhlig/wtg/internal/state"
+	"github.com/suhlig/wtg/internal/ui"
 )
 
 // repoTarget holds resolved paths for one repo's participation in a space.

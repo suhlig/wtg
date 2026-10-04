@@ -9,7 +9,7 @@ import (
 	"testing"
 	"testing/synctest"
 
-	"github.com/geoffamey/wtg/internal/ui"
+	"github.com/suhlig/wtg/internal/ui"
 )
 
 func TestRunSpacePush_PushesAllRepos(t *testing.T) {

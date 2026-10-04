@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Module path renamed to `github.com/suhlig/wtg` so the fork installs via `go install github.com/suhlig/wtg@latest`
 - Narrow the `wtg` skill trigger to workspace management and multi-repo operations, excluding ordinary work inside existing worktrees
 
 ### Fixed
@@ -87,10 +88,10 @@ Initial public release.
 - XDG Base Directory-compliant config (`$XDG_CONFIG_HOME/wtg/config.yaml`) and state (`$XDG_DATA_HOME/wtg/spaces/`)
 - `--config` flag and `WTG_CONFIG` environment variable for config file override
 
-[Unreleased]: https://github.com/geoffamey/wtg/compare/v1.4.0...HEAD
-[1.4.0]: https://github.com/geoffamey/wtg/compare/v1.3.1...v1.4.0
-[1.3.1]: https://github.com/geoffamey/wtg/compare/v1.3.0...v1.3.1
-[1.3.0]: https://github.com/geoffamey/wtg/compare/v1.2.0...v1.3.0
-[1.2.0]: https://github.com/geoffamey/wtg/compare/v1.1.0...v1.2.0
-[1.1.0]: https://github.com/geoffamey/wtg/compare/v1.0.0...v1.1.0
-[1.0.0]: https://github.com/geoffamey/wtg/releases/tag/v1.0.0
+[Unreleased]: https://github.com/suhlig/wtg/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/suhlig/wtg/compare/v1.3.1...v1.4.0
+[1.3.1]: https://github.com/suhlig/wtg/compare/v1.3.0...v1.3.1
+[1.3.0]: https://github.com/suhlig/wtg/compare/v1.2.0...v1.3.0
+[1.2.0]: https://github.com/suhlig/wtg/compare/v1.1.0...v1.2.0
+[1.1.0]: https://github.com/suhlig/wtg/compare/v1.0.0...v1.1.0
+[1.0.0]: https://github.com/suhlig/wtg/releases/tag/v1.0.0

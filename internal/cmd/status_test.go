@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/geoffamey/wtg/internal/git"
-	"github.com/geoffamey/wtg/internal/ui"
+	"github.com/suhlig/wtg/internal/git"
+	"github.com/suhlig/wtg/internal/ui"
 )
 
 func alwaysStatus(st git.RepoStatus) func(string) (git.RepoStatus, error) {

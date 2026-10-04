@@ -14,7 +14,7 @@ import (
 	"github.com/google/shlex"
 	"github.com/urfave/cli/v3"
 
-	"github.com/geoffamey/wtg/internal/config"
+	"github.com/suhlig/wtg/internal/config"
 )
 
 // configTemplate is the commented config scaffold written by `wtg config init`.

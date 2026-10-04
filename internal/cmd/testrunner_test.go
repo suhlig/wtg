@@ -3,7 +3,7 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/geoffamey/wtg/internal/git"
+	"github.com/suhlig/wtg/internal/git"
 )
 
 // testRunner is a configurable mock of git.Runner for command unit tests.

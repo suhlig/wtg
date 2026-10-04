@@ -9,7 +9,7 @@ import (
 	"testing"
 	"testing/synctest"
 
-	"github.com/geoffamey/wtg/internal/ui"
+	"github.com/suhlig/wtg/internal/ui"
 )
 
 func runFetch(t *testing.T, root string, runner *testRunner, args ...string) string {

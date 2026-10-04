@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/geoffamey/wtg/internal/config"
+	"github.com/suhlig/wtg/internal/config"
 )
 
 // makeRepo creates a fake git repo (a directory with a .git subdir) under root.

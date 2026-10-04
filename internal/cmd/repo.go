@@ -14,9 +14,9 @@ import (
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/term"
 
-	"github.com/geoffamey/wtg/internal/config"
-	"github.com/geoffamey/wtg/internal/git"
-	"github.com/geoffamey/wtg/internal/ui"
+	"github.com/suhlig/wtg/internal/config"
+	"github.com/suhlig/wtg/internal/git"
+	"github.com/suhlig/wtg/internal/ui"
 )
 
 // termWidthFn returns the current terminal column count, or 0 if unknown.

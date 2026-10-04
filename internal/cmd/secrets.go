@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/geoffamey/wtg/internal/config"
-	"github.com/geoffamey/wtg/internal/saga"
+	"github.com/suhlig/wtg/internal/config"
+	"github.com/suhlig/wtg/internal/saga"
 )
 
 // validateSecretPath rejects absolute paths, empty paths, and .. escapes.

@@ -1,4 +1,4 @@
-module github.com/geoffamey/wtg
+module github.com/suhlig/wtg
 
 go 1.26.1
 

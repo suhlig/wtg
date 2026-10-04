@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/geoffamey/wtg/internal/git"
-	"github.com/geoffamey/wtg/internal/git/testhelper"
+	"github.com/suhlig/wtg/internal/git"
+	"github.com/suhlig/wtg/internal/git/testhelper"
 )
 
 func runner() *git.SystemRunner { return git.New() }

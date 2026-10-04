@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/geoffamey/wtg/internal/config"
-	"github.com/geoffamey/wtg/internal/state"
+	"github.com/suhlig/wtg/internal/config"
+	"github.com/suhlig/wtg/internal/state"
 )
 
 // makeSpace saves a space to state with the given repos already in it.

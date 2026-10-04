@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/geoffamey/wtg/internal/state"
+	"github.com/suhlig/wtg/internal/state"
 )
 
 // execSpace creates a space whose worktree paths are real directories.
