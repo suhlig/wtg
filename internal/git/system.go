@@ -160,10 +160,27 @@ func (r *SystemRunner) Status(repoPath string) (RepoStatus, error) {
 
 // --- Sync ---
 
+// remoteHeadRef is the local remote-tracking symbolic ref that records the
+// default branch of the "origin" remote.
+const remoteHeadRef = "refs/remotes/origin/HEAD"
+
+// DefaultBranch returns the default branch of the "origin" remote, e.g. "main".
+//
+// It reads the cached origin/HEAD symbolic ref, which git populates on clone.
+// That ref is absent in some repos (e.g. those not created by "git clone") and
+// can also be a plain commit ref rather than a symbolic one, in which case
+// "git symbolic-ref" fails with "is not a symbolic ref". When the cached ref
+// cannot be read, DefaultBranch asks the remote via "git remote set-head origin
+// --auto" — which discovers and repairs origin/HEAD — and reads it again.
 func (r *SystemRunner) DefaultBranch(repoPath string) (string, error) {
-	out, err := r.run(repoPath, "symbolic-ref", "refs/remotes/origin/HEAD")
+	out, err := r.run(repoPath, "symbolic-ref", remoteHeadRef)
 	if err != nil {
-		return "", fmt.Errorf("cannot determine default branch (is origin/HEAD set?): %w", err)
+		if _, repairErr := r.run(repoPath, "remote", "set-head", "origin", "--auto"); repairErr != nil {
+			return "", fmt.Errorf("cannot determine default branch (is origin/HEAD set?): %w", err)
+		}
+		if out, err = r.run(repoPath, "symbolic-ref", remoteHeadRef); err != nil {
+			return "", fmt.Errorf("cannot determine default branch (is origin/HEAD set?): %w", err)
+		}
 	}
 	// "refs/remotes/origin/main" → "main"
 	_, branch, ok := strings.Cut(out, "refs/remotes/origin/")

@@ -73,6 +73,14 @@ No free-text git output is parsed. All parsing uses structured, version-stable f
 | Branch existence | `git rev-parse --verify refs/heads/<branch>` | Exit code only |
 | Remote URL | `git remote get-url origin` | Single line |
 | Default branch | `git symbolic-ref refs/remotes/origin/HEAD` | `refs/remotes/origin/<branch>` |
+| Default branch (repair) | `git remote set-head origin --auto` | Human output; the ref is re-read via the row above |
+
+`origin/HEAD` is a local cache that git populates on clone, so it can be missing
+or left as a non-symbolic commit ref (e.g. in repos not created by `git clone`,
+or after the remote's default branch changed). `DefaultBranch` reads it when
+present and otherwise repairs it with `git remote set-head origin --auto` before
+reading again — the only case where a normally-local lookup contacts the remote.
+`repo status` treats a failure as "no default branch" (branch shown muted).
 
 ### Testing strategy
 

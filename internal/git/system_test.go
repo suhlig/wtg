@@ -384,6 +384,40 @@ func TestDefaultBranch(t *testing.T) {
 	}
 }
 
+// TestDefaultBranch_RepairsMissingRef covers repos whose cached origin/HEAD was
+// never set (e.g. not created by "git clone"): DefaultBranch must discover the
+// default branch from the remote instead of failing.
+func TestDefaultBranch_RepairsMissingRef(t *testing.T) {
+	t.Parallel()
+	local, _ := testhelper.InitWithRemote(t)
+	local.GitCmd("symbolic-ref", "--delete", "refs/remotes/origin/HEAD")
+
+	branch, err := runner().DefaultBranch(local.Path)
+	if err != nil {
+		t.Fatalf("DefaultBranch: %v", err)
+	}
+	if branch != "main" {
+		t.Errorf("DefaultBranch: got %q, want %q", branch, "main")
+	}
+}
+
+// TestDefaultBranch_RepairsDirectRef covers repos where origin/HEAD exists as a
+// plain commit ref rather than a symbolic one. "git symbolic-ref" fails on it
+// ("is not a symbolic ref"); DefaultBranch must repair it from the remote.
+func TestDefaultBranch_RepairsDirectRef(t *testing.T) {
+	t.Parallel()
+	local, _ := testhelper.InitWithRemote(t)
+	local.GitCmd("update-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+
+	branch, err := runner().DefaultBranch(local.Path)
+	if err != nil {
+		t.Fatalf("DefaultBranch: %v", err)
+	}
+	if branch != "main" {
+		t.Errorf("DefaultBranch: got %q, want %q", branch, "main")
+	}
+}
+
 func TestFetchAndFastForward(t *testing.T) {
 	t.Parallel()
 	local, remote := testhelper.InitWithRemote(t)
