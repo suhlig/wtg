@@ -398,41 +398,43 @@ func syncOne(repoPath string, runner git.Runner) (string, string) {
 	return ui.SymUp, fmt.Sprintf("fast-forwarded to origin/%s (%d %s)", defaultBranch, n, commits)
 }
 
-// resolveRepoPath converts a short repo name to an absolute path by searching
-// each root in roots, checking that a git repo actually exists there.
-func resolveRepoPath(roots []string, name string) (string, error) {
-	for _, rootDir := range roots {
-		p := filepath.Join(rootDir, filepath.FromSlash(name))
-		if isGitRepo(p) {
-			return p, nil
-		}
-	}
-	if len(roots) == 1 {
-		return "", fmt.Errorf("repo %q not found under %s", name, roots[0])
-	}
-	return "", fmt.Errorf("repo %q not found under any discovery root dir", name)
-}
-
 // resolveRepoPaths returns paths for all repos to operate on. When args is
 // empty it discovers all repos under all configured root dirs (sorted);
-// otherwise it resolves each named arg to an absolute path.
+// otherwise it resolves each named arg against the discovered repos using the
+// same matching as the workspace commands — exact short name, unique basename,
+// or unique partial segment match (see repoInSet) — so nested repos can be
+// addressed by their short name here too. Ambiguous or unknown names error.
 func resolveRepoPaths(cfg *config.Config, args []string) ([]string, error) {
 	roots := cfg.DiscoveryRootDirs()
+	allPaths, err := discoverAllRepoPaths(roots, cfg.Discovery.MaxDepth)
+	if err != nil {
+		return nil, err
+	}
 	if len(args) == 0 {
-		paths, err := discoverAllRepoPaths(roots, cfg.Discovery.MaxDepth)
-		if err != nil {
-			return nil, err
-		}
-		sort.Strings(paths)
-		return paths, nil
+		sort.Strings(allPaths)
+		return allPaths, nil
+	}
+
+	allNames := make([]string, 0, len(allPaths))
+	byName := make(map[string]string, len(allPaths))
+	for _, p := range allPaths {
+		name := repoName(roots, p)
+		allNames = append(allNames, name)
+		byName[name] = p
 	}
 	paths := make([]string, 0, len(args))
 	for _, name := range args {
-		p, err := resolveRepoPath(roots, name)
+		canonical, ok, err := repoInSet(allNames, name)
 		if err != nil {
 			return nil, err
 		}
-		paths = append(paths, p)
+		if !ok {
+			if len(roots) == 1 {
+				return nil, fmt.Errorf("repo %q not found under %s", name, roots[0])
+			}
+			return nil, fmt.Errorf("repo %q not found under any discovery root dir", name)
+		}
+		paths = append(paths, byName[canonical])
 	}
 	return paths, nil
 }

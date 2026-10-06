@@ -77,8 +77,9 @@ func RunSpaceAdd(cfg *config.Config, runner git.Runner, args SpaceAddArgs, out i
 	}
 
 	// Partition requested repos into: upgrade from symlink, or add fresh.
-	// Names are matched against the space's existing repos exactly or by a
-	// unique basename, matching how they were added (see repoInSet).
+	// Names are matched against the space's existing repos exactly, by a unique
+	// basename, or by a unique partial match, matching how they were added (see
+	// repoInSet).
 	stateNames := make([]string, 0, len(sp.Repos))
 	existingByName := make(map[string]state.RepoEntry, len(sp.Repos))
 	for _, r := range sp.Repos {

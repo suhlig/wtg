@@ -47,6 +47,50 @@ func TestRepoInSet_NotFound(t *testing.T) {
 	}
 }
 
+func TestRepoInSet_PartialMatchOnBasename(t *testing.T) {
+	// A substring of the repo's basename resolves to it: `infra` → infrastructure.
+	names := []string{"github.com/uhlig-it/infrastructure"}
+	got, ok, err := repoInSet(names, "infra")
+	if err != nil || !ok || got != "github.com/uhlig-it/infrastructure" {
+		t.Fatalf("repoInSet(infra) = %q, ok=%v, err=%v", got, ok, err)
+	}
+}
+
+func TestRepoInSet_PartialMatchOnOrgSegment(t *testing.T) {
+	// Any path segment may be matched, not just the basename.
+	names := []string{"github.com/uhlig-it/infrastructure", "github.com/other/thing"}
+	got, ok, err := repoInSet(names, "uhlig")
+	if err != nil || !ok || got != "github.com/uhlig-it/infrastructure" {
+		t.Fatalf("repoInSet(uhlig) = %q, ok=%v, err=%v", got, ok, err)
+	}
+}
+
+func TestRepoInSet_PartialMatchAmbiguous(t *testing.T) {
+	names := []string{"github.com/org/infrastructure", "github.com/org/infra-tools"}
+	got, ok, err := repoInSet(names, "infra")
+	if ok || got != "" {
+		t.Fatalf("expected no match, got %q ok=%v", got, ok)
+	}
+	if _, ok := errors.AsType[*ambiguousRepoError](err); !ok {
+		t.Fatalf("expected *ambiguousRepoError, got %T", err)
+	}
+	for _, want := range []string{"github.com/org/infra-tools", "github.com/org/infrastructure"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error should list candidate %q: %v", want, err)
+		}
+	}
+}
+
+func TestRepoInSet_ExactBasenameBeatsPartial(t *testing.T) {
+	// Typing a repo's exact basename must win even when another repo merely
+	// contains it as a substring.
+	names := []string{"org/api", "org/api-gateway"}
+	got, ok, err := repoInSet(names, "api")
+	if err != nil || !ok || got != "org/api" {
+		t.Fatalf("repoInSet(api) = %q, ok=%v, err=%v", got, ok, err)
+	}
+}
+
 // --- resolveRepoName ---
 
 func TestResolveRepoName_NotFoundUnder(t *testing.T) {

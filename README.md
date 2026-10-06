@@ -57,7 +57,7 @@ YAML is still accepted: a file ending in `.yaml`/`.yml` loads via its extension,
 
 `discovery.root_dir` (or `discovery.root_dirs` for multiple search directories) should contain your regular repo clones, each sitting on their default branch (`main`, `master`, etc.) and otherwise left untouched. `wtg` creates worktrees alongside them — it never modifies the main clones.
 
-Repos are addressed by their slash-separated path relative to their discovery root directory, e.g. `github.com/suhlig/rustomato`. A repo nested under org or group directories can also be addressed by its basename (`rustomato`) as long as no other discovered repo shares that basename; otherwise `wtg` errors and lists the matching repos, and you use the full path to disambiguate.
+Repos are addressed by their slash-separated path relative to their discovery root directory, e.g. `github.com/suhlig/rustomato`. A repo nested under org or group directories can also be addressed by its basename (`rustomato`) as long as no other discovered repo shares that basename; otherwise `wtg` errors and lists the matching repos, and you use the full path to disambiguate. A unique partial match on any path segment works too — `infra` selects `github.com/suhlig/infrastructure`, and `suhlig` selects a repo under that org — but when more than one repo matches, `wtg` lists all candidates and you disambiguate with a longer name or the full path.
 
 Override with `--config <path>` or the `WTG_CONFIG` environment variable.
 

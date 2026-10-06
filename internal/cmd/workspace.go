@@ -111,20 +111,46 @@ func repoNamesIndex(rootDir string, allPaths []string) (names []string, byName m
 	return names, byName
 }
 
-// repoInSet resolves input against a set of slash-separated repo names. An
-// exact match wins; otherwise a unique match on the final path element (the
-// repo basename) is accepted, so repos nested under org/group directories can
-// be addressed by their short name. Multiple basename matches is an ambiguity
-// error listing the candidates.
+// repoInSet resolves input against a set of slash-separated repo names.
+//
+// Resolution is staged, most specific first:
+//
+//  1. an exact full-name match wins outright;
+//  2. otherwise a unique exact match on the final path element (the repo
+//     basename) is accepted, so repos nested under org/group directories can be
+//     addressed by their short name;
+//  3. otherwise a unique partial match is accepted: input matches a repo when
+//     it is a substring of any of the repo name's slash-separated segments, so
+//     `infra` resolves to `github.com/uhlig-it/infrastructure` and `uhlig`
+//     resolves to it via the org segment.
+//
+// Stages 2 and 3 are rejected when they yield more than one candidate: an
+// *ambiguousRepoError listing every candidate is returned. Step 2 is checked
+// first so that typing a repo's exact short name never becomes ambiguous merely
+// because another repo contains it as a substring. No match at all returns
+// ok == false with a nil error.
 func repoInSet(names []string, input string) (canonical string, ok bool, err error) {
 	for _, n := range names {
 		if n == input {
 			return n, true, nil
 		}
 	}
-	var matches []string
+
+	var exactBase []string
 	for _, n := range names {
 		if path.Base(n) == input {
+			exactBase = append(exactBase, n)
+		}
+	}
+	if len(exactBase) == 1 {
+		return exactBase[0], true, nil
+	}
+
+	// Fall back to substring matching against any path segment. When the exact
+	// basename was itself ambiguous, its matches are a subset of these.
+	var matches []string
+	for _, n := range names {
+		if nameHasSegmentContaining(n, input) {
 			matches = append(matches, n)
 		}
 	}
@@ -137,6 +163,20 @@ func repoInSet(names []string, input string) (canonical string, ok bool, err err
 		sort.Strings(matches)
 		return "", false, &ambiguousRepoError{input: input, matches: matches}
 	}
+}
+
+// nameHasSegmentContaining reports whether input is a non-empty substring of any
+// slash-separated segment of the slash-separated repo name.
+func nameHasSegmentContaining(name, input string) bool {
+	if input == "" {
+		return false
+	}
+	for _, seg := range strings.Split(name, "/") {
+		if strings.Contains(seg, input) {
+			return true
+		}
+	}
+	return false
 }
 
 // resolveRepoName resolves input to its canonical name within names, mapping a

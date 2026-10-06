@@ -173,45 +173,83 @@ func TestRepoName_NoMatchingRoot_ReturnsAbsPath(t *testing.T) {
 	}
 }
 
-// --- resolveRepoPath ---
+// --- resolveRepoPaths ---
 
-func TestResolveRepoPath_ExactPath_SingleRoot(t *testing.T) {
+func TestResolveRepoPaths_ExactPath_SingleRoot(t *testing.T) {
 	root := t.TempDir()
 	makeRepo(t, root, "api")
-	p, err := resolveRepoPath([]string{root}, "api")
+	paths, err := resolveRepoPaths(discoverCfg(root, 2), []string{"api"})
 	if err != nil {
-		t.Fatalf("resolveRepoPath: %v", err)
+		t.Fatalf("resolveRepoPaths: %v", err)
 	}
-	if !strings.HasSuffix(p, "api") {
-		t.Errorf("got %q", p)
+	if len(paths) != 1 || !strings.HasSuffix(paths[0], "api") {
+		t.Errorf("got %v", paths)
 	}
 }
 
-func TestResolveRepoPath_ExactPath_MultipleRoots(t *testing.T) {
+func TestResolveRepoPaths_ExactPath_MultipleRoots(t *testing.T) {
 	root1 := t.TempDir()
 	root2 := t.TempDir()
 	makeRepo(t, root2, "frontend")
-	p, err := resolveRepoPath([]string{root1, root2}, "frontend")
+	cfg := &config.Config{Discovery: config.DiscoveryConfig{RootDirs: []string{root1, root2}, MaxDepth: 2}}
+	paths, err := resolveRepoPaths(cfg, []string{"frontend"})
 	if err != nil {
-		t.Fatalf("resolveRepoPath: %v", err)
+		t.Fatalf("resolveRepoPaths: %v", err)
 	}
-	if !strings.HasSuffix(p, "frontend") {
-		t.Errorf("got %q", p)
+	if len(paths) != 1 || !strings.HasSuffix(paths[0], "frontend") {
+		t.Errorf("got %v", paths)
 	}
 }
 
-func TestResolveRepoPath_NotFound_SingleRoot(t *testing.T) {
+func TestResolveRepoPaths_Basename(t *testing.T) {
+	// A nested repo can be addressed by its unique basename.
 	root := t.TempDir()
-	_, err := resolveRepoPath([]string{root}, "nope")
+	makeRepo(t, root, "org/api")
+	paths, err := resolveRepoPaths(discoverCfg(root, 2), []string{"api"})
+	if err != nil {
+		t.Fatalf("resolveRepoPaths: %v", err)
+	}
+	if len(paths) != 1 || !strings.HasSuffix(paths[0], filepath.Join("org", "api")) {
+		t.Errorf("got %v", paths)
+	}
+}
+
+func TestResolveRepoPaths_PartialMatch(t *testing.T) {
+	// A unique partial segment match resolves the repo, as in wtg add/new.
+	root := t.TempDir()
+	makeRepo(t, root, "github.com/uhlig-it/infrastructure")
+	paths, err := resolveRepoPaths(discoverCfg(root, 3), []string{"infra"})
+	if err != nil {
+		t.Fatalf("resolveRepoPaths: %v", err)
+	}
+	if len(paths) != 1 || !strings.HasSuffix(paths[0], filepath.Join("uhlig-it", "infrastructure")) {
+		t.Errorf("got %v", paths)
+	}
+}
+
+func TestResolveRepoPaths_AmbiguousPartial_Errors(t *testing.T) {
+	root := t.TempDir()
+	makeRepo(t, root, "github.com/org/infrastructure")
+	makeRepo(t, root, "github.com/org/infra-tools")
+	_, err := resolveRepoPaths(discoverCfg(root, 3), []string{"infra"})
+	if err == nil || !strings.Contains(err.Error(), "ambiguous") {
+		t.Fatalf("expected ambiguous error, got %v", err)
+	}
+}
+
+func TestResolveRepoPaths_NotFound_SingleRoot(t *testing.T) {
+	root := t.TempDir()
+	_, err := resolveRepoPaths(discoverCfg(root, 2), []string{"nope"})
 	if err == nil || !strings.Contains(err.Error(), "not found under") {
 		t.Fatalf("expected 'not found under' error, got %v", err)
 	}
 }
 
-func TestResolveRepoPath_NotFound_MultipleRoots(t *testing.T) {
+func TestResolveRepoPaths_NotFound_MultipleRoots(t *testing.T) {
 	root1 := t.TempDir()
 	root2 := t.TempDir()
-	_, err := resolveRepoPath([]string{root1, root2}, "nope")
+	cfg := &config.Config{Discovery: config.DiscoveryConfig{RootDirs: []string{root1, root2}, MaxDepth: 2}}
+	_, err := resolveRepoPaths(cfg, []string{"nope"})
 	if err == nil || !strings.Contains(err.Error(), "not found under any discovery root dir") {
 		t.Fatalf("expected 'not found under any discovery root dir' error, got %v", err)
 	}

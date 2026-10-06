@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Repo names can be matched by a unique partial substring of any path segment (e.g. `infra` for `github.com/uhlig-it/infrastructure`) in `wtg new`, `add`, `remove`, and the `wtg repo` commands; when more than one repo matches, `wtg` errors and lists the candidates
+
+### Fixed
+
+- `wtg repo status`, `repo fetch`, and `repo sync` now resolve repo names like the workspace commands do — by exact short name, unique basename, or unique partial segment match — instead of only by exact relative path, so nested repos addressed by their basename (documented since 1.5.0) now work here too
+
 ### Fixed
 
 - `wtg repo sync` (and `repo status`) no longer fail with "cannot determine default branch" when a repo's cached `origin/HEAD` is missing or is a non-symbolic ref; wtg now asks the remote (`git remote set-head origin --auto`) and repairs the ref

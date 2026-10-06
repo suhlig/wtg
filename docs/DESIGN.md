@@ -202,6 +202,8 @@ In the standard (non-nested) case the short name is just the directory name, so 
 no added complexity for the common workflow. When used in commands like `wtg new`,
 users can specify `foo/api` to be explicit or `api` if it is unambiguous.
 
+Name resolution is staged, most specific first (`repoInSet` in `internal/cmd/workspace.go`): an exact short name wins outright, then a unique exact basename, then a unique substring match against any path segment — so `infra` finds `foo/infrastructure` and `foo` finds it via the org segment. Each stage is only consulted when the previous one is inconclusive, so typing a repo's exact name never becomes ambiguous merely because another repo contains it as a substring. When a stage yields more than one candidate, `wtg` errors and lists them rather than prompting, keeping commands scriptable (see the convention in `AGENTS.md`).
+
 Repo listings also include the remote `origin` URL to make repos easy to identify:
 
 ```

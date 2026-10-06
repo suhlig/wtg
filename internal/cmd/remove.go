@@ -94,7 +94,8 @@ func RunSpaceRemove(cfg *config.Config, runner git.Runner, args SpaceRemoveArgs,
 	}
 
 	// Index existing repos by name for fast lookup. Names are matched against
-	// the space's repos exactly or by a unique basename (see repoInSet).
+	// the space's repos exactly, by a unique basename, or by a unique partial
+	// match (see repoInSet).
 	stateNames := make([]string, 0, len(sp.Repos))
 	byName := make(map[string]state.RepoEntry, len(sp.Repos))
 	for _, r := range sp.Repos {
@@ -119,8 +120,9 @@ func RunSpaceRemove(cfg *config.Config, runner git.Runner, args SpaceRemoveArgs,
 	}
 
 	// Build the always.repos set for restore-symlink logic, canonicalizing each
-	// config entry against the space's repo names (exact or unique basename, see
-	// repoInSet) so e.g. a "docs" entry matches the stored name "org/docs".
+	// config entry against the space's repo names (exact, unique basename, or
+	// unique partial match — see repoInSet) so e.g. a "docs" entry matches the
+	// stored name "org/docs".
 	// Entries that do not name a repo in this space are irrelevant and skipped.
 	alwaysRepos := make(map[string]bool, len(cfg.Always.Repos))
 	for _, name := range cfg.Always.Repos {

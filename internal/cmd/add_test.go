@@ -448,6 +448,73 @@ func TestRunSpaceAdd_AmbiguousBasename_Errors(t *testing.T) {
 	}
 }
 
+func TestRunSpaceAdd_PartialMatch(t *testing.T) {
+	// `infra` resolves to github.com/uhlig-it/infrastructure by substring match
+	// on the basename segment.
+	root := t.TempDir()
+	spacesRoot := t.TempDir()
+	isolateState(t)
+	makeRepo(t, root, "github.com/uhlig-it/infrastructure")
+	spacePath := filepath.Join(spacesRoot, "feat")
+	makeSpace(t, "feat", "feat", spacePath, nil, root)
+	cfg := &config.Config{
+		Discovery: config.DiscoveryConfig{RootDir: root, MaxDepth: 3},
+		Spaces:    config.SpacesConfig{RootDir: spacesRoot},
+	}
+
+	var added []string
+	r := &testRunner{
+		branchExistsFn: func(_, _ string) (bool, error) { return false, nil },
+		worktreeAddFn: func(_, worktreePath, _, _ string, _ bool) error {
+			added = append(added, worktreePath)
+			return nil
+		},
+	}
+
+	var out bytes.Buffer
+	if err := RunSpaceAdd(cfg, r, SpaceAddArgs{Name: "feat", Repos: []string{"infra"}}, &out); err != nil {
+		t.Fatalf("RunSpaceAdd: %v", err)
+	}
+
+	want := filepath.Join(spacePath, "github.com", "uhlig-it", "infrastructure")
+	if len(added) != 1 || added[0] != want {
+		t.Errorf("worktree adds = %v, want [%s]", added, want)
+	}
+	sp, err := state.Load("feat")
+	if err != nil {
+		t.Fatalf("state.Load: %v", err)
+	}
+	if len(sp.Repos) != 1 || sp.Repos[0].Name != "github.com/uhlig-it/infrastructure" {
+		t.Errorf("state repos = %+v, want the infrastructure repo", sp.Repos)
+	}
+}
+
+func TestRunSpaceAdd_AmbiguousPartialMatch_Errors(t *testing.T) {
+	// `infra` matches two repos by substring; the error lists both candidates.
+	root := t.TempDir()
+	spacesRoot := t.TempDir()
+	isolateState(t)
+	makeRepo(t, root, "github.com/org/infrastructure")
+	makeRepo(t, root, "github.com/org/infra-tools")
+	spacePath := filepath.Join(spacesRoot, "feat")
+	makeSpace(t, "feat", "feat", spacePath, nil, root)
+	cfg := &config.Config{
+		Discovery: config.DiscoveryConfig{RootDir: root, MaxDepth: 3},
+		Spaces:    config.SpacesConfig{RootDir: spacesRoot},
+	}
+
+	var out bytes.Buffer
+	err := RunSpaceAdd(cfg, &testRunner{}, SpaceAddArgs{Name: "feat", Repos: []string{"infra"}}, &out)
+	if err == nil {
+		t.Fatal("expected error for ambiguous partial match")
+	}
+	for _, want := range []string{"ambiguous", "github.com/org/infra-tools", "github.com/org/infrastructure"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error should contain %q: %v", want, err)
+		}
+	}
+}
+
 // --- always.secrets ---
 
 func TestRunSpaceAdd_AlwaysSecrets_CopiesIntoWorktree(t *testing.T) {
