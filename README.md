@@ -219,7 +219,7 @@ wtg repo status --long  # also show remote URL and local path
 
 ### `wtg repo archive <repo>...`
 
-Retire one or more main repo clones: each is moved out of the discovery area into `archive.root_dir`, kept intact, and recorded (with its original path) under `~/.local/share/wtg/archived.yaml`. Nothing is deleted and, without `--remote`, no remote is touched.
+Retire one or more main repo clones: each is moved out of the discovery area into `archive.root_dir`, kept intact, and recorded (with its original path) under `~/.local/share/wtg/archived.yaml`. Nothing is deleted and, without `--remote`, no remote is touched. See [docs/archive.md](docs/archive.md) for the full behaviour, the provenance file, and examples.
 
 ```sh
 wtg repo archive old-service spike-repo
