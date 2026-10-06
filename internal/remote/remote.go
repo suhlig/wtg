@@ -55,6 +55,13 @@ func ArchiveCommand(ownerRepo string) string {
 	return "gh repo archive " + ownerRepo + " --yes"
 }
 
+// UnarchiveCommand returns the `gh` invocation that unarchives ownerRepo on
+// GitHub, the inverse of ArchiveCommand. It is printed by `wtg repo unarchive`
+// without --remote, and executed by SystemRunner with --remote.
+func UnarchiveCommand(ownerRepo string) string {
+	return "gh repo unarchive " + ownerRepo + " --yes"
+}
+
 // splitRemote splits a git remote URL into its hostname and path. It handles
 // both URL forms (scheme://...) and the scp-like shortcut ([user@]host:path)
 // that git accepts. The returned host is lowercased; the returned path keeps

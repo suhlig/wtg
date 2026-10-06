@@ -53,3 +53,11 @@ func TestArchiveCommand(t *testing.T) {
 		t.Errorf("ArchiveCommand() = %q, want %q", got, want)
 	}
 }
+
+func TestUnarchiveCommand(t *testing.T) {
+	got := UnarchiveCommand("owner/repo")
+	want := "gh repo unarchive owner/repo --yes"
+	if got != want {
+		t.Errorf("UnarchiveCommand() = %q, want %q", got, want)
+	}
+}

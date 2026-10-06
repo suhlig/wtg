@@ -413,7 +413,7 @@ type fakeGH struct {
 	archived       map[string]bool  // slug -> already archived upstream
 	stateErr       map[string]error // slug -> IsArchived failure
 	archiveErr     map[string]error // slug -> Archive failure
-	unarchiveErr   error
+	unarchiveErr   map[string]error // slug -> Unarchive failure
 	authHost       string
 	archiveCalls   []string
 	unarchiveCalls []string
@@ -440,7 +440,7 @@ func (f *fakeGH) Archive(_ context.Context, _, ownerRepo string) error {
 
 func (f *fakeGH) Unarchive(_ context.Context, _, ownerRepo string) error {
 	f.unarchiveCalls = append(f.unarchiveCalls, ownerRepo)
-	return f.unarchiveErr
+	return f.unarchiveErr[ownerRepo]
 }
 
 func TestRunRepoArchive_RemoteArchivesUpstream(t *testing.T) {

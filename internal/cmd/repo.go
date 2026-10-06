@@ -132,6 +132,7 @@ diverged branch are skipped with a warning. Runs in parallel.`,
 				},
 			},
 			ArchiveCommand(runner),
+			UnarchiveCommand(),
 		},
 	}
 }

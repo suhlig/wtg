@@ -240,6 +240,25 @@ Upstream repos were not modified. To archive them on GitHub:
   gh repo archive something/foo --yes
 ```
 
+### `wtg repo unarchive <repo>...`
+
+Restore one or more archived repo clones: each is moved out of `archive.root_dir` back to the exact path recorded when it was archived, and its provenance record is removed. Nothing is deleted.
+
+```sh
+wtg repo unarchive old-service spike-repo
+wtg repo unarchive old-service --dry-run
+wtg repo unarchive old-service --remote
+```
+
+`unarchive` refuses if the recorded origin path already exists, or if the archived clone is missing from `archive.root_dir`; pass `--archive-dir` if you moved your archive root.
+
+Pass `--remote` to also unarchive each repo on GitHub, under the same rules as `--remote` on archive: it requires the `gh` CLI (2.32 or newer) with an authenticated github.com account, every named repo must have a github.com origin, it is idempotent for a repo that is already unarchived upstream, and if an upstream unarchive fails the local restores are rolled back. Without `--remote`, the exact `gh` command is printed instead:
+
+```
+Upstream repos were not modified. To unarchive them on GitHub:
+  gh repo unarchive something/foo --yes
+```
+
 ## Development
 
 This fork renames the module path to `github.com/suhlig/wtg` so it installs via `go install github.com/suhlig/wtg@latest`. Upstream declares `github.com/geoffamey/wtg`, so merging upstream changes conflicts on the internal import lines. Enable [`git rerere`](https://git-scm.com/docs/git-rerere) once and Git replays the same resolution automatically on every future merge:

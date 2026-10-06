@@ -8,6 +8,7 @@ import (
 
 	"github.com/urfave/cli/v3"
 
+	"github.com/suhlig/wtg/internal/archive"
 	"github.com/suhlig/wtg/internal/config"
 	"github.com/suhlig/wtg/internal/state"
 )
@@ -95,6 +96,24 @@ func completeRepos(_ context.Context, cmd *cli.Command) {
 	sort.Strings(paths)
 	for _, p := range paths {
 		_, _ = fmt.Fprintln(os.Stdout, repoName(roots, p))
+	}
+	emitFlags(cmd)
+}
+
+// completeArchivedRepos outputs archived repo names (from the provenance
+// record) for `wtg repo unarchive` shell completion.
+func completeArchivedRepos(_ context.Context, cmd *cli.Command) {
+	f, err := archive.Load()
+	if err != nil {
+		return
+	}
+	names := make([]string, 0, len(f.Entries))
+	for _, e := range f.Entries {
+		names = append(names, e.Name)
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		fmt.Println(completionName(names, n))
 	}
 	emitFlags(cmd)
 }

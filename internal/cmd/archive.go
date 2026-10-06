@@ -254,19 +254,9 @@ func requireGitHubTargets(remoteMode bool, targets []*archiveTarget) error {
 	}
 	var bad []string
 	for _, t := range targets {
-		if t.ghOK {
-			continue
+		if !t.ghOK {
+			bad = append(bad, githubSkipReason(t.name, t.remoteURL, t.host))
 		}
-		var reason string
-		switch {
-		case t.remoteURL == "":
-			reason = "has no origin remote"
-		case t.host == "":
-			reason = fmt.Sprintf("has an origin that cannot be parsed as a git URL: %s", t.remoteURL)
-		default:
-			reason = fmt.Sprintf("origin is on %s, not github.com", t.host)
-		}
-		bad = append(bad, fmt.Sprintf("  %s: %s", t.name, reason))
 	}
 	if len(bad) == 0 {
 		return nil
@@ -274,23 +264,52 @@ func requireGitHubTargets(remoteMode bool, targets []*archiveTarget) error {
 	return fmt.Errorf("--remote archives repos on GitHub, but some requested repos are not:\n%s\nArchive them without --remote, or add provider support for those hosts first", strings.Join(bad, "\n"))
 }
 
-// resolveRemoteState records, per target, whether the repo is already archived
-// upstream. It is a read-only gh call, used both for idempotency and output.
-func resolveRemoteState(ctx context.Context, gh remote.Runner, targets []*archiveTarget) (map[string]bool, error) {
-	archived := make(map[string]bool, len(targets))
+// githubSkipReason explains, for --remote, why a repo cannot be acted on
+// upstream. Callers use it only when the repo is not GitHub-eligible.
+func githubSkipReason(name, remoteURL, host string) string {
+	switch {
+	case remoteURL == "":
+		return fmt.Sprintf("  %s: has no origin remote", name)
+	case host == "":
+		return fmt.Sprintf("  %s: has an origin that cannot be parsed as a git URL: %s", name, remoteURL)
+	default:
+		return fmt.Sprintf("  %s: origin is on %s, not github.com", name, host)
+	}
+}
+
+// ghCheck pairs a repo's display name with its owner/repo slug for the read-only
+// upstream state check.
+type ghCheck struct {
+	name string
+	slug string
+}
+
+// githubState records, per repo, whether it is currently archived upstream. It
+// is a read-only gh call, used both for idempotency and output.
+func githubState(ctx context.Context, gh remote.Runner, checks []ghCheck) (map[string]bool, error) {
+	archived := make(map[string]bool, len(checks))
 	var errs []string
-	for _, t := range targets {
-		ok, err := gh.IsArchived(ctx, remote.GitHubHost, t.ghSlug)
+	for _, c := range checks {
+		ok, err := gh.IsArchived(ctx, remote.GitHubHost, c.slug)
 		if err != nil {
-			errs = append(errs, fmt.Sprintf("  %s: %v", t.name, err))
+			errs = append(errs, fmt.Sprintf("  %s: %v", c.name, err))
 			continue
 		}
-		archived[t.name] = ok
+		archived[c.name] = ok
 	}
 	if len(errs) > 0 {
 		return nil, fmt.Errorf("cannot check upstream archive state:\n%s", strings.Join(errs, "\n"))
 	}
 	return archived, nil
+}
+
+// resolveRemoteState is the archive-flavoured wrapper around githubState.
+func resolveRemoteState(ctx context.Context, gh remote.Runner, targets []*archiveTarget) (map[string]bool, error) {
+	checks := make([]ghCheck, len(targets))
+	for i, t := range targets {
+		checks[i] = ghCheck{name: t.name, slug: t.ghSlug}
+	}
+	return githubState(ctx, gh, checks)
 }
 
 // archivePreflight runs every check before anything is moved. Pending-work
