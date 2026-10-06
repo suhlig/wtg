@@ -393,3 +393,38 @@ func nonexistentPath(t *testing.T) string {
 	t.Helper()
 	return filepath.Join(t.TempDir(), "no-such-file.yaml")
 }
+
+func TestLoad_ArchiveDefault(t *testing.T) {
+	cfg, err := Load(nonexistentPath(t))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Archive.RootDir != expandTilde("~/repos-archived") {
+		t.Errorf("Archive.RootDir: got %q, want default ~/repos-archived", cfg.Archive.RootDir)
+	}
+}
+
+func TestLoad_ArchiveSection(t *testing.T) {
+	path := writeConfig(t, `
+archive:
+  root_dir: ~/cold
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Archive.RootDir != expandTilde("~/cold") {
+		t.Errorf("Archive.RootDir: got %q, want %q", cfg.Archive.RootDir, expandTilde("~/cold"))
+	}
+}
+
+func TestLoad_ArchiveEnvOverride(t *testing.T) {
+	t.Setenv("WTG_ARCHIVE_ROOT_DIR", "/tmp/cold")
+	cfg, err := Load(nonexistentPath(t))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Archive.RootDir != "/tmp/cold" {
+		t.Errorf("Archive.RootDir: got %q, want /tmp/cold", cfg.Archive.RootDir)
+	}
+}

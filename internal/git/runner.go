@@ -51,6 +51,13 @@ type Runner interface {
 	// Status
 	Status(repoPath string) (RepoStatus, error) // git status --porcelain=v2 --branch
 
+	// Pending work
+	// PendingWork returns the number of commits on any local branch that exist
+	// on no remote, plus the number of stash entries. Both travel with a repo
+	// that is moved rather than deleted, so callers treat them as advisory
+	// warnings (see docs/adr/0013-repo-archive.md).
+	PendingWork(repoPath string) (unpushedCommits, stashes int, err error)
+
 	// Sync
 	DefaultBranch(repoPath string) (string, error)
 	Fetch(repoPath string) error

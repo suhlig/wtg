@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 )
 
@@ -156,6 +157,27 @@ func (r *SystemRunner) Status(repoPath string) (RepoStatus, error) {
 		return RepoStatus{}, err
 	}
 	return parseStatus(out)
+}
+
+func (r *SystemRunner) PendingWork(repoPath string) (int, int, error) {
+	out, err := r.run(repoPath, "rev-list", "--count", "--branches", "--not", "--remotes")
+	if err != nil {
+		return 0, 0, err
+	}
+	unpushed, err := strconv.Atoi(strings.TrimSpace(out))
+	if err != nil {
+		return 0, 0, fmt.Errorf("parse rev-list count %q: %w", out, err)
+	}
+
+	stashOut, err := r.run(repoPath, "stash", "list")
+	if err != nil {
+		return 0, 0, err
+	}
+	stashes := 0
+	if s := strings.TrimSpace(stashOut); s != "" {
+		stashes = len(strings.Split(s, "\n"))
+	}
+	return unpushed, stashes, nil
 }
 
 // --- Sync ---

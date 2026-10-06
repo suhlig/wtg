@@ -131,6 +131,7 @@ diverged branch are skipped with a warning. Runs in parallel.`,
 					return RunSync(cfg, runner, cmd.Args().Slice(), cmd.Bool("progress"), os.Stdout)
 				},
 			},
+			ArchiveCommand(runner),
 		},
 	}
 }

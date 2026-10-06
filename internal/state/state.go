@@ -31,14 +31,20 @@ type RepoEntry struct {
 	Symlink      bool   `yaml:"symlink,omitempty"` // true if this entry is a symlink to the main clone
 }
 
-// DataDir returns the directory where space state files are stored, following
-// the XDG Base Directory spec: $XDG_DATA_HOME/wtg/spaces (default ~/.local/share/wtg/spaces).
-func DataDir() string {
+// DataRoot returns the wtg data directory, following the XDG Base Directory
+// spec: $XDG_DATA_HOME/wtg (default ~/.local/share/wtg).
+func DataRoot() string {
 	dir := os.Getenv("XDG_DATA_HOME")
 	if dir == "" {
 		dir = filepath.Join(os.Getenv("HOME"), ".local", "share")
 	}
-	return filepath.Join(dir, "wtg", "spaces")
+	return filepath.Join(dir, "wtg")
+}
+
+// DataDir returns the directory where space state files are stored:
+// $XDG_DATA_HOME/wtg/spaces (default ~/.local/share/wtg/spaces).
+func DataDir() string {
+	return filepath.Join(DataRoot(), "spaces")
 }
 
 // spacePath returns the file path for the named space.

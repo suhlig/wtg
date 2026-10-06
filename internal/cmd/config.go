@@ -70,6 +70,12 @@ const configTemplate = `# wtg configuration. Every setting is shown commented ou
 # event type and the space path through environment variables. See docs/always.md.
 # Default is none; example:
 # run = "~/.config/wtg/on-event.sh"
+
+[archive]
+# Directory retired repo clones are moved to by wtg repo archive. It must be
+# outside every discovery root (so archived repos are not rediscovered) and on
+# the same filesystem as your repos. (default: ~/repos-archived)
+# root_dir = "~/repos-archived"
 `
 
 // ConfigCommand returns the `wtg config` command group. With no subcommand it

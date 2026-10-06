@@ -51,6 +51,9 @@ root_dir = "~/workspaces"  # where workspaces are created
 
 [git]
 branch_prefix = ""         # prepended to workspace names, e.g. "yourname/"
+
+[archive]
+root_dir = "~/repos-archived"  # where `wtg repo archive` moves retired clones
 ```
 
 YAML is still accepted: a file ending in `.yaml`/`.yml` loads via its extension, so an existing `config.yaml` keeps working.
@@ -212,6 +215,24 @@ Show branch, dirty status, and ahead/behind counts for each main repo clone.
 ```sh
 wtg repo status
 wtg repo status --long  # also show remote URL and local path
+```
+
+### `wtg repo archive <repo>...`
+
+Retire one or more main repo clones: each is moved out of the discovery area into `archive.root_dir`, kept intact, and recorded (with its original path) under `~/.local/share/wtg/archived.yaml`. Nothing is deleted and no remote is touched.
+
+```sh
+wtg repo archive old-service spike-repo
+wtg repo archive old-service --dry-run
+```
+
+Archiving refuses if a clone has uncommitted changes, commits not on any remote, or stashes; pass `--force` to proceed anyway. It also refuses, with no override, when a clone has live or stale worktrees, is still referenced by a space, or is listed in `always.repos` — the messages name the exact command that clears the block.
+
+`archive.root_dir` must be on the same filesystem as your repos and outside every discovery root, or the moved clones would be rediscovered. When a repo's `origin` is on github.com, the exact `gh` command to archive it upstream is printed at the end:
+
+```
+Upstream repos were not modified. To archive them on GitHub:
+  gh repo archive something/foo --yes
 ```
 
 ## Development

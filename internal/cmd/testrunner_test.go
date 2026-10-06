@@ -26,6 +26,7 @@ type testRunner struct {
 	rebaseFn             func(repoPath, onto string) error
 	remoteURLFn          func(repoPath, remote string) (string, error)
 	remotesListFn        func(repoPath string) ([]string, error)
+	pendingWorkFn        func(repoPath string) (int, int, error)
 }
 
 func (r *testRunner) WorktreeAdd(repoPath, worktreePath, branch, base string, createBranch bool) error {
@@ -138,4 +139,11 @@ func (r *testRunner) Remotes(repoPath string) ([]string, error) {
 		return []string{"origin"}, nil // default: has a remote, so nothing is skipped
 	}
 	return r.remotesListFn(repoPath)
+}
+
+func (r *testRunner) PendingWork(repoPath string) (int, int, error) {
+	if r.pendingWorkFn == nil {
+		return 0, 0, nil // default: nothing pending
+	}
+	return r.pendingWorkFn(repoPath)
 }

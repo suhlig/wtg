@@ -33,3 +33,5 @@ wtg <subcommand> --help     # flags and details for one command
 ```
 
 `wcd <space>` (a shell function from setup) jumps into a space.
+
+Repo upkeep runs against your main clones, not worktrees: `wtg repo status` and `wtg repo sync` inspect and update them, and `wtg repo archive <repo>` retires a finished repo by moving its clone into `archive.root_dir`.

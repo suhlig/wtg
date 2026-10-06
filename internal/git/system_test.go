@@ -472,3 +472,95 @@ func TestWorktreeRepair_Supported(t *testing.T) {
 		t.Fatalf("WorktreeRepair: %v", err)
 	}
 }
+
+// --- PendingWork ---
+
+func TestPendingWork_Clean(t *testing.T) {
+	t.Parallel()
+	local, _ := testhelper.InitWithRemote(t)
+	unpushed, stashes, err := runner().PendingWork(local.Path)
+	if err != nil {
+		t.Fatalf("PendingWork: %v", err)
+	}
+	if unpushed != 0 || stashes != 0 {
+		t.Errorf("got unpushed=%d stashes=%d, want 0/0", unpushed, stashes)
+	}
+}
+
+func TestPendingWork_UnpushedOnCurrentBranch(t *testing.T) {
+	t.Parallel()
+	local, _ := testhelper.InitWithRemote(t)
+	local.Commit("local-only") // main is now ahead of origin/main
+
+	unpushed, stashes, err := runner().PendingWork(local.Path)
+	if err != nil {
+		t.Fatalf("PendingWork: %v", err)
+	}
+	if unpushed != 1 {
+		t.Errorf("unpushed: got %d, want 1", unpushed)
+	}
+	if stashes != 0 {
+		t.Errorf("stashes: got %d, want 0", stashes)
+	}
+}
+
+// TestPendingWork_UnpushedOnOtherBranch covers the case Status misses: commits
+// on a branch that is not the current one and is not on any remote.
+func TestPendingWork_UnpushedOnOtherBranch(t *testing.T) {
+	t.Parallel()
+	local, _ := testhelper.InitWithRemote(t)
+	r := runner()
+	local.CreateBranch("wip")
+
+	wtPath := filepath.Join(t.TempDir(), "wt")
+	if err := r.WorktreeAdd(local.Path, wtPath, "wip", "", false); err != nil {
+		t.Fatalf("WorktreeAdd: %v", err)
+	}
+	testhelper.RepoAt(t, wtPath).Commit("wip commit")
+	if err := r.WorktreeRemove(local.Path, wtPath, false); err != nil {
+		t.Fatalf("WorktreeRemove: %v", err)
+	}
+
+	unpushed, _, err := r.PendingWork(local.Path)
+	if err != nil {
+		t.Fatalf("PendingWork: %v", err)
+	}
+	if unpushed != 1 {
+		t.Errorf("unpushed: got %d, want 1 (commit lives only on branch wip)", unpushed)
+	}
+}
+
+func TestPendingWork_Stash(t *testing.T) {
+	t.Parallel()
+	local, _ := testhelper.InitWithRemote(t)
+	local.WriteFile("README.md", "# changed\n") // modify a tracked file
+	local.GitCmd("stash")
+
+	unpushed, stashes, err := runner().PendingWork(local.Path)
+	if err != nil {
+		t.Fatalf("PendingWork: %v", err)
+	}
+	if stashes != 1 {
+		t.Errorf("stashes: got %d, want 1", stashes)
+	}
+	if unpushed != 0 {
+		t.Errorf("unpushed: got %d, want 0", unpushed)
+	}
+}
+
+// TestPendingWork_NoRemote documents that with no remote every commit counts as
+// unpushed; callers that care about that case check for an origin first.
+func TestPendingWork_NoRemote(t *testing.T) {
+	t.Parallel()
+	repo := testhelper.Init(t) // one commit, no remote
+	unpushed, stashes, err := runner().PendingWork(repo.Path)
+	if err != nil {
+		t.Fatalf("PendingWork: %v", err)
+	}
+	if unpushed != 1 {
+		t.Errorf("unpushed: got %d, want 1 (no remote means every commit is unpushed)", unpushed)
+	}
+	if stashes != 0 {
+		t.Errorf("stashes: got %d, want 0", stashes)
+	}
+}

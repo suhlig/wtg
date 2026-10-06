@@ -21,6 +21,7 @@ type Config struct {
 	Spaces    SpacesConfig    `koanf:"spaces"    yaml:"spaces"`
 	Git       GitConfig       `koanf:"git"       yaml:"git"`
 	Always    AlwaysConfig    `koanf:"always"    yaml:"always"`
+	Archive   ArchiveConfig   `koanf:"archive"   yaml:"archive"`
 }
 
 // AlwaysConfig lists repos and files that are automatically included in every new space.
@@ -46,6 +47,11 @@ type SpacesConfig struct {
 // GitConfig controls git operation behaviour.
 type GitConfig struct {
 	BranchPrefix string `koanf:"branch_prefix" yaml:"branch_prefix"`
+}
+
+// ArchiveConfig controls where `wtg repo archive` moves retired repo clones.
+type ArchiveConfig struct {
+	RootDir string `koanf:"root_dir" yaml:"root_dir"`
 }
 
 // DefaultPath returns the default config file path following the XDG Base Directory
@@ -103,6 +109,7 @@ func Load(path string) (*Config, error) {
 		"discovery.root_dir":  "~/repos",
 		"discovery.max_depth": 2,
 		"spaces.root_dir":     "~/spaces",
+		"archive.root_dir":    "~/repos-archived",
 	}, "."), nil); err != nil {
 		return nil, fmt.Errorf("load defaults: %w", err)
 	}
@@ -155,6 +162,7 @@ func Load(path string) (*Config, error) {
 		}
 	}
 	cfg.Spaces.RootDir = expandTilde(cfg.Spaces.RootDir)
+	cfg.Archive.RootDir = expandTilde(cfg.Archive.RootDir)
 	for i, f := range cfg.Always.Files {
 		cfg.Always.Files[i] = expandTilde(f)
 	}
@@ -183,6 +191,10 @@ func (c *Config) DiscoveryRootDirs() []string {
 	}
 	return dirs
 }
+
+// ExpandTilde replaces a leading ~/ with the user's home directory. It is
+// exported for callers that accept user-supplied paths, e.g. CLI flags.
+func ExpandTilde(path string) string { return expandTilde(path) }
 
 // expandTilde replaces a leading ~/ with the user's home directory.
 func expandTilde(path string) string {
