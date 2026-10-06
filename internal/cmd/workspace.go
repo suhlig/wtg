@@ -171,7 +171,7 @@ func nameHasSegmentContaining(name, input string) bool {
 	if input == "" {
 		return false
 	}
-	for _, seg := range strings.Split(name, "/") {
+	for seg := range strings.SplitSeq(name, "/") {
 		if strings.Contains(seg, input) {
 			return true
 		}
