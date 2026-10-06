@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `wtg repo archive --remote` — also archives each retired repo on GitHub via the `gh` CLI as part of the same all-or-nothing operation; it checks `gh` is installed and authenticated before moving anything, aborts unless every named repo has a github.com origin, treats an already-archived repo as a no-op, and rolls back the local moves if an upstream archival fails
 - `wtg repo archive <repo>...` — retire main repo clones by moving them to `archive.root_dir` and recording their origin; refuses on uncommitted, unpushed, or stashed work unless `--force` is given, never touches a clone in use (worktrees, spaces, `always.repos`), and prints the `gh repo archive` command for GitHub remotes
 - Repo names can be matched by a unique partial substring of any path segment (e.g. `infra` for `github.com/uhlig-it/infrastructure`) in `wtg new`, `add`, `remove`, and the `wtg repo` commands; when more than one repo matches, `wtg` errors and lists the candidates
 

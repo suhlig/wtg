@@ -53,5 +53,5 @@ Provide a safe, batchable, scriptable way to retire one or more repos: move each
 
 ## Follow-ups
 
-- v2: `--remote` executes the `gh` command, with an auth pre-flight and idempotent archive.
+- v2 (done): `--remote` executes the `gh` command, with an auth pre-flight and idempotent archive.
 - v3: `wtg repo unarchive` moves the clone back to its recorded origin and unarchives upstream.

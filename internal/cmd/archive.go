@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -32,7 +33,7 @@ func ArchiveCommand(runner git.Runner) *cli.Command {
 		ArgsUsage: "<repo>...",
 		Description: `Moves each named main repo clone out of the discovery area into
 archive.root_dir, keeping the clone intact, and records where it came from.
-Nothing is deleted and no remote is touched.
+Nothing is deleted, and without --remote no remote is touched.
 
 Refuses if a clone has uncommitted changes, commits not on any remote, or
 stashes unless --force is given. A clone with live (or stale) worktrees, one
@@ -40,11 +41,16 @@ referenced by a space, or one listed in always.repos is never archived; --force
 does not override these.
 
 When a repo's origin is on github.com, the exact gh command to archive it
-upstream is printed at the end. Use --dry-run to see the plan first.`,
+upstream is printed at the end. Pass --remote to run that command instead,
+archiving each repo upstream as part of the same all-or-nothing operation; it
+requires the gh CLI (2.32+) and a github.com origin, and is idempotent (a repo
+that is already archived upstream is left as is). Use --dry-run to see the plan
+first.`,
 		ShellComplete: completeRepos,
 		Flags: []cli.Flag{
 			&cli.BoolFlag{Name: "force", Usage: "proceed despite uncommitted, unpushed, or stashed work"},
 			&cli.BoolFlag{Name: "dry-run", Usage: "show what would happen without moving anything"},
+			&cli.BoolFlag{Name: "remote", Usage: "also archive each repo on GitHub via the gh CLI"},
 			&cli.StringFlag{Name: "archive-dir", Usage: "override archive.root_dir for this run"},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
@@ -60,6 +66,7 @@ upstream is printed at the end. Use --dry-run to see the plan first.`,
 				Force:      cmd.Bool("force"),
 				DryRun:     cmd.Bool("dry-run"),
 				ArchiveDir: cmd.String("archive-dir"),
+				Remote:     cmd.Bool("remote"),
 			}, os.Stdout)
 		},
 	}
@@ -71,7 +78,17 @@ type RepoArchiveArgs struct {
 	Force      bool     // proceed despite pending work
 	DryRun     bool     // report the plan without moving anything
 	ArchiveDir string   // overrides cfg.Archive.RootDir when non-empty
+	Remote     bool     // also archive each repo upstream on GitHub via gh
+
+	// GH is the gh client used when Remote is set. It is nil in normal use (the
+	// system gh CLI is used); tests inject a fake here.
+	GH remote.Runner
 }
+
+// remoteTimeout bounds the whole remote phase: the gh auth check, the
+// per-repo upstream-state checks, and the gh archival that surrounds the local
+// moves.
+const remoteTimeout = 2 * time.Minute
 
 // archiveTarget is one resolved repo queued for archiving.
 type archiveTarget struct {
@@ -85,11 +102,14 @@ type archiveTarget struct {
 }
 
 // RunRepoArchive moves one or more main repo clones into archive.root_dir and
-// records their provenance. It never deletes anything and never touches a
-// remote. Pending work (uncommitted files, commits not on any remote, stashes)
-// aborts the run unless args.Force is set; a clone that is in use (live or
-// stale worktrees, referenced by a space, or listed in always.repos) aborts the
-// run unconditionally. See docs/adr/0013-repo-archive.md.
+// records their provenance. It never deletes anything. Pending work
+// (uncommitted files, commits not on any remote, stashes) aborts the run unless
+// args.Force is set; a clone that is in use (live or stale worktrees, referenced
+// by a space, or listed in always.repos) aborts the run unconditionally.
+//
+// With args.Remote, each repo is also archived upstream on GitHub via gh, after
+// an auth pre-flight and as part of the same saga, so a failure rolls the local
+// moves back. See docs/adr/0013-repo-archive.md.
 func RunRepoArchive(cfg *config.Config, runner git.Runner, args RepoArchiveArgs, out io.Writer) error {
 	if len(args.Repos) == 0 {
 		return errors.New("at least one repo is required")
@@ -130,6 +150,9 @@ func RunRepoArchive(cfg *config.Config, runner git.Runner, args RepoArchiveArgs,
 	}
 
 	warnings, hardErrs := archivePreflight(runner, targets, refs, alwaysSet)
+	if err := requireGitHubTargets(args.Remote, targets); err != nil {
+		hardErrs = append(hardErrs, err.Error())
+	}
 	if len(hardErrs) > 0 {
 		return errors.New(strings.Join(hardErrs, "\n\n"))
 	}
@@ -138,21 +161,50 @@ func RunRepoArchive(cfg *config.Config, runner git.Runner, args RepoArchiveArgs,
 	}
 
 	if args.DryRun {
-		printArchivePlan(out, targets)
+		printArchivePlan(out, targets, args.Remote)
 		return nil
 	}
 
-	steps := make([]saga.Step, 0, len(targets)+1)
+	ctx := context.Background()
+	already := map[string]bool{}
+	if args.Remote {
+		gh := args.GH
+		if gh == nil {
+			gh = remote.SystemRunner{}
+		}
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, remoteTimeout)
+		defer cancel()
+		if err := gh.Available(); err != nil {
+			return err
+		}
+		if err := gh.AuthStatus(ctx, remote.GitHubHost); err != nil {
+			return err
+		}
+		if already, err = resolveRemoteState(ctx, gh, targets); err != nil {
+			return err
+		}
+		args.GH = gh
+	}
+
+	steps := make([]saga.Step, 0, len(targets)*2+1)
 	for _, t := range targets {
 		steps = append(steps, archiveMoveStep(t, archiveRoot))
 	}
 	steps = append(steps, archiveRecordStep(targets))
+	if args.Remote {
+		for _, t := range targets {
+			if !already[t.name] {
+				steps = append(steps, archiveRemoteStep(args.GH, t))
+			}
+		}
+	}
 
-	if err := saga.Run(context.Background(), steps); err != nil {
+	if err := saga.Run(ctx, steps); err != nil {
 		return err
 	}
 
-	printArchiveResult(out, targets)
+	printArchiveResult(out, targets, args.Remote, already)
 	return nil
 }
 
@@ -191,6 +243,54 @@ func resolveArchiveTargets(runner git.Runner, roots, names []string, byName map[
 		})
 	}
 	return targets, nil
+}
+
+// requireGitHubTargets rejects a --remote run when any requested repo is not on
+// github.com, so upstream archival is never silently skipped. It makes no
+// network calls, so it also runs under --dry-run.
+func requireGitHubTargets(remoteMode bool, targets []*archiveTarget) error {
+	if !remoteMode {
+		return nil
+	}
+	var bad []string
+	for _, t := range targets {
+		if t.ghOK {
+			continue
+		}
+		var reason string
+		switch {
+		case t.remoteURL == "":
+			reason = "has no origin remote"
+		case t.host == "":
+			reason = fmt.Sprintf("has an origin that cannot be parsed as a git URL: %s", t.remoteURL)
+		default:
+			reason = fmt.Sprintf("origin is on %s, not github.com", t.host)
+		}
+		bad = append(bad, fmt.Sprintf("  %s: %s", t.name, reason))
+	}
+	if len(bad) == 0 {
+		return nil
+	}
+	return fmt.Errorf("--remote archives repos on GitHub, but some requested repos are not:\n%s\nArchive them without --remote, or add provider support for those hosts first", strings.Join(bad, "\n"))
+}
+
+// resolveRemoteState records, per target, whether the repo is already archived
+// upstream. It is a read-only gh call, used both for idempotency and output.
+func resolveRemoteState(ctx context.Context, gh remote.Runner, targets []*archiveTarget) (map[string]bool, error) {
+	archived := make(map[string]bool, len(targets))
+	var errs []string
+	for _, t := range targets {
+		ok, err := gh.IsArchived(ctx, remote.GitHubHost, t.ghSlug)
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("  %s: %v", t.name, err))
+			continue
+		}
+		archived[t.name] = ok
+	}
+	if len(errs) > 0 {
+		return nil, fmt.Errorf("cannot check upstream archive state:\n%s", strings.Join(errs, "\n"))
+	}
+	return archived, nil
 }
 
 // archivePreflight runs every check before anything is moved. Pending-work
@@ -344,6 +444,21 @@ func archiveRecordStep(targets []*archiveTarget) saga.Step {
 	}
 }
 
+// archiveRemoteStep archives one repo upstream, and unarchives it again if a
+// later step (or the saga's rollback) needs to undo the run. One step per repo
+// keeps a partial failure compensable, mirroring archiveMoveStep.
+func archiveRemoteStep(gh remote.Runner, t *archiveTarget) saga.Step {
+	return saga.Step{
+		Name: fmt.Sprintf("archive %s on GitHub", t.ghSlug),
+		Do: func(ctx context.Context) error {
+			return gh.Archive(ctx, remote.GitHubHost, t.ghSlug)
+		},
+		Undo: func(ctx context.Context) error {
+			return gh.Unarchive(ctx, remote.GitHubHost, t.ghSlug)
+		},
+	}
+}
+
 // resolveArchiveRoot resolves the effective archive root, expands a leading ~,
 // and rejects a root that sits inside a discovery root (where the moved clones
 // would be rediscovered).
@@ -403,10 +518,8 @@ func spaceRefIndex() (map[string][]spaceRef, error) {
 }
 
 func appendUniqueRef(refs []spaceRef, ref spaceRef) []spaceRef {
-	for _, r := range refs {
-		if r == ref {
-			return refs
-		}
+	if slices.Contains(refs, ref) {
+		return refs
 	}
 	return append(refs, ref)
 }
@@ -499,22 +612,55 @@ func tildify(path string) string {
 	return path
 }
 
-func printArchiveResult(out io.Writer, targets []*archiveTarget) {
+func printArchiveResult(out io.Writer, targets []*archiveTarget, remoteMode bool, already map[string]bool) {
 	tbl := ui.NewTableWriter(out)
 	for _, t := range targets {
 		tbl.Row(t.name, ui.SymOK+" moved to "+tildify(t.dest))
 	}
 	tbl.Flush()
+	if remoteMode {
+		printRemoteSummary(out, targets, already)
+		return
+	}
 	printGitHubSuggestions(out, targets, "Upstream repos were not modified. To archive them on GitHub:")
 }
 
-func printArchivePlan(out io.Writer, targets []*archiveTarget) {
+func printArchivePlan(out io.Writer, targets []*archiveTarget, remoteMode bool) {
 	tbl := ui.NewTableWriter(out)
 	for _, t := range targets {
 		tbl.Row(t.name, ui.SymLink+" would move to "+tildify(t.dest))
 	}
 	tbl.Flush()
+	if remoteMode {
+		printGitHubSuggestions(out, targets, "Upstream repos would be archived on GitHub:")
+		return
+	}
 	printGitHubSuggestions(out, targets, "Upstream repos will not be modified. To archive them on GitHub:")
+}
+
+// printRemoteSummary reports what --remote did upstream: which repos it
+// archived and which were already archived (idempotent no-ops).
+func printRemoteSummary(out io.Writer, targets []*archiveTarget, already map[string]bool) {
+	var archived, skipped []string
+	for _, t := range targets {
+		if already[t.name] {
+			skipped = append(skipped, t.ghSlug)
+		} else {
+			archived = append(archived, t.ghSlug)
+		}
+	}
+	printSlugs(out, "Archived on GitHub:", archived)
+	printSlugs(out, "Already archived on GitHub:", skipped)
+}
+
+func printSlugs(out io.Writer, header string, slugs []string) {
+	if len(slugs) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintf(out, "\n%s\n", ui.Muted.Render(header))
+	for _, s := range slugs {
+		_, _ = fmt.Fprintf(out, "  %s\n", s)
+	}
 }
 
 // printGitHubSuggestions prints the `gh` commands for repos whose origin is on

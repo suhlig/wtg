@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +13,7 @@ import (
 	"github.com/suhlig/wtg/internal/archive"
 	"github.com/suhlig/wtg/internal/config"
 	"github.com/suhlig/wtg/internal/git"
+	"github.com/suhlig/wtg/internal/remote"
 	"github.com/suhlig/wtg/internal/state"
 )
 
@@ -399,5 +402,238 @@ func TestRunRepoArchive_AmbiguousName(t *testing.T) {
 	err := RunRepoArchive(archiveCfg(discovery, archiveRoot), cleanRunner(), RepoArchiveArgs{Repos: []string{"dup"}}, &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "ambiguous") {
 		t.Errorf("expected ambiguous-name error, got: %v", err)
+	}
+}
+
+// fakeGH is a configurable remote.Runner for command unit tests. Reading an
+// unset map field is fine; it yields the zero value.
+type fakeGH struct {
+	availableErr   error
+	authErr        error
+	archived       map[string]bool  // slug -> already archived upstream
+	stateErr       map[string]error // slug -> IsArchived failure
+	archiveErr     map[string]error // slug -> Archive failure
+	unarchiveErr   error
+	authHost       string
+	archiveCalls   []string
+	unarchiveCalls []string
+}
+
+func (f *fakeGH) Available() error { return f.availableErr }
+
+func (f *fakeGH) AuthStatus(_ context.Context, host string) error {
+	f.authHost = host
+	return f.authErr
+}
+
+func (f *fakeGH) IsArchived(_ context.Context, _, ownerRepo string) (bool, error) {
+	if err := f.stateErr[ownerRepo]; err != nil {
+		return false, err
+	}
+	return f.archived[ownerRepo], nil
+}
+
+func (f *fakeGH) Archive(_ context.Context, _, ownerRepo string) error {
+	f.archiveCalls = append(f.archiveCalls, ownerRepo)
+	return f.archiveErr[ownerRepo]
+}
+
+func (f *fakeGH) Unarchive(_ context.Context, _, ownerRepo string) error {
+	f.unarchiveCalls = append(f.unarchiveCalls, ownerRepo)
+	return f.unarchiveErr
+}
+
+func TestRunRepoArchive_RemoteArchivesUpstream(t *testing.T) {
+	isolateState(t)
+	discovery := t.TempDir()
+	archiveRoot := t.TempDir()
+	makeRepoDir(t, discovery, "foo")
+
+	gh := &fakeGH{}
+	var out bytes.Buffer
+	if err := RunRepoArchive(archiveCfg(discovery, archiveRoot), cleanRunner(), RepoArchiveArgs{Repos: []string{"foo"}, Remote: true, GH: gh}, &out); err != nil {
+		t.Fatalf("RunRepoArchive --remote: %v", err)
+	}
+	if len(gh.archiveCalls) != 1 || gh.archiveCalls[0] != "owner/foo" {
+		t.Errorf("Archive calls: got %v, want [owner/foo]", gh.archiveCalls)
+	}
+	if gh.authHost != remote.GitHubHost {
+		t.Errorf("auth host: got %q, want %q", gh.authHost, remote.GitHubHost)
+	}
+	got := out.String()
+	if !strings.Contains(got, "moved to") {
+		t.Errorf("output missing move line: %q", got)
+	}
+	if !strings.Contains(got, "Archived on GitHub") || !strings.Contains(got, "owner/foo") {
+		t.Errorf("output missing upstream summary: %q", got)
+	}
+	if strings.Contains(got, "gh repo archive") {
+		t.Errorf("--remote should not print the suggestion block: %q", got)
+	}
+}
+
+func TestRunRepoArchive_RemoteAlreadyArchivedIsIdempotent(t *testing.T) {
+	isolateState(t)
+	discovery := t.TempDir()
+	archiveRoot := t.TempDir()
+	makeRepoDir(t, discovery, "foo")
+
+	gh := &fakeGH{archived: map[string]bool{"owner/foo": true}}
+	var out bytes.Buffer
+	if err := RunRepoArchive(archiveCfg(discovery, archiveRoot), cleanRunner(), RepoArchiveArgs{Repos: []string{"foo"}, Remote: true, GH: gh}, &out); err != nil {
+		t.Fatalf("RunRepoArchive --remote: %v", err)
+	}
+	if len(gh.archiveCalls) != 0 {
+		t.Errorf("already-archived repo should not be re-archived: %v", gh.archiveCalls)
+	}
+	if !strings.Contains(out.String(), "Already archived on GitHub") {
+		t.Errorf("output should note upstream was already archived: %q", out.String())
+	}
+}
+
+func TestRunRepoArchive_RemoteRefusesNonGitHub(t *testing.T) {
+	isolateState(t)
+	discovery := t.TempDir()
+	archiveRoot := t.TempDir()
+	foo := makeRepoDir(t, discovery, "foo")
+
+	r := cleanRunner()
+	r.remoteURLFn = func(string, string) (string, error) { return "https://gitlab.com/owner/foo.git", nil }
+
+	err := RunRepoArchive(archiveCfg(discovery, archiveRoot), r, RepoArchiveArgs{Repos: []string{"foo"}, Remote: true, GH: &fakeGH{}}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "github.com") {
+		t.Errorf("expected non-GitHub refusal, got: %v", err)
+	}
+	if _, statErr := os.Stat(foo); statErr != nil {
+		t.Error("clone must not move when --remote cannot archive it")
+	}
+}
+
+func TestRunRepoArchive_RemoteRefusesMissingOrigin(t *testing.T) {
+	isolateState(t)
+	discovery := t.TempDir()
+	archiveRoot := t.TempDir()
+	makeRepoDir(t, discovery, "foo")
+
+	r := cleanRunner()
+	r.remoteURLFn = func(string, string) (string, error) { return "", nil }
+
+	err := RunRepoArchive(archiveCfg(discovery, archiveRoot), r, RepoArchiveArgs{Repos: []string{"foo"}, Remote: true, GH: &fakeGH{}}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "no origin") {
+		t.Errorf("expected missing-origin refusal, got: %v", err)
+	}
+}
+
+func TestRunRepoArchive_RemoteRefusesWhenGHMissing(t *testing.T) {
+	isolateState(t)
+	discovery := t.TempDir()
+	archiveRoot := t.TempDir()
+	foo := makeRepoDir(t, discovery, "foo")
+
+	gh := &fakeGH{availableErr: errors.New("gh CLI not found on PATH")}
+	err := RunRepoArchive(archiveCfg(discovery, archiveRoot), cleanRunner(), RepoArchiveArgs{Repos: []string{"foo"}, Remote: true, GH: gh}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Errorf("expected gh-missing refusal, got: %v", err)
+	}
+	if _, statErr := os.Stat(foo); statErr != nil {
+		t.Error("clone must not move when gh is unavailable")
+	}
+}
+
+func TestRunRepoArchive_RemoteRefusesWhenUnauthenticated(t *testing.T) {
+	isolateState(t)
+	discovery := t.TempDir()
+	archiveRoot := t.TempDir()
+	foo := makeRepoDir(t, discovery, "foo")
+
+	gh := &fakeGH{authErr: errors.New("not authenticated")}
+	err := RunRepoArchive(archiveCfg(discovery, archiveRoot), cleanRunner(), RepoArchiveArgs{Repos: []string{"foo"}, Remote: true, GH: gh}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "authenticated") {
+		t.Errorf("expected auth refusal, got: %v", err)
+	}
+	if len(gh.archiveCalls) != 0 {
+		t.Error("no archival should be attempted when unauthenticated")
+	}
+	if _, statErr := os.Stat(foo); statErr != nil {
+		t.Error("clone must not move when gh is unauthenticated")
+	}
+}
+
+func TestRunRepoArchive_RemoteRefusesWhenStateCheckFails(t *testing.T) {
+	isolateState(t)
+	discovery := t.TempDir()
+	archiveRoot := t.TempDir()
+	foo := makeRepoDir(t, discovery, "foo")
+
+	gh := &fakeGH{stateErr: map[string]error{"owner/foo": errors.New("repo not found")}}
+	err := RunRepoArchive(archiveCfg(discovery, archiveRoot), cleanRunner(), RepoArchiveArgs{Repos: []string{"foo"}, Remote: true, GH: gh}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "upstream archive state") {
+		t.Errorf("expected state-check refusal, got: %v", err)
+	}
+	if _, statErr := os.Stat(foo); statErr != nil {
+		t.Error("clone must not move when the upstream state cannot be determined")
+	}
+}
+
+func TestRunRepoArchive_RemoteRollsBackOnFailure(t *testing.T) {
+	isolateState(t)
+	discovery := t.TempDir()
+	archiveRoot := t.TempDir()
+	foo := makeRepoDir(t, discovery, "foo")
+	bar := makeRepoDir(t, discovery, "bar")
+
+	gh := &fakeGH{archiveErr: map[string]error{"owner/bar": errors.New("boom")}}
+	err := RunRepoArchive(archiveCfg(discovery, archiveRoot), cleanRunner(), RepoArchiveArgs{Repos: []string{"foo", "bar"}, Remote: true, GH: gh}, &bytes.Buffer{})
+	if err == nil {
+		t.Fatal("expected failure when the second upstream archive fails")
+	}
+	if len(gh.unarchiveCalls) != 1 || gh.unarchiveCalls[0] != "owner/foo" {
+		t.Errorf("the already-archived repo should be unarchived on rollback, got %v", gh.unarchiveCalls)
+	}
+	for _, p := range []string{foo, bar} {
+		if _, statErr := os.Stat(p); statErr != nil {
+			t.Errorf("%s should be back in discovery after rollback", filepath.Base(p))
+		}
+	}
+	if _, statErr := os.Stat(archive.Path()); !os.IsNotExist(statErr) {
+		t.Error("provenance should be rolled back")
+	}
+}
+
+func TestRunRepoArchive_RemoteDryRunMakesNoGHCalls(t *testing.T) {
+	isolateState(t)
+	discovery := t.TempDir()
+	archiveRoot := t.TempDir()
+	foo := makeRepoDir(t, discovery, "foo")
+
+	gh := &fakeGH{}
+	var out bytes.Buffer
+	if err := RunRepoArchive(archiveCfg(discovery, archiveRoot), cleanRunner(), RepoArchiveArgs{Repos: []string{"foo"}, Remote: true, DryRun: true, GH: gh}, &out); err != nil {
+		t.Fatalf("RunRepoArchive --remote --dry-run: %v", err)
+	}
+	if gh.authHost != "" || len(gh.archiveCalls) != 0 {
+		t.Error("dry-run must not call gh")
+	}
+	if _, err := os.Stat(foo); err != nil {
+		t.Error("dry-run must not move the clone")
+	}
+	got := out.String()
+	if !strings.Contains(got, "would move to") || !strings.Contains(got, "Upstream repos would be archived on GitHub") {
+		t.Errorf("dry-run output should show the remote plan: %q", got)
+	}
+}
+
+func TestRunRepoArchive_RemoteDryRunStillRefusesNonGitHub(t *testing.T) {
+	isolateState(t)
+	discovery := t.TempDir()
+	archiveRoot := t.TempDir()
+	makeRepoDir(t, discovery, "foo")
+
+	r := cleanRunner()
+	r.remoteURLFn = func(string, string) (string, error) { return "git@gitlab.com:owner/foo.git", nil }
+
+	err := RunRepoArchive(archiveCfg(discovery, archiveRoot), r, RepoArchiveArgs{Repos: []string{"foo"}, Remote: true, DryRun: true, GH: &fakeGH{}}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "github.com") {
+		t.Errorf("dry-run should still refuse a non-GitHub remote, got: %v", err)
 	}
 }

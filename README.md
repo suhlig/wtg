@@ -219,16 +219,21 @@ wtg repo status --long  # also show remote URL and local path
 
 ### `wtg repo archive <repo>...`
 
-Retire one or more main repo clones: each is moved out of the discovery area into `archive.root_dir`, kept intact, and recorded (with its original path) under `~/.local/share/wtg/archived.yaml`. Nothing is deleted and no remote is touched.
+Retire one or more main repo clones: each is moved out of the discovery area into `archive.root_dir`, kept intact, and recorded (with its original path) under `~/.local/share/wtg/archived.yaml`. Nothing is deleted and, without `--remote`, no remote is touched.
 
 ```sh
 wtg repo archive old-service spike-repo
 wtg repo archive old-service --dry-run
+wtg repo archive old-service --remote
 ```
 
 Archiving refuses if a clone has uncommitted changes, commits not on any remote, or stashes; pass `--force` to proceed anyway. It also refuses, with no override, when a clone has live or stale worktrees, is still referenced by a space, or is listed in `always.repos` — the messages name the exact command that clears the block.
 
-`archive.root_dir` must be on the same filesystem as your repos and outside every discovery root, or the moved clones would be rediscovered. When a repo's `origin` is on github.com, the exact `gh` command to archive it upstream is printed at the end:
+`archive.root_dir` must be on the same filesystem as your repos and outside every discovery root, or the moved clones would be rediscovered.
+
+Pass `--remote` to also archive each repo on GitHub, as part of the same all-or-nothing operation. It requires the [`gh` CLI](https://cli.github.com) (2.32 or newer) with an authenticated github.com account, and every named repo must have a github.com origin — if any does not, the whole command aborts rather than silently skipping it. It is idempotent: a repo that is already archived upstream is left as is. If an upstream archival fails, the local moves are rolled back and nothing is left archived.
+
+Without `--remote`, when a repo's `origin` is on github.com, the exact `gh` command to archive it upstream is printed at the end instead:
 
 ```
 Upstream repos were not modified. To archive them on GitHub:

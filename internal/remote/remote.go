@@ -48,8 +48,9 @@ func ParseGitHubRemote(raw string) (ownerRepo, host string, ok bool) {
 }
 
 // ArchiveCommand returns the `gh` invocation that archives ownerRepo on GitHub.
-// `gh repo archive` has existed since gh 2.32; v1 prints this command for the
-// user to run, and v2 will execute it.
+// `gh repo archive` has existed since gh 2.32. Without --remote, wtg prints this
+// command for the user to run; with --remote, SystemRunner executes the same
+// command (see gh.go).
 func ArchiveCommand(ownerRepo string) string {
 	return "gh repo archive " + ownerRepo + " --yes"
 }
