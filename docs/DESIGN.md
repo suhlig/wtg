@@ -21,3 +21,7 @@ Each decision below has its own record in [`adr/`](adr/), carrying the original 
 | [0011](adr/0011-config-command.md) | `wtg config` is a non-interactive command group |
 | [0012](adr/0012-fork-maintenance.md) | Fork maintenance and module path |
 | [0013](adr/0013-repo-archive.md) | Retiring repos with `wtg repo archive` |
+| [0014](adr/0014-always-repos-are-symlinks.md) | `always.repos` are symlinks to the main clone, not worktrees |
+| [0015](adr/0015-always-files-are-copied.md) | `always.files` are copied, not symlinked |
+| [0016](adr/0016-always-secrets-are-repo-relative-copies.md) | `always.secrets` are repo-relative copies into each worktree |
+| [0017](adr/0017-always-run-best-effort-hook.md) | `always.run` is a best-effort post-operation hook |
