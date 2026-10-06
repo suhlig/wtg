@@ -267,7 +267,8 @@ func requireGitHubUnarchiveTargets(remoteMode bool, targets []*unarchiveTarget) 
 
 // unarchiveMoveStep renames one archived clone back to its recorded origin,
 // cleaning up the emptied archive directories, and reversing the rename on
-// rollback.
+// rollback. Its EXDEV branch is reported, not copied, and — like
+// archiveMoveStep's — is untested and accepted tech debt.
 func unarchiveMoveStep(t *unarchiveTarget, archiveRoot string) saga.Step {
 	return saga.Step{
 		Name: fmt.Sprintf("restore %s", t.name),

@@ -410,6 +410,10 @@ func pendingWorkWarnings(runner git.Runner, t *archiveTarget) []string {
 
 // archiveMoveStep renames one clone into the archive root, undoing the rename
 // (and any directories it created) on rollback.
+//
+// A cross-filesystem move (EXDEV) is reported, never silently downgraded to a
+// copy. That branch is untested — reproducing it needs two real filesystems,
+// which the suite cannot create portably — and is accepted tech debt.
 func archiveMoveStep(t *archiveTarget, archiveRoot string) saga.Step {
 	return saga.Step{
 		Name: fmt.Sprintf("move %s", t.name),
