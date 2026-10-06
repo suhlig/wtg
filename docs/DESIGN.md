@@ -20,3 +20,4 @@ Each decision below has its own record in [`adr/`](adr/), carrying the original 
 | [0010](adr/0010-repo-sync-scope.md) | `repo sync` operates only on main clones |
 | [0011](adr/0011-config-command.md) | `wtg config` is a non-interactive command group |
 | [0012](adr/0012-fork-maintenance.md) | Fork maintenance and module path |
+| [0013](adr/0013-repo-archive.md) | Retiring repos with `wtg repo archive` |
