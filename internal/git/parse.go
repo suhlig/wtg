@@ -1,6 +1,7 @@
 package git
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -39,6 +40,28 @@ func parseWorktreeList(output string) ([]WorktreeInfo, error) {
 	}
 
 	return worktrees, nil
+}
+
+// parseRemoteHead extracts the default branch from the output of
+// `git ls-remote --symref origin HEAD`, whose first line is of the form:
+//
+//	ref: refs/heads/main	HEAD
+//
+// Servers that do not advertise a HEAD symref omit that line, in which case the
+// default branch cannot be determined.
+func parseRemoteHead(output string) (string, error) {
+	for line := range strings.SplitSeq(output, "\n") {
+		after, ok := strings.CutPrefix(line, "ref: refs/heads/")
+		if !ok {
+			continue
+		}
+		// The ref name is followed by a tab and the object name.
+		branch, _, _ := strings.Cut(after, "\t")
+		if branch = strings.TrimSpace(branch); branch != "" {
+			return branch, nil
+		}
+	}
+	return "", errors.New("remote did not advertise a HEAD symref")
 }
 
 // parseStatus parses the output of `git status --porcelain=v2 --branch`.

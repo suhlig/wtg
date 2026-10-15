@@ -138,6 +138,44 @@ func TestParseWorktreeList_Empty(t *testing.T) {
 	}
 }
 
+// --- parseRemoteHead ---
+
+func TestParseRemoteHead_Symref(t *testing.T) {
+	input := "ref: refs/heads/main\tHEAD\n1cebb6278646c6994c724b6c2ab9195c4a77a64b\tHEAD\n"
+	branch, err := parseRemoteHead(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if branch != "main" {
+		t.Errorf("got %q, want %q", branch, "main")
+	}
+}
+
+func TestParseRemoteHead_NestedBranch(t *testing.T) {
+	input := "ref: refs/heads/release/1.0\tHEAD\ndeadbeef\tHEAD\n"
+	branch, err := parseRemoteHead(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if branch != "release/1.0" {
+		t.Errorf("got %q, want %q", branch, "release/1.0")
+	}
+}
+
+func TestParseRemoteHead_NoSymref(t *testing.T) {
+	// Servers that do not advertise a HEAD symref return only the object line.
+	input := "1cebb6278646c6994c724b6c2ab9195c4a77a64b\tHEAD\n"
+	if _, err := parseRemoteHead(input); err == nil {
+		t.Error("expected error when no symref is advertised")
+	}
+}
+
+func TestParseRemoteHead_Empty(t *testing.T) {
+	if _, err := parseRemoteHead(""); err == nil {
+		t.Error("expected error for empty output")
+	}
+}
+
 // --- parseStatus ---
 
 func TestParseStatus_Clean(t *testing.T) {

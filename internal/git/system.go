@@ -203,17 +203,41 @@ const remoteHeadRef = "refs/remotes/origin/HEAD"
 // "git symbolic-ref" fails with "is not a symbolic ref". When the cached ref
 // cannot be read, DefaultBranch asks the remote via "git remote set-head origin
 // --auto" — which discovers and repairs origin/HEAD — and reads it again.
+//
+// That repair fails when origin's default branch has never been fetched, since
+// git refuses to point origin/HEAD at a remote-tracking ref that does not exist
+// locally ("Not a valid ref: refs/remotes/origin/<branch>"). DefaultBranch then
+// falls back to asking the remote directly with "git ls-remote --symref origin
+// HEAD", which does not depend on any local ref.
 func (r *SystemRunner) DefaultBranch(repoPath string) (string, error) {
 	out, err := r.run(repoPath, "symbolic-ref", remoteHeadRef)
-	if err != nil {
-		if _, repairErr := r.run(repoPath, "remote", "set-head", "origin", "--auto"); repairErr != nil {
-			return "", fmt.Errorf("cannot determine default branch (is origin/HEAD set?): %w", err)
-		}
-		if out, err = r.run(repoPath, "symbolic-ref", remoteHeadRef); err != nil {
-			return "", fmt.Errorf("cannot determine default branch (is origin/HEAD set?): %w", err)
+	if err == nil {
+		return branchFromSymref(out)
+	}
+
+	// The cached ref is missing or is not a symbolic ref; ask the remote to
+	// discover and repair it, then read it back.
+	if _, repairErr := r.run(repoPath, "remote", "set-head", "origin", "--auto"); repairErr != nil {
+		err = repairErr
+	} else if out, err = r.run(repoPath, "symbolic-ref", remoteHeadRef); err == nil {
+		return branchFromSymref(out)
+	}
+
+	// Neither the cached ref nor its repair produced a value. Ask the remote
+	// directly: "ls-remote" reports the branch HEAD points at without relying on
+	// any local ref, so it also works before the default branch has been fetched.
+	if lsOut, lsErr := r.run(repoPath, "ls-remote", "--symref", "origin", "HEAD"); lsErr == nil {
+		if branch, parseErr := parseRemoteHead(lsOut); parseErr == nil {
+			return branch, nil
 		}
 	}
-	// "refs/remotes/origin/main" → "main"
+	return "", fmt.Errorf("cannot determine default branch: %w", err)
+}
+
+// branchFromSymref converts the output of
+// "git symbolic-ref refs/remotes/origin/HEAD" into a branch name, e.g.
+// "refs/remotes/origin/main" yields "main".
+func branchFromSymref(out string) (string, error) {
 	_, branch, ok := strings.Cut(out, "refs/remotes/origin/")
 	if !ok {
 		return "", fmt.Errorf("unexpected symbolic-ref output: %q", out)

@@ -418,6 +418,49 @@ func TestDefaultBranch_RepairsDirectRef(t *testing.T) {
 	}
 }
 
+// TestDefaultBranch_FallsBackWhenRepairFails covers clones where origin/HEAD is
+// missing and "git remote set-head origin --auto" cannot repair it because
+// origin's default branch was never fetched: git refuses to point origin/HEAD
+// at a remote-tracking ref that does not exist locally ("Not a valid ref:
+// refs/remotes/origin/main"). DefaultBranch must still find the branch by asking
+// the remote directly.
+func TestDefaultBranch_FallsBackWhenRepairFails(t *testing.T) {
+	t.Parallel()
+	local, _ := testhelper.InitWithRemote(t)
+	local.GitCmd("symbolic-ref", "--delete", "refs/remotes/origin/HEAD")
+	local.GitCmd("update-ref", "-d", "refs/remotes/origin/main")
+
+	branch, err := runner().DefaultBranch(local.Path)
+	if err != nil {
+		t.Fatalf("DefaultBranch: %v", err)
+	}
+	if branch != "main" {
+		t.Errorf("DefaultBranch: got %q, want %q", branch, "main")
+	}
+}
+
+// TestDefaultBranch_ReportsRepairFailure covers the case where neither the
+// cached ref nor its repair works and the remote cannot be queried: the returned
+// error must describe the real failure (here, an unreachable origin) rather than
+// the misleading "is not a symbolic ref" from reading the cached ref.
+func TestDefaultBranch_ReportsRepairFailure(t *testing.T) {
+	t.Parallel()
+	local, _ := testhelper.InitWithRemote(t)
+	local.GitCmd("symbolic-ref", "--delete", "refs/remotes/origin/HEAD")
+	local.GitCmd("remote", "set-url", "origin", filepath.Join(t.TempDir(), "missing.git"))
+
+	_, err := runner().DefaultBranch(local.Path)
+	if err == nil {
+		t.Fatal("DefaultBranch: expected error")
+	}
+	if !strings.Contains(err.Error(), "remote set-head origin --auto") {
+		t.Errorf("error should surface the repair failure, got: %v", err)
+	}
+	if strings.Contains(err.Error(), "is not a symbolic ref") {
+		t.Errorf("error should not surface the cached-ref failure, got: %v", err)
+	}
+}
+
 func TestFetchAndFastForward(t *testing.T) {
 	t.Parallel()
 	local, remote := testhelper.InitWithRemote(t)

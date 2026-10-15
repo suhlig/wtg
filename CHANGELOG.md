@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `wtg repo sync` no longer fails with "cannot determine default branch" when a repo's `origin/HEAD` is missing *and* its default branch was never fetched; when the `git remote set-head origin --auto` repair fails (`Not a valid ref: refs/remotes/origin/<branch>`), wtg now falls back to asking the remote directly with `git ls-remote --symref origin HEAD`
+- `wtg repo sync` now reports the actual reason a repo's default branch could not be determined (e.g. an unreachable remote) instead of the misleading "is not a symbolic ref" from reading the cached `origin/HEAD`
+
 ## [1.6.0] - 2026-10-15
 
 ### Added

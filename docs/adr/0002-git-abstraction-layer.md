@@ -5,7 +5,7 @@
 - Status: Accepted
 - Date: 2026-03-27
 - Author: Geoff Amey
-- Contributors: Steffen Uhlig (updates 2026-10-04, 2026-10-05)
+- Contributors: Steffen Uhlig (updates 2026-10-04, 2026-10-05, 2026-10-15)
 
 All git operations go through a single `Runner` interface — the authoritative definition lives in `internal/git/runner.go`, so it is not reproduced here. The production implementation shells out to system git; tests use a mock or a real git repo created with `internal/git/testhelper`.
 
@@ -31,8 +31,9 @@ No free-text git output is parsed. All parsing uses structured, version-stable f
 | Remote URL | `git remote get-url origin` | Single line |
 | Default branch | `git symbolic-ref refs/remotes/origin/HEAD` | `refs/remotes/origin/<branch>` |
 | Default branch (repair) | `git remote set-head origin --auto` | Human output; the ref is re-read via the row above |
+| Default branch (fallback) | `git ls-remote --symref origin HEAD` | `ref: refs/heads/<branch>` header + object line |
 
-`origin/HEAD` is a local cache that git populates on clone, so it can be missing or left as a non-symbolic commit ref (e.g. in repos not created by `git clone`, or after the remote's default branch changed). `DefaultBranch` reads it when present and otherwise repairs it with `git remote set-head origin --auto` before reading again — the only case where a normally-local lookup contacts the remote. `repo status` treats a failure as "no default branch" (branch shown muted).
+`origin/HEAD` is a local cache that git populates on clone, so it can be missing or left as a non-symbolic commit ref (e.g. in repos not created by `git clone`, or after the remote's default branch changed). `DefaultBranch` reads it when present and otherwise repairs it with `git remote set-head origin --auto` before reading again — the only case where a normally-local lookup contacts the remote. That repair fails when origin's default branch has never been fetched, because git refuses to point `origin/HEAD` at a remote-tracking ref that does not exist locally (`Not a valid ref: refs/remotes/origin/<branch>`); `DefaultBranch` then falls back to `git ls-remote --symref origin HEAD`, which reads the branch from the remote without depending on any local ref. `repo status` treats a failure as "no default branch" (branch shown muted).
 
 ## Testing strategy
 
