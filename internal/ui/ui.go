@@ -17,6 +17,8 @@ const (
 	SymFail = "!"
 	SymUp   = "↑"
 	SymLink = "→"
+	SymBusy    = "~" // in-progress indicator for the progress bar
+	SymSkipped = "ø" // slot exists but was structurally skipped (e.g. no remote)
 )
 
 // Styles.
