@@ -173,6 +173,16 @@ func TestRepoName_NoMatchingRoot_ReturnsAbsPath(t *testing.T) {
 	}
 }
 
+func TestRepoName_RepoAtRoot_UsesRootBaseName(t *testing.T) {
+	// A repo sitting exactly at the discovery root would yield "." from
+	// filepath.Rel; repoName should return the root's own base name instead.
+	root := t.TempDir()
+	name := repoName([]string{root}, root)
+	if name != filepath.Base(root) {
+		t.Errorf("got %q, want %q", name, filepath.Base(root))
+	}
+}
+
 // --- resolveRepoPaths ---
 
 func TestResolveRepoPaths_ExactPath_SingleRoot(t *testing.T) {
