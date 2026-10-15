@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"testing/synctest"
@@ -123,7 +124,7 @@ func TestSyncOne_SkippedDirty(t *testing.T) {
 	root := t.TempDir()
 	dirty := git.RepoStatus{
 		Branch: "main",
-		Files:  []git.FileStatus{{Path: "dirty.go", Index: '?', Worktree: '?'}},
+		Files:  []git.FileStatus{{Path: "dirty.go", Index: 'M', Worktree: ' '}},
 	}
 	r := &testRunner{
 		defaultBranchFn: func(string) (string, error) { return "main", nil },
@@ -133,7 +134,25 @@ func TestSyncOne_SkippedDirty(t *testing.T) {
 	if sym != ui.SymWarn {
 		t.Errorf("sym: got %q, want %q", sym, ui.SymWarn)
 	}
-	if !strings.Contains(msg, "dirty") {
+	if !strings.Contains(msg, "uncommitted") {
+		t.Errorf("msg: %q", msg)
+	}
+}
+
+func TestSyncOne_UntrackedNotSkipped(t *testing.T) {
+	root := t.TempDir()
+	// Untracked files only — should not block sync.
+	withUntracked := git.RepoStatus{
+		Branch: "main",
+		Files:  []git.FileStatus{{Path: "debug.yml", Index: '?', Worktree: '?'}},
+	}
+	clean := git.RepoStatus{Branch: "main"}
+	r := syncRunner("main", []git.RepoStatus{withUntracked, clean}, nil, nil)
+	sym, msg := syncOne(root, r)
+	if sym != ui.SymOK {
+		t.Errorf("sym: got %q, want %q (untracked files must not block sync)", sym, ui.SymOK)
+	}
+	if !strings.Contains(msg, "up to date") {
 		t.Errorf("msg: %q", msg)
 	}
 }
@@ -329,8 +348,9 @@ func TestRunSync_Progress(t *testing.T) {
 		t.Fatalf("expected \\r in progress output, got %q", progressSection)
 	}
 	progressLine := progressSection[lastCR+1:]
-	// Must be bracketed.
-	if !strings.HasPrefix(progressLine, "[") || !strings.HasSuffix(progressLine, "]") {
+	// Must be bracketed (the erase-to-EOL sequence \x1b[K may trail the ]).
+	bare := strings.TrimSuffix(progressLine, "\x1b[K")
+	if !strings.HasPrefix(bare, "[") || !strings.HasSuffix(bare, "]") {
 		t.Errorf("progress line not bracketed: %q", progressLine)
 	}
 	// Two repos succeed → two ✓ symbols inside the brackets (may be ANSI-wrapped).
@@ -374,6 +394,124 @@ func TestRunSync_ProgressWrap(t *testing.T) {
 	if !strings.Contains(got, cursorUp) {
 		t.Errorf("expected cursor-up escape in output when bar wraps, got %q", got)
 	}
+}
+
+// TestRunSync_ProgressFetchingCounter verifies that the "(N fetching)" suffix
+// appears in the progress bar while fetches are in flight.
+func TestRunSync_ProgressFetchingCounter(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		root := t.TempDir()
+		makeRepo(t, root, "api")
+		makeRepo(t, root, "svc")
+
+		gate := make(chan struct{})
+		var progressOutput strings.Builder
+		var mu sync.Mutex
+
+		clean := git.RepoStatus{Branch: "main"}
+		r := &testRunner{
+			defaultBranchFn: func(string) (string, error) { return "main", nil },
+			statusFn:        func(string) (git.RepoStatus, error) { return clean, nil },
+			fetchFn: func(string) error {
+				<-gate
+				return nil
+			},
+		}
+
+		// Capture all progress output via a custom writer.
+		w := &syncWriter{fn: func(p []byte) { mu.Lock(); progressOutput.Write(p); mu.Unlock() }}
+
+		done := make(chan error, 1)
+		go func() {
+			done <- RunSync(discoverCfg(root, 1), r, nil, true, w)
+		}()
+
+		synctest.Wait() // both goroutines are now blocked in fetchFn
+
+		mu.Lock()
+		captured := progressOutput.String()
+		mu.Unlock()
+
+		if !strings.Contains(captured, "fetching") {
+			t.Errorf("expected '(N fetching)' in progress while fetches are in flight, got %q", captured)
+		}
+
+		close(gate)
+		if err := <-done; err != nil {
+			t.Fatal(err)
+		}
+	})
+}
+
+// syncWriter is an io.Writer that calls fn for each Write call.
+type syncWriter struct{ fn func([]byte) }
+
+func (w *syncWriter) Write(p []byte) (int, error) { w.fn(p); return len(p), nil }
+
+// TestRunSync_ProgressNoRemoteBecomesSpace verifies that a repo with no remotes
+// flips its slot to a space (not back to ·) so it is visually distinct from
+// pending or in-flight slots.
+func TestRunSync_ProgressNoRemoteBecomesSpace(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		root := t.TempDir()
+		makeRepo(t, root, "no-remote")
+		makeRepo(t, root, "has-remote")
+
+		gate := make(chan struct{})
+		var progressOutput strings.Builder
+		var mu sync.Mutex
+
+		r := &testRunner{
+			remotesListFn: func(repoPath string) ([]string, error) {
+				if strings.HasSuffix(repoPath, "no-remote") {
+					return nil, nil
+				}
+				return []string{"origin"}, nil
+			},
+			defaultBranchFn: func(string) (string, error) { return "main", nil },
+			statusFn:        func(string) (git.RepoStatus, error) { return git.RepoStatus{Branch: "main"}, nil },
+			fetchFn: func(string) error {
+				<-gate
+				return nil
+			},
+		}
+
+		w := &syncWriter{fn: func(p []byte) { mu.Lock(); progressOutput.Write(p); mu.Unlock() }}
+
+		done := make(chan error, 1)
+		go func() {
+			done <- RunSync(discoverCfg(root, 1), r, nil, true, w)
+		}()
+
+		synctest.Wait()
+
+		mu.Lock()
+		captured := progressOutput.String()
+		mu.Unlock()
+
+		// After no-remote goroutine finishes its slot should be a space, not ·.
+		// The has-remote goroutine is blocked on the gate so the bar still has ~ in it.
+		// Find the last complete bar reprint (after the last \r).
+		lastCR := strings.LastIndex(captured, "\r")
+		if lastCR < 0 {
+			t.Fatalf("no \\r in progress output: %q", captured)
+		}
+		bar := captured[lastCR+1:]
+		lbracket := strings.Index(bar, "[")
+		rbracket := strings.Index(bar, "]")
+		if lbracket < 0 || rbracket < 0 {
+			t.Fatalf("no brackets in progress bar: %q", bar)
+		}
+		slots := bar[lbracket+1 : rbracket]
+		if !strings.Contains(slots, ui.SymSkipped) {
+			t.Errorf("expected a %q slot for the no-remote repo, got slots %q", ui.SymSkipped, slots)
+		}
+
+		close(gate)
+		if err := <-done; err != nil {
+			t.Fatal(err)
+		}
+	})
 }
 
 func TestRunSync_UnknownRepo(t *testing.T) {

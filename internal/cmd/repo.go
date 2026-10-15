@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/urfave/cli/v3"
 	"golang.org/x/sync/errgroup"
@@ -114,8 +115,9 @@ local branches (equivalent to git fetch origin). Runs in parallel.`,
 				Usage:     "fetch and fast-forward repos to origin's default branch",
 				ArgsUsage: "[<repo>...]",
 				Description: `Fetches origin and fast-forwards each repo's default branch (main, master,
-etc.) if it has no local changes. Repos with uncommitted changes or a
-diverged branch are skipped with a warning. Runs in parallel.`,
+etc.) if it has no uncommitted changes. Repos with uncommitted changes or a
+diverged branch are skipped with a warning. Runs in parallel.
+Use --progress to watch per-repo progress; ~ means a fetch is in flight.`,
 				ShellComplete: completeRepos,
 				Flags: []cli.Flag{
 					&cli.BoolFlag{
@@ -167,11 +169,15 @@ func discoverAllRepoPaths(roots []string, maxDepth int) ([]string, error) {
 
 // repoName returns the short display name for a repo at absPath, computed as
 // its path relative to whichever root in roots is a prefix of it. Falls back
-// to absPath if no root matches.
+// to absPath if no root matches. A repo sitting exactly at a root dir would
+// produce "." from filepath.Rel; in that case the root's own base name is used.
 func repoName(roots []string, absPath string) string {
 	for _, root := range roots {
 		rel, err := filepath.Rel(root, absPath)
 		if err == nil && !strings.HasPrefix(rel, "..") {
+			if rel == "." {
+				return filepath.Base(root)
+			}
 			return filepath.ToSlash(rel)
 		}
 	}
@@ -271,6 +277,9 @@ func RunSync(cfg *config.Config, runner git.Runner, args []string, progress bool
 		syms[i] = "·"
 	}
 
+	// inFlight tracks the number of goroutines currently inside syncOne.
+	var inFlight atomic.Int32
+
 	// termWidth is the terminal column count, or 0 when unknown (not a tty).
 	termWidth := termWidthFn()
 
@@ -279,12 +288,19 @@ func RunSync(cfg *config.Config, runner git.Runner, args []string, progress bool
 	// line we first move the cursor back up to the first line with ANSI cursor-up
 	// sequences (\x1b[A), then CR to column 0, before reprinting.
 	// When termWidth is unknown (0) we fall back to plain \r — same as before.
+	// A "(N fetching)" suffix after the closing bracket shows how many network
+	// calls are in flight so the user can tell whether sync is still working.
 	printProgress := func() {
+		n := inFlight.Load()
+		suffix := ""
+		if n > 0 {
+			suffix = fmt.Sprintf(" (%d fetching)", n)
+		}
 		var b strings.Builder
+		// Total visible columns: len(syms) slots + 2 brackets + len(suffix).
+		totalCols := len(syms) + 2 + len(suffix)
 		if termWidth > 0 {
-			// Total visible columns: len(syms) slots + 2 brackets.
-			// Number of extra wrapped lines (beyond the first):
-			extraLines := (len(syms) + 2) / termWidth
+			extraLines := totalCols / termWidth
 			for range extraLines {
 				b.WriteString("\x1b[A") // cursor up one line
 			}
@@ -295,6 +311,8 @@ func RunSync(cfg *config.Config, runner git.Runner, args []string, progress bool
 			b.WriteString(s)
 		}
 		b.WriteRune(']')
+		b.WriteString(suffix)
+		b.WriteString("\x1b[K") // erase to end of line so a shrinking suffix leaves no ghost chars
 		_, _ = fmt.Fprint(out, b.String())
 	}
 
@@ -308,9 +326,25 @@ func RunSync(cfg *config.Config, runner git.Runner, args []string, progress bool
 	var g errgroup.Group
 	for i, p := range paths {
 		g.Go(func() error {
+			if progress {
+				inFlight.Add(1)
+				mu.Lock()
+				syms[i] = ui.SymBusy
+				printProgress()
+				mu.Unlock()
+			}
 			name := repoName(roots, p)
 			sym, msg := syncOne(p, runner)
+			if progress {
+				inFlight.Add(-1)
+			}
 			if sym == "" && msg == "" {
+				if progress {
+					mu.Lock()
+					syms[i] = ui.SymSkipped // omitted — distinct from pending · or in-flight ~
+					printProgress()
+					mu.Unlock()
+				}
 				return nil // repo has no remotes; leave results[i] as zero value
 			}
 			results[i] = opResult{name, sym, msg}
@@ -371,8 +405,9 @@ func syncOne(repoPath string, runner git.Runner) (string, string) {
 	if st.Branch != defaultBranch {
 		return ui.SymWarn, fmt.Sprintf("skipped — on branch %s, not %s", st.Branch, defaultBranch)
 	}
-	if len(st.Files) > 0 {
-		return ui.SymWarn, "skipped — working tree is dirty"
+	modified, _ := classifyFiles(st.Files)
+	if modified > 0 {
+		return ui.SymWarn, "skipped — working tree has uncommitted changes"
 	}
 
 	if err := runner.Fetch(repoPath); err != nil {
