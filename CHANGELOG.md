@@ -7,20 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-10-15
+
 ### Added
 
 - `wtg repo unarchive <repo>...` — restore archived repo clones to the exact paths recorded when they were archived and forget their provenance; refuses if the origin is occupied or the clone is missing, `--dry-run` previews, `--archive-dir` overrides `archive.root_dir`, and `--remote` also unarchives each repo on GitHub via `gh` (same all-or-nothing saga as `--remote` on archive)
 - `wtg repo archive --remote` — also archives each retired repo on GitHub via the `gh` CLI as part of the same all-or-nothing operation; it checks `gh` is installed and authenticated before moving anything, aborts unless every named repo has a github.com origin, treats an already-archived repo as a no-op, and rolls back the local moves if an upstream archival fails
 - `wtg repo archive <repo>...` — retire main repo clones by moving them to `archive.root_dir` and recording their origin; refuses on uncommitted, unpushed, or stashed work unless `--force` is given, never touches a clone in use (worktrees, spaces, `always.repos`), and prints the `gh repo archive` command for GitHub remotes
 - Repo names can be matched by a unique partial substring of any path segment (e.g. `infra` for `github.com/uhlig-it/infrastructure`) in `wtg new`, `add`, `remove`, and the `wtg repo` commands; when more than one repo matches, `wtg` errors and lists the candidates
-
-### Fixed
-
-- `wtg repo status`, `repo fetch`, and `repo sync` now resolve repo names like the workspace commands do — by exact short name, unique basename, or unique partial segment match — instead of only by exact relative path, so nested repos addressed by their basename (documented since 1.5.0) now work here too
+- `wtg repo sync --progress` bar now shows a `~` slot while a fetch is in flight and appends `(N fetching)` to the bar label so it is always clear whether sync is still working; repos with no remote show `ø` instead of the ambiguous `·`
 
 ### Fixed
 
 - `wtg repo sync` (and `repo status`) no longer fail with "cannot determine default branch" when a repo's cached `origin/HEAD` is missing or is a non-symbolic ref; wtg now asks the remote (`git remote set-head origin --auto`) and repairs the ref
+- `wtg repo status`, `repo fetch`, and `repo sync` now resolve repo names like the workspace commands do — by exact short name, unique basename, or unique partial segment match — instead of only by exact relative path, so nested repos addressed by their basename (documented since 1.5.0) now work here too
+- `wtg repo sync` no longer skips repos that only have untracked files; only tracked modifications now trigger the "uncommitted changes" warning, since untracked files do not block a fast-forward
+- `wtg repo sync` (and any command that spawns git subprocesses) now sets `GIT_TERMINAL_PROMPT=0` and `GIT_SSH_COMMAND=ssh -o BatchMode=yes` so unknown SSH host keys and HTTPS credential prompts fail immediately instead of stalling indefinitely
+- `wtg repo sync` and `wtg repo status` now display the root-level repo by its directory name instead of `.` when the discovery `root_dir` is itself a git repo
 
 ## [1.5.0] - 2026-10-04
 
@@ -105,7 +108,8 @@ Initial public release.
 - XDG Base Directory-compliant config (`$XDG_CONFIG_HOME/wtg/config.yaml`) and state (`$XDG_DATA_HOME/wtg/spaces/`)
 - `--config` flag and `WTG_CONFIG` environment variable for config file override
 
-[Unreleased]: https://github.com/suhlig/wtg/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/suhlig/wtg/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/suhlig/wtg/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/suhlig/wtg/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/suhlig/wtg/compare/v1.3.1...v1.4.0
 [1.3.1]: https://github.com/suhlig/wtg/compare/v1.3.0...v1.3.1
