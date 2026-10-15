@@ -201,12 +201,15 @@ These operate on your main repo clones, not workspace worktrees. Useful for keep
 
 ### `wtg repo sync [<repo>...]`
 
-Fetch and fast-forward each repo's default branch. Repos with local changes are skipped with a warning.
+Fetch and fast-forward each repo's default branch. Repos with uncommitted changes are skipped with a warning.
 
 ```sh
 wtg repo sync               # sync all repos
 wtg repo sync api payments  # sync specific repos
+wtg repo sync --progress    # watch per-repo progress live
 ```
+
+See [docs/repo-sync.md](docs/repo-sync.md) for the progress-bar symbol legend and state diagram.
 
 ### `wtg repo status [<repo>...]`
 
