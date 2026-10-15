@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -34,6 +35,14 @@ func (e *runError) Error() string {
 // Any non-zero exit is returned as a *runError.
 func (r *SystemRunner) run(repoPath string, args ...string) (string, error) {
 	cmd := exec.Command("git", append([]string{"-C", repoPath}, args...)...) // #nosec G204 -- git with caller-controlled args
+	// Never let git (or the SSH subprocess it spawns) block on a terminal
+	// prompt. GIT_TERMINAL_PROMPT=0 suppresses HTTPS credential prompts;
+	// BatchMode=yes in GIT_SSH_COMMAND makes SSH fail immediately instead of
+	// asking about unknown host keys or passphrases.
+	cmd.Env = append(os.Environ(),
+		"GIT_TERMINAL_PROMPT=0",
+		"GIT_SSH_COMMAND=ssh -o BatchMode=yes",
+	)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
