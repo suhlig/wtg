@@ -12,11 +12,11 @@ import (
 
 // Symbols used in status output.
 const (
-	SymOK   = "✓"
-	SymWarn = "⚠"
-	SymFail = "!"
-	SymUp   = "↑"
-	SymLink = "→"
+	SymOK      = "✓"
+	SymWarn    = "⚠"
+	SymFail    = "!"
+	SymUp      = "↑"
+	SymLink    = "→"
 	SymBusy    = "~" // in-progress indicator for the progress bar
 	SymSkipped = "ø" // slot exists but was structurally skipped (e.g. no remote)
 )
