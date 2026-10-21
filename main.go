@@ -35,6 +35,7 @@ func main() {
 			cmd.RemoveCommand(git.New()),
 			cmd.ExecCommand(),
 			cmd.PushCommand(git.New()),
+			cmd.RebaseCommand(git.New()),
 			cmd.PathCommand(),
 		},
 	}

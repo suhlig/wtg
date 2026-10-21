@@ -24,6 +24,10 @@ type testRunner struct {
 	fastForwardFn        func(repoPath, branch string) error
 	pushFn               func(repoPath, branch string) error
 	rebaseFn             func(repoPath, onto string) error
+	rebaseAbortFn        func(repoPath string) error
+	isAncestorFn         func(repoPath, ancestor, descendant string) (bool, error)
+	inProgressFn         func(repoPath string) (string, error)
+	shortRevFn           func(repoPath, rev string) (string, error)
 	remoteURLFn          func(repoPath, remote string) (string, error)
 	remotesListFn        func(repoPath string) ([]string, error)
 	pendingWorkFn        func(repoPath string) (int, int, error)
@@ -125,6 +129,34 @@ func (r *testRunner) Rebase(repoPath, onto string) error {
 		panic(fmt.Sprintf("unexpected Rebase(%q, %q)", repoPath, onto))
 	}
 	return r.rebaseFn(repoPath, onto)
+}
+
+func (r *testRunner) RebaseAbort(repoPath string) error {
+	if r.rebaseAbortFn == nil {
+		panic(fmt.Sprintf("unexpected RebaseAbort(%q)", repoPath))
+	}
+	return r.rebaseAbortFn(repoPath)
+}
+
+func (r *testRunner) IsAncestor(repoPath, ancestor, descendant string) (bool, error) {
+	if r.isAncestorFn == nil {
+		panic(fmt.Sprintf("unexpected IsAncestor(%q, %q, %q)", repoPath, ancestor, descendant))
+	}
+	return r.isAncestorFn(repoPath, ancestor, descendant)
+}
+
+func (r *testRunner) InProgress(repoPath string) (string, error) {
+	if r.inProgressFn == nil {
+		return "", nil // default: nothing in progress
+	}
+	return r.inProgressFn(repoPath)
+}
+
+func (r *testRunner) ShortRev(repoPath, rev string) (string, error) {
+	if r.shortRevFn == nil {
+		return "a1b2c3d", nil
+	}
+	return r.shortRevFn(repoPath, rev)
 }
 
 func (r *testRunner) RemoteURL(repoPath, remote string) (string, error) {

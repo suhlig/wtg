@@ -127,7 +127,7 @@ All repos run at once, as `push` does. Workspaces have a handful of repos, and t
 | E19 | Untracked files that would be overwritten by the new base | Blocked, unchanged worktree, explained (D6). |
 | E20 | Stash-apply conflict after a successful rebase | `⚠`, branch is rebased, changes kept in the stash, exit non-zero (D6). |
 
-## Implementation notes (for later; nothing is implemented yet)
+## Implementation notes (implemented)
 
 - Runner additions: `Rebase` gains `--autostash` and returns enough information to tell a conflict, a stash-apply conflict, and an untracked-file block from other failures (sentinel errors such as `ErrRebaseConflict`, `ErrAutostashConflict`); `RebaseAbort`; `IsAncestor`; `RebaseInProgress`. The test runner in `internal/cmd/testrunner_test.go` needs matching stubs.
 - `wtg push`: after a failed `Push`, call `Status` and `IsAncestor` on the upstream to decide whether to append the diverged-branch reminder (D5).

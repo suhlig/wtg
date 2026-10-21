@@ -37,6 +37,25 @@ known workspace — it will be inferred automatically.`,
 	}
 }
 
+// divergedHint returns a reminder to append to a failed push when the branch
+// has diverged from its upstream (typically after a rebase), or "" otherwise.
+// It only annotates a failure and never changes what gets pushed; any error
+// while checking yields "" so the original push error stands alone.
+// See docs/adr/0018-workspace-rebase.md (D5).
+func divergedHint(runner git.Runner, worktree, branch string) string {
+	st, err := runner.Status(worktree)
+	if err != nil || st.Upstream == "" {
+		return ""
+	}
+	isAncestor, err := runner.IsAncestor(worktree, st.Upstream, "HEAD")
+	if err != nil || isAncestor {
+		return ""
+	}
+	return fmt.Sprintf("rejected — branch has diverged from %s (typically after a rebase).\n"+
+		"  To overwrite the remote: git -C %s push --force-with-lease origin %s",
+		st.Upstream, worktree, branch)
+}
+
 // RunSpacePush pushes each repo's branch to origin in parallel.
 func RunSpacePush(runner git.Runner, spaceName string, out io.Writer) error {
 	sp, err := state.Load(spaceName)
@@ -54,7 +73,11 @@ func RunSpacePush(runner git.Runner, spaceName string, out io.Writer) error {
 		}
 		g.Go(func() error {
 			if err := runner.Push(r.WorktreePath, sp.Branch); err != nil {
-				results[i] = opResult{r.Name, ui.SymFail, err.Error()}
+				msg := err.Error()
+				if hint := divergedHint(runner, r.WorktreePath, sp.Branch); hint != "" {
+					msg += "\n" + hint
+				}
+				results[i] = opResult{r.Name, ui.SymFail, msg}
 			} else {
 				results[i] = opResult{r.Name, ui.SymOK, "pushed " + sp.Branch}
 			}

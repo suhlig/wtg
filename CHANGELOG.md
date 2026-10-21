@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `wtg rebase [<workspace>] [--onto <branch>] [--progress]` — fetch `origin` and rebase the workspace branch onto each repo's default branch (or `--onto`) in every repo in parallel, with `--autostash`; conflicts are aborted and the worktree restored, a stash that cannot be re-applied is reported and kept, and each rebased repo reports its old tip so it can be undone with `git reset --keep`
+
+### Changed
+
+- `wtg push` now explains a rejected push when the branch has diverged from its upstream (typically after a rebase) and shows the `git push --force-with-lease` command
+
 ### Fixed
 
 - `wtg repo sync` no longer fails with "cannot determine default branch" when a repo's `origin/HEAD` is missing *and* its default branch was never fetched; when the `git remote set-head origin --auto` repair fails (`Not a valid ref: refs/remotes/origin/<branch>`), wtg now falls back to asking the remote directly with `git ls-remote --symref origin HEAD`

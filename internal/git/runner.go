@@ -32,6 +32,21 @@ type RepoStatus struct {
 // version predates 2.29 and does not support the repair subcommand.
 var ErrRepairUnsupported = errors.New("git worktree repair requires git ≥ 2.29")
 
+// Sentinel errors returned (wrapped) by Rebase so callers can tell the
+// recoverable failure modes apart from other errors; see
+// docs/adr/0018-workspace-rebase.md (D2, D6).
+var (
+	// ErrRebaseConflict means the rebase stopped on a conflict and is still in
+	// progress; the caller should run RebaseAbort.
+	ErrRebaseConflict = errors.New("rebase conflict")
+	// ErrAutostashConflict means the rebase completed but re-applying the
+	// autostash conflicted; the changes are kept in the stash.
+	ErrAutostashConflict = errors.New("autostash could not be re-applied cleanly")
+	// ErrUntrackedBlocked means untracked files would be overwritten by the new
+	// base; git refused to rebase and the worktree is unchanged.
+	ErrUntrackedBlocked = errors.New("untracked files would be overwritten")
+)
+
 // Runner is the interface through which all git operations are performed.
 // The production implementation shells out to system git; tests use a mock or a
 // real git repo created with internal/git/testhelper.
@@ -63,7 +78,18 @@ type Runner interface {
 	Fetch(repoPath string) error
 	FastForward(repoPath, branch string) error
 	Push(repoPath, branch string) error
+	// Rebase runs "git rebase --autostash <onto>". Failures are wrapped with
+	// ErrRebaseConflict, ErrAutostashConflict or ErrUntrackedBlocked when
+	// they match; use errors.Is.
 	Rebase(repoPath, onto string) error
+	RebaseAbort(repoPath string) error
+	// IsAncestor reports whether ancestor is an ancestor of (or equal to) descendant.
+	IsAncestor(repoPath, ancestor, descendant string) (bool, error)
+	// InProgress returns the multi-step operation under way in the worktree
+	// ("rebase", "merge", "cherry-pick" or "revert"), or "" if there is none.
+	InProgress(repoPath string) (string, error)
+	// ShortRev resolves rev to an abbreviated commit hash.
+	ShortRev(repoPath, rev string) (string, error)
 
 	// Info
 	RemoteURL(repoPath, remote string) (string, error)

@@ -164,6 +164,39 @@ wtg push my-feature
 wtg push                          # workspace inferred from CWD
 ```
 
+If a push is rejected because the branch has diverged from its upstream
+(typically after `wtg rebase`), the output says so and shows the
+`git push --force-with-lease` command. wtg never force-pushes.
+
+### `wtg rebase [<workspace>] [--onto <branch>] [--progress]`
+
+Fetch `origin` and rebase the workspace's branch onto `origin/<default branch>`
+in every repo's worktree, in parallel, with `--autostash` so uncommitted changes
+come along. The default branch is resolved per repo; `--onto` names one branch
+for all repos. When run from inside a workspace directory, the workspace
+argument can be omitted.
+
+```sh
+wtg rebase my-feature
+wtg rebase                        # workspace inferred from CWD
+wtg rebase --onto develop         # rebase onto origin/develop in every repo
+wtg rebase --progress             # live per-repo progress bar
+```
+
+- Repos that are already up to date are reported as `✓ up to date`; rebased
+  repos as `↑ rebased (was a1b2c3d)`. Undo with `git reset --keep a1b2c3d`.
+- A conflict aborts that repo's rebase and restores the worktree, including
+  uncommitted changes; the command to retry by hand is printed.
+- If re-applying the stash conflicts after a successful rebase, the branch is
+  rebased, conflict markers are in the worktree, and the changes stay in the
+  stash.
+- Repos on another branch, with unresolved conflicts, or with a rebase, merge,
+  cherry-pick or revert in progress are skipped.
+- The exit code is non-zero if any repo failed or needs attention. Nothing is
+  pushed.
+
+See [ADR 0018](docs/adr/0018-workspace-rebase.md) for the design.
+
 ### `wtg status [<workspace>...]`
 
 Show workspace status. Without arguments, shows all workspaces — the one

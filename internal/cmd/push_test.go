@@ -9,6 +9,7 @@ import (
 	"testing"
 	"testing/synctest"
 
+	"github.com/suhlig/wtg/internal/git"
 	"github.com/suhlig/wtg/internal/ui"
 )
 
@@ -35,7 +36,10 @@ func TestRunSpacePush_PushError(t *testing.T) {
 	isolateState(t)
 	makeSpace(t, "feat", "geoff/feat", t.TempDir(), []string{"api"}, "/repos")
 
-	r := &testRunner{pushFn: func(string, string) error { return fmt.Errorf("rejected") }}
+	r := &testRunner{
+		pushFn:   func(string, string) error { return fmt.Errorf("rejected") },
+		statusFn: func(string) (git.RepoStatus, error) { return git.RepoStatus{}, nil }, // no upstream
+	}
 
 	var out bytes.Buffer
 	err := RunSpacePush(r, "feat", &out)
@@ -51,6 +55,54 @@ func TestRunSpacePush_PushError(t *testing.T) {
 	}
 	if !strings.Contains(got, "rejected") {
 		t.Errorf("output missing error message: %q", got)
+	}
+}
+
+func TestRunSpacePush_DivergedBranchHint(t *testing.T) {
+	isolateState(t)
+	makeSpace(t, "feat", "geoff/feat", t.TempDir(), []string{"api"}, "/repos")
+
+	r := &testRunner{
+		pushFn: func(string, string) error { return fmt.Errorf("non-fast-forward") },
+		statusFn: func(string) (git.RepoStatus, error) {
+			return git.RepoStatus{Branch: "geoff/feat", Upstream: "origin/geoff/feat"}, nil
+		},
+		isAncestorFn: func(_, ancestor, descendant string) (bool, error) {
+			if ancestor != "origin/geoff/feat" || descendant != "HEAD" {
+				t.Errorf("IsAncestor(%q, %q)", ancestor, descendant)
+			}
+			return false, nil
+		},
+	}
+
+	var out bytes.Buffer
+	if err := RunSpacePush(r, "feat", &out); err == nil {
+		t.Fatal("expected error when push fails")
+	}
+	got := out.String()
+	for _, want := range []string{"non-fast-forward", "diverged from origin/geoff/feat", "--force-with-lease origin geoff/feat"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("output missing %q: %q", want, got)
+		}
+	}
+}
+
+func TestRunSpacePush_NoHintWhenUpstreamIsAncestor(t *testing.T) {
+	isolateState(t)
+	makeSpace(t, "feat", "geoff/feat", t.TempDir(), []string{"api"}, "/repos")
+
+	r := &testRunner{
+		pushFn: func(string, string) error { return fmt.Errorf("auth failed") },
+		statusFn: func(string) (git.RepoStatus, error) {
+			return git.RepoStatus{Upstream: "origin/geoff/feat"}, nil
+		},
+		isAncestorFn: func(string, string, string) (bool, error) { return true, nil },
+	}
+
+	var out bytes.Buffer
+	_ = RunSpacePush(r, "feat", &out)
+	if strings.Contains(out.String(), "force-with-lease") {
+		t.Errorf("unexpected diverged hint: %q", out.String())
 	}
 }
 

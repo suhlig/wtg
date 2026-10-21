@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -260,9 +261,90 @@ func (r *SystemRunner) Push(repoPath, branch string) error {
 	return err
 }
 
+// Rebase runs "git rebase --autostash onto". It classifies failures instead of
+// trusting git's exit status alone:
+//
+//   - a rebase still in progress afterwards means a conflict (ErrRebaseConflict);
+//   - a stash entry that was not there before means the autostash could not be
+//     re-applied (ErrAutostashConflict), whatever the exit status was;
+//   - git's "untracked working tree files would be overwritten" refusal means
+//     ErrUntrackedBlocked.
 func (r *SystemRunner) Rebase(repoPath, onto string) error {
-	_, err := r.run(repoPath, "rebase", onto)
+	stashBefore := r.stashTip(repoPath)
+	_, err := r.run(repoPath, "rebase", "--autostash", onto)
+
+	if op, _ := r.InProgress(repoPath); op == "rebase" {
+		return fmt.Errorf("%w: %w", ErrRebaseConflict, err)
+	}
+	if r.stashTip(repoPath) != stashBefore {
+		// git may exit 0 here, so err can be nil; do not rely on it.
+		if err != nil {
+			return fmt.Errorf("%w: %w", ErrAutostashConflict, err)
+		}
+		return ErrAutostashConflict
+	}
+	if err == nil {
+		return nil
+	}
+	if re, ok := errors.AsType[*runError](err); ok &&
+		strings.Contains(re.stderr, "untracked working tree files would be overwritten") {
+		return fmt.Errorf("%w: %w", ErrUntrackedBlocked, err)
+	}
 	return err
+}
+
+// stashTip returns the commit refs/stash points at, or "" if there is no stash.
+func (r *SystemRunner) stashTip(repoPath string) string {
+	out, err := r.run(repoPath, "rev-parse", "--verify", "--quiet", "refs/stash")
+	if err != nil {
+		return ""
+	}
+	return out
+}
+
+func (r *SystemRunner) RebaseAbort(repoPath string) error {
+	_, err := r.run(repoPath, "rebase", "--abort")
+	return err
+}
+
+func (r *SystemRunner) IsAncestor(repoPath, ancestor, descendant string) (bool, error) {
+	_, err := r.run(repoPath, "merge-base", "--is-ancestor", ancestor, descendant)
+	if err != nil {
+		if exitCode(err) == 1 {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
+// inProgressMarkers maps a git-dir entry to the operation it indicates.
+var inProgressMarkers = []struct{ path, op string }{
+	{"rebase-merge", "rebase"},
+	{"rebase-apply", "rebase"},
+	{"MERGE_HEAD", "merge"},
+	{"CHERRY_PICK_HEAD", "cherry-pick"},
+	{"REVERT_HEAD", "revert"},
+}
+
+func (r *SystemRunner) InProgress(repoPath string) (string, error) {
+	for _, m := range inProgressMarkers {
+		out, err := r.run(repoPath, "rev-parse", "--git-path", m.path)
+		if err != nil {
+			return "", err
+		}
+		if !filepath.IsAbs(out) {
+			out = filepath.Join(repoPath, out)
+		}
+		if _, err := os.Stat(out); err == nil {
+			return m.op, nil
+		}
+	}
+	return "", nil
+}
+
+func (r *SystemRunner) ShortRev(repoPath, rev string) (string, error) {
+	return r.run(repoPath, "rev-parse", "--short", rev)
 }
 
 // --- Info ---
