@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-10-28
+
 ### Added
 
 - `wtg rebase [<workspace>] [--onto <branch>] [--progress]` — fetch `origin` and rebase the workspace branch onto each repo's default branch (or `--onto`) in every repo in parallel, with `--autostash`; conflicts are aborted and the worktree restored, a stash that cannot be re-applied is reported and kept, and each rebased repo reports its old tip so it can be undone with `git reset --keep`
@@ -121,7 +123,8 @@ Initial public release.
 - XDG Base Directory-compliant config (`$XDG_CONFIG_HOME/wtg/config.yaml`) and state (`$XDG_DATA_HOME/wtg/spaces/`)
 - `--config` flag and `WTG_CONFIG` environment variable for config file override
 
-[Unreleased]: https://github.com/suhlig/wtg/compare/v1.6.0...HEAD
+[Unreleased]: https://github.com/suhlig/wtg/compare/v1.7.0...HEAD
+[1.7.0]: https://github.com/suhlig/wtg/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/suhlig/wtg/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/suhlig/wtg/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/suhlig/wtg/compare/v1.3.1...v1.4.0
