@@ -25,3 +25,4 @@ Each decision below has its own record in [`adr/`](adr/), carrying the original 
 | [0015](adr/0015-always-files-are-copied.md) | `always.files` are copied, not symlinked |
 | [0016](adr/0016-always-secrets-are-repo-relative-copies.md) | `always.secrets` are repo-relative copies into each worktree |
 | [0017](adr/0017-always-run-best-effort-hook.md) | `always.run` is a best-effort post-operation hook |
+| [0018](adr/0018-workspace-rebase.md) | `wtg rebase` brings a workspace's branches up to date in parallel |
