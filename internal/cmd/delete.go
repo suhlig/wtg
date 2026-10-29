@@ -24,14 +24,17 @@ func DeleteCommand(runner git.Runner) *cli.Command {
 	return &cli.Command{
 		Name:      "delete",
 		Usage:     "delete a workspace and optionally its branches",
-		ArgsUsage: "<workspace>",
+		ArgsUsage: "[<workspace>]",
 		Description: `Removes all worktrees in the workspace. By default, branches are left
 untouched — use --delete-branch (-d) to delete merged branches or
 --force-delete-branch (-D) to force-delete regardless of merge state.
 
 Prompts for confirmation if any repo has uncommitted changes or unpushed
 commits. The workspace root directory is removed if it is empty after
-worktrees are cleaned up.`,
+worktrees are cleaned up.
+
+The workspace argument is optional when the current directory is inside a
+known workspace — it will be inferred automatically.`,
 		ShellComplete: completeSpaces,
 		Flags: []cli.Flag{
 			&cli.BoolFlag{
@@ -46,15 +49,16 @@ worktrees are cleaned up.`,
 			},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
-			if cmd.Args().Len() == 0 {
-				return fmt.Errorf("missing required argument: <workspace>")
+			spaceName, err := resolveSpaceArg(cmd.Args().First(), cmd.Args().Len() == 0)
+			if err != nil {
+				return err
 			}
 			cfg, err := config.Load(cmd.Root().String("config"))
 			if err != nil {
 				return err
 			}
 			return RunSpaceDelete(cfg, runner, SpaceDeleteArgs{
-				Name:         cmd.Args().First(),
+				Name:         spaceName,
 				DeleteBranch: cmd.Bool("delete-branch"),
 				ForceBranch:  cmd.Bool("force-delete-branch"),
 			}, os.Stdin, os.Stdout)

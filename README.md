@@ -119,7 +119,7 @@ Branch behaviour per repo:
 | Exists, not checked out | Checked out in the new worktree |
 | Exists, already checked out | Error |
 
-### `wtg delete <workspace>`
+### `wtg delete [<workspace>]`
 
 Delete a workspace and remove its worktrees. Prompts for confirmation if any
 repo has uncommitted changes or unpushed commits.
@@ -128,6 +128,7 @@ repo has uncommitted changes or unpushed commits.
 wtg delete my-feature            # remove worktrees, keep branches
 wtg delete my-feature -d         # also delete branches if merged
 wtg delete my-feature -D         # force-delete branches
+wtg delete                       # workspace inferred from CWD
 ```
 
 ### `wtg add [<workspace>] <repo>...`
