@@ -169,7 +169,7 @@ Consequence to document: when repos depend on each other (for example `api` befo
 
 ### D10. `--dry-run` prints the plan (decided)
 
-`land` mutates remotes, and the `merge` strategy writes to a default branch. `--dry-run` fetches, runs the checks, and prints for every repo what it would do (`would push to origin/main`, `would open PR`, `PR #12 exists`), without pushing or calling `gh pr create`. It follows the precedent of ADR 0013 (decision 9).
+`land` mutates remotes, and the `merge` strategy writes to a default branch. `--dry-run` runs the checks against the last fetched state and prints for every repo what it would do (`would push to origin/main`, `would open PR`, `PR #12 exists`), without pushing, fetching, or calling `gh pr create`. It is the global flag of [ADR 0021](0021-dry-run.md), which decides how a preview is produced (mutating calls skipped at the git and `gh` boundaries, no fetch, no prompts); `land` supports it from the start.
 
 ## Edge cases
 
@@ -195,7 +195,7 @@ Consequence to document: when repos depend on each other (for example `api` befo
 | E18 | Only one PR results from the run | No link block is written (D7) |
 | E19 | PR body already has a `wtg:siblings` block | The block is replaced in place; the rest of the body is untouched (D7) |
 | E20 | Linking one PR fails | `⚠ PR created, siblings not linked: …`; other PRs are still linked; exit non-zero; no rollback (D7) |
-| E21 | `--no-link`, or `--dry-run` | No body is read or written. With `--dry-run`, the plan says `would link N sibling PRs` |
+| E21 | `--no-link`, or `--dry-run` | `--no-link`: no body is read or written. `--dry-run`: bodies are not written, and the plan says `would link N sibling PRs` (ADR 0021 D3 supplies placeholder PR numbers) |
 | E22 | A `pr` repo failed before getting a PR | The block lists only the PRs that exist. A re-run links the rest, and replaces the block (E19) |
 
 ## Implementation notes (not yet implemented)
@@ -247,4 +247,4 @@ Consequence to document: when repos depend on each other (for example `api` befo
 | D7 | wtg opens PRs and links siblings to each other via a marked, idempotent block in each body (second pass, `--no-link` to skip); no review, merge, or CI tracking |
 | D8 | No cross-repo transaction; dependent repos should use `pr` |
 | D9 | `land` does not clean up branches; squash-merge cleanup is a known gap |
-| D10 | `--dry-run` prints the plan without changing anything |
+| D10 | `--dry-run` prints the plan from the last fetched state, without changing or fetching anything (ADR 0021) |
