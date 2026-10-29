@@ -71,21 +71,29 @@ Everything else is shown, including anything new that a later change adds: **unk
 
 The same classification is reused by [ADR 0021](0021-dry-run.md), where the stakes are higher (it decides what is not executed). That is why the default is "mutating" and the allowlist is the only way out.
 
-### D4. Effects that are not commands are reported as `(wtg)` lines through one helper (decided)
+### D4. Every filesystem mutation goes through one typed interface, and shows up as a `(wtg)` line (decided)
 
-Many effects are not git or `gh` commands: writing `go.work`, copying `always.files` and `always.secrets`, creating and removing symlinks and directories, saving and deleting space state, and invoking the `always.run` hook. A summary that listed only git would be incomplete in a misleading way ("I see no deletion, yet my state file is gone").
+Many effects are not git or `gh` commands: writing `go.work`, copying `always.files` and `always.secrets`, creating and removing symlinks and directories, saving and deleting space state, moving a clone to the archive. A summary that listed only git would be incomplete in a misleading way ("I see no deletion, yet my state file is gone").
 
-These effects are wrapped in one helper:
+All such mutations go through a small interface in `internal/trace`, passed in the way the git runner is:
 
 ```go
-// Effect records desc and runs fn.
-func (r *Recorder) Effect(desc string, fn func() error) error
+// FS is the only way wtg code changes the filesystem.
+type FS interface {
+	WriteFile(path string, data []byte, perm fs.FileMode) error
+	MkdirAll(path string, perm fs.FileMode) error
+	Remove(path string) error
+	RemoveAll(path string) error
+	Rename(oldPath, newPath string) error
+	Symlink(target, link string) error
+}
 ```
 
-- In this ADR `Effect` only records and runs. [ADR 0021](0021-dry-run.md) gives it a second behaviour (record and skip), which is why the helper is introduced now rather than as ad hoc log calls: converting a command once serves both flags.
-- `desc` is written for a human and is stable text, for example `write ~/ws/my-feature/go.work`.
-- The first conversion targets the effects found in `new`, `add`, `remove`, `delete` (the `os.Remove`, `os.WriteFile`, `os.Symlink`, `os.Rename`, `state.Save`, `state.Delete`, and `runSpaceScript` calls).
-- `wtg exec` runs the user's own command, not git. It is recorded as given (`exec: <cmd>`), since that is what ran.
+- The production implementation records the operation and then performs it with the `os` package. It does **not** shell out to `cp`, `rm`, `ln` or `mv` (see Alternatives): Go's file operations keep atomicity, permissions, portability, and error values such as `fs.ErrNotExist`, which the code checks with `errors.Is`, and they avoid building shell arguments from paths.
+- The description is **derived from the operation and its arguments** (`write ~/ws/my-feature/go.work`, `remove …`, `symlink <link> -> <target>`, `rename <old> -> <new>`, `mkdir …`). Authors cannot write a misleading one, and there is no free-text label to keep in sync.
+- A third behaviour is added by [ADR 0021](0021-dry-run.md): record and skip. A fourth is for tests: an in-memory implementation, so command tests no longer need real temp directories for mutations.
+- Space state is not special. `state.Save` and `state.Delete` take an `FS`, so a state write appears as `write ~/.local/share/wtg/spaces/my-feature.yaml`. Reads (`os.ReadFile`, `os.Stat`, `os.ReadDir`) stay direct; they change nothing.
+- Programs that wtg starts on the user's behalf (`wtg exec`, the `always.run` hook, `$EDITOR` for `config edit`) are not git and cannot be classified. A wrapper in `internal/trace` constructs and runs them, records the program and arguments as `(wtg) run: <program> <args>`, and is the only place besides the git and `gh` boundaries that may start a process (D7). The exact shape of the wrapper is an implementation detail.
 
 ### D5. Output: stderr, after the run, also on failure, grouped by repo (decided)
 
@@ -99,6 +107,20 @@ func (r *Recorder) Effect(desc string, fn func() error) error
 
 Environment variables, command output, and the contents of files. wtg itself never puts credentials in arguments (it relies on git's and `gh`'s own auth), so arguments are safe to print as passed. For the hook, only the script path and event name are shown. This follows the security rule against logging sensitive data.
 
+### D7. Bypassing the interface fails CI (decided)
+
+An interface is only a convention until something enforces it. The project already runs `golangci-lint` in CI (`.github/workflows/ci.yml`) without a config file. A `.golangci.yml` adds the [`forbidigo`](https://golangci-lint.run/usage/linters/#forbidigo) linter with `analyze-types: true` (so aliased imports are caught) and forbids, in non-test code:
+
+- `os.WriteFile`, `os.Mkdir`, `os.MkdirAll`, `os.Remove`, `os.RemoveAll`, `os.Rename`, `os.Symlink`, `os.Create`, `os.OpenFile`, `os.Chmod`, `os.Truncate`
+- `exec.Command`, `exec.CommandContext`
+
+Allowed locations (path exclusions): `internal/trace/` (the implementation), `internal/git/system.go` and `internal/remote/gh.go` (the two process boundaries of D2), `internal/git/testhelper/`, and `_test.go` files.
+
+- The rest of the default linter set is kept (`linters.default: standard`), so the new file adds a rule and does not change the existing ones.
+- **Measured before writing this ADR.** A trial run of exactly this rule over the repository found 52 sites in 15 files. Of these, 6 are intended boundaries (git, `gh`, `exec`, the hook, the editor) and 3 are in the test helper. The remaining 43 are real filesystem mutations to convert: 14 in `workspace.go`, 4 each in `unarchive.go`, `remove.go` and `delete.go`, 3 each in `config.go`, `state.go`, `secrets.go`, `cmd/archive.go` and `internal/archive/archive.go`, and 2 in `add.go`.
+- The rule can be adopted gradually: until a file is converted it carries a `//nolint:forbidigo // TODO ADR 0020` marker, or is excluded by path. The exclusion list shrinks to the allowed locations above as conversion finishes, and the marker count is the progress measure.
+- **Limits.** `forbidigo` matches calls, so it will not catch the same effect reached through another package (`syscall`, a third-party library, a method on an open `*os.File`). `os.Create` and `os.OpenFile` are on the list for that reason, and review still has to look at new imports. This closes the common accident (calling `os.Remove` out of habit), and does not make bypassing impossible.
+
 ## Edge cases
 
 | # | Situation | Handling |
@@ -110,20 +132,28 @@ Environment variables, command output, and the contents of files. wtg itself nev
 | E5 | `--summary` with `--dry-run` | The same renderer prints the plan under a different heading (ADR 0021) |
 | E6 | Tests with the mock `git.Runner` | The mock does not shell out, so it records nothing; recording is tested against the real `SystemRunner` |
 | E7 | `completion` or other commands that never reach a runner | Accepted, prints `(none)` |
+| E8 | The user's `$EDITOR`, `exec` command, or hook script itself changes files | Not visible and not claimed: the summary says what wtg started (`(wtg) run: …`), not what that program did |
+| E9 | A file write fails halfway | The `(wtg)` line is kept and marked with the error, as for a failed git call (E2) |
+| E10 | Code outside the allowed locations calls `os.Remove` or `exec.Command` | `forbidigo` fails the CI lint job (D7) |
 
 ## Implementation notes (not yet implemented)
 
-- New package `internal/trace`: `Recorder` (mutex-guarded slice), `Entry`, `Classify` (D3), the `Effect` helper (D4), and a renderer (D5).
+- New package `internal/trace`: `Recorder` (mutex-guarded slice), `Entry`, `Classify` (D3), the `FS` interface with its production, in-memory, and (ADR 0021) skipping implementations (D4), the process wrapper (D4), and a renderer (D5).
 - `git.New()` and `remote.SystemRunner` accept an optional `*trace.Recorder`. With a nil recorder behaviour is unchanged, so existing tests do not need to change.
+- Commands receive an `FS` the way they receive a `git.Runner` today (a constructor argument). `state.Save` and `state.Delete` gain an `FS` parameter. Tests that currently write to `t.TempDir()` keep working with the production `FS`.
+- `.golangci.yml` with `forbidigo` (D7). Land it first, with the `//nolint` markers on the existing 43 sites, so the count can only go down.
+- Convert in the order of ADR 0021 (`delete` first), one command per change, removing its markers.
 - Root flag and an `After` hook in `main.go` print the summary.
-- Tests: `Classify` as a table over every verb used in `system.go` and `gh.go` (a new verb must be added deliberately or it shows as mutating); recording against a real repo from `internal/git/testhelper`; the renderer with golden text for grouping and failure; `Effect` for the converted commands.
+- Tests: `Classify` as a table over every verb used in `system.go` and `gh.go` (a new verb must be added deliberately or it shows as mutating); recording against a real repo from `internal/git/testhelper`; the renderer with golden text for grouping and failure; the production `FS` records exactly what it performs; for each converted command, a test that its mutations appear in the summary.
 - Docs: README section, `CHANGELOG.md` entry under *Unreleased → Added*, and the index row in [`DESIGN.md`](../DESIGN.md).
 
 ## Consequences
 
 - Experienced users get an exact, ordered, per-repo account of a run, in git terms, without wtg printing more by default.
 - New users can read it as documentation of what wtg is doing for them.
-- A new place that mutates state without going through the runner or `Effect` is invisible to the summary. This is a convention that has to be maintained, and it is the same one ADR 0021 relies on.
+- Mutations that go through the git runner, the `gh` runner, or `FS` are all visible, and CI rejects the common ways of bypassing them (D7). The remaining gap is code that mutates through another package, which review has to catch (D7, limits). ADR 0021 relies on the same guarantee.
+- About 43 call sites in 10 files have to be converted before the lint exclusions can be removed. It is mostly mechanical, and it is staged by the `//nolint` markers.
+- Commands gain an `FS` dependency, which makes them easier to test (an in-memory `FS`) at the cost of one more constructor argument.
 - Entries are always collected, which has a negligible cost but means every command path now touches the recorder.
 
 ## Alternatives considered
@@ -134,6 +164,9 @@ Environment variables, command output, and the contents of files. wtg itself nev
 - **Log every command, including reads.** Rejected in D3 as the default. A `--summary=all` variant is a possible follow-up.
 - **Structured output (`--summary=json`).** Possible follow-up; the entry type already carries the fields.
 - **Record inside each command.** Rejected in D2: easy to forget, and it drifts from what actually ran.
+- **Route every mutation through command-line programs (`cp`, `rm`, `ln -s`, `mv`, `tee`)** so that one process boundary sees everything. Rejected in D4: it would make every effect visible, but at the price of quoting and portability bugs (BSD and GNU flags, Windows), the loss of atomic writes, permissions, and `fs.ErrNotExist`, and shell arguments built from paths. The summary would also show `rm` and `cp` where `write go.work` is clearer to a reader. The same visibility comes from a typed Go interface without any of that.
+- **A free-text `Effect(desc, fn)` wrapper.** Considered in an earlier draft of this ADR. Rejected in D4: the description could disagree with what `fn` does, and nothing stopped a command from skipping the wrapper.
+- **Enforce by review only.** Rejected in D7: the failure mode (one forgotten `os.Remove`) is silent and shows up only when a dry run mutates something.
 
 ## Decisions summary
 
@@ -142,6 +175,7 @@ Environment variables, command output, and the contents of files. wtg itself nev
 | D1 | Global per-invocation flag `--summary`; no config setting |
 | D2 | Record at `SystemRunner.run` and `ghOutput` through a shared `trace.Recorder` |
 | D3 | Show mutating commands only; read-only is an explicit allowlist, unknown means mutating; `fetch` counts as mutating |
-| D4 | Non-command effects are `(wtg)` lines produced by one `Effect` helper |
+| D4 | All filesystem mutations go through a typed `FS` interface (Go file operations, not shell commands); descriptions are derived from the operation; user-started programs go through a recording wrapper |
 | D5 | Printed to stderr after the run, also on failure, grouped by repo, copy-pasteable |
 | D6 | No environment, output, or file contents are recorded |
+| D7 | `forbidigo` in CI forbids direct `os` mutations and `exec.Command` outside `internal/trace` and the two process boundaries |
