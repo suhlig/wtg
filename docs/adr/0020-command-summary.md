@@ -2,6 +2,7 @@
 
 - Status: Proposed
 - Date: 2026-10-29
+- Author: Steffen Uhlig
 
 ## Context
 
@@ -146,6 +147,10 @@ Allowed locations (path exclusions): `internal/trace/` (the implementation), `in
 - Root flag and an `After` hook in `main.go` print the summary.
 - Tests: `Classify` as a table over every verb used in `system.go` and `gh.go` (a new verb must be added deliberately or it shows as mutating); recording against a real repo from `internal/git/testhelper`; the renderer with golden text for grouping and failure; the production `FS` records exactly what it performs; for each converted command, a test that its mutations appear in the summary.
 - Docs: README section, `CHANGELOG.md` entry under *Unreleased → Added*, and the index row in [`DESIGN.md`](../DESIGN.md).
+
+## Without wtg ([ADR 0022](0022-no-tool-dependency.md))
+
+`--summary` writes only to the user's stderr. It adds nothing to a repository or a remote, and it is the tool for ADR 0022 D1.3: the printed commands are the proof that a run can be reproduced with plain git and `gh`.
 
 ## Consequences
 

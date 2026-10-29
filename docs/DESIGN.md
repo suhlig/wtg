@@ -28,4 +28,5 @@ Each decision below has its own record in [`adr/`](adr/), carrying the original 
 | [0018](adr/0018-workspace-rebase.md) | `wtg rebase` brings a workspace's branches up to date in parallel |
 | [0019](adr/0019-workspace-land.md) | `wtg land` publishes a workspace by fast-forward or pull request, separate from `wtg delete` |
 | [0020](adr/0020-command-summary.md) | `--summary` lists the mutating commands and effects a run executed |
-| [0021](adr/0021-dry-run.md) | `--dry-run` previews a run by skipping mutations at the git, `gh`, and effect boundaries |
+| [0021](adr/0021-dry-run.md) | `--dry-run` previews a run by skipping mutations at the git, `gh`, and filesystem boundaries |
+| [0022](adr/0022-no-tool-dependency.md) | Collaborators never need wtg: shared artefacts stay plain, wtg-only data stays user-local |

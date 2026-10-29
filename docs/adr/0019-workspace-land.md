@@ -2,6 +2,7 @@
 
 - Status: Proposed
 - Date: 2026-10-29
+- Author: Steffen Uhlig
 
 ## Context
 
@@ -28,7 +29,7 @@ What is missing is the step in between: publish the work in the way the repo exp
 
 ## Problem
 
-Provide one command that, for every repo in the workspace that has work to land, either fast-forwards the default branch to the workspace branch or opens a pull request for it. After it succeeds, deleting the workspace must be safe and mean "I am done developing on this machine". Which route to take must be configurable per repo, and the safe route must be the default.
+Provide one command that, for every repo in the workspace that has work to land, either fast-forwards the default branch to the workspace branch or opens a pull request for it. After it succeeds, deleting the workspace must be safe and mean "I am done developing on this machine". Which route to take must be recordable per repo without adding files to the repo or requiring collaborators to use wtg, and the safe route must be the default.
 
 ## Intent
 
@@ -67,24 +68,48 @@ Rejected alternatives for the surface:
 - **Two commands (`wtg merge`, `wtg propose`).** Splits one decision across two verbs, and a workspace mixing both kinds of repos would need two invocations.
 - **Names considered:** `ship` (git-town uses it for the merge route), `publish`, `finish` (git-flow's word, which also deletes the branch, the very coupling D1 avoids), `submit`. `land` was chosen because it says "arrive in the default branch" without suggesting cleanup, and works for both strategies.
 
-### D3. Strategy comes from configuration; the default is `pr` (decided)
+### D3. Strategy comes from git config; the default is `pr` (decided)
 
-Whether a repo may be merged directly is a property of the repo, not of the moment, so it is configured:
+Whether a repo may be merged directly is a property of the repo (and of who is working on it), not of the moment. It is recorded in **git's own configuration**, which is local to the user by construction, so there is no wtg-specific configuration, and nothing that must be checked in:
 
-```toml
-[land]
-strategy = "pr"                   # default for repos matching no rule
-
-[[land.rule]]
-match = "github.com/suhlig/*"     # glob over the repo short name
-strategy = "merge"
+```sh
+git config --local wtg.landStrategy merge       # this clone only (.git/config)
 ```
 
-- `match` is a glob (`path.Match`) over the slash-separated repo short name ([ADR 0005](0005-repository-discovery.md)). The first matching rule wins.
-- With no configuration every repo uses `pr`. wtg never writes to a default branch unless the config says so for that repo.
-- `--strategy` overrides the config for all repos in one run. It is an explicit, per-invocation choice.
+```gitconfig
+# ~/.gitconfig: one rule for every repo whose remote matches
+[includeIf "hasconfig:remote.*.url:git@github.com:suhlig/**"]
+	path = ~/.config/git/wtg-personal.inc
+[includeIf "hasconfig:remote.*.url:https://github.com/suhlig/**"]
+	path = ~/.config/git/wtg-personal.inc
+
+# ~/.config/git/wtg-personal.inc
+[wtg]
+	landStrategy = merge
+```
+
+For each repo wtg takes the first of:
+
+1. `--strategy pr|merge` on the command line, for all repos in one run.
+2. `git -C <main clone> config --get wtg.landStrategy`. Git resolves its own layers (repository, global, includes), so a per-clone setting beats a global rule.
+3. `pr`.
+
+Properties, checked against git 2.56 before writing this ADR:
+
+- **Local by construction.** `.git/config` is not transferred by `git clone` (a clone returned no value), and `~/.gitconfig` and its includes never leave the machine. A repo cannot opt itself into direct pushes to its default branch, which a tracked settings file could. Nothing in the repo changes, so a collaborator who does not use wtg sees nothing.
+- **Linked worktrees see it.** The value lives in the main clone's config, which every worktree of that clone shares, so reading it in the main clone or any worktree gives the same answer.
+- **One rule can cover many repos.** `includeIf "hasconfig:remote.*.url:…"` matches on the remote URL, not on where the clone lives, so it also works for clones that are moved or re-created. A repo whose remote does not match gets no value and therefore `pr`. (`hasconfig:remote.*.url` needs git 2.36 or later; the version was not looked up, only the installed 2.56 was tested. An older git ignores the `includeIf` and falls back to `pr`, the safe side.) Ssh and https remotes are different URLs, so each form in use needs its own line.
+- **It says where the choice came from.** `git config --show-origin --get wtg.landStrategy` names the file. `--dry-run` (D10) prints it, for example `merge (from ~/.config/git/wtg-personal.inc)`, and a surprising result can be traced without wtg.
+- **Fails safe.** An unset key exits 1 and is treated as "not set". An unknown value is an error before any git or `gh` call (E14).
+- **Anyone can use it without wtg.** The setting is an ordinary git key. Reading it, or ignoring it, needs nothing from wtg ([ADR 0022](0022-no-tool-dependency.md)).
+
+Other rules:
+
+- With no setting every repo uses `pr`. wtg never writes to a default branch unless git config says so for that repo or the user passes `--strategy merge`.
 - No interactive prompt. The safety is the configuration plus `--dry-run` (D10), which keeps the command scriptable (see `AGENTS.md`).
-- Rejected: deriving the strategy from the remote (for example "personal org means merge"). It encodes one person's policy in the tool and guesses wrong silently.
+- Rejected: a `[land]` section with glob rules in wtg's own `config.toml`. It would add a store only wtg reads, plus a second pattern-matching feature next to the one git already has.
+- Rejected: a tracked file in the repo (for example `.wtg.toml`). It would put wtg-specific files into every collaborator's repo and let a repo grant itself direct-push rights.
+- Rejected: deriving the strategy from the remote or org without any recorded choice. It encodes one person's policy in the tool and guesses wrong silently. (The `includeIf` rule above is a recorded choice that happens to be keyed on the remote.)
 
 ### D4. Which repos are landed (decided)
 
@@ -188,7 +213,7 @@ Consequence to document: when repos depend on each other (for example `api` befo
 | E11 | Branch already pushed and rebased since | Same diverged-branch reminder as `wtg push`; `land` never forces |
 | E12 | Fetch fails or no remote | `! fetch failed: …` / `ø`, as in `rebase` E8, E9 |
 | E13 | Branch was already merged (squash) upstream | Not detected in v1; it shows as commits to land. A PR would be empty or conflicting. Follow-up. |
-| E14 | Config has an unknown strategy value | Error before any git or `gh` call |
+| E14 | `wtg.landStrategy` has a value other than `pr` or `merge` | Error naming the file it came from (`--show-origin`), before any git or `gh` call |
 | E15 | Workspace mixes `merge` and `pr` repos | Each repo uses its own strategy; the table shows which |
 | E16 | Re-running `land` after a partial failure | Idempotent: landed repos report `up to date` or the existing PR; failed repos are retried |
 | E17 | Workspace has no non-symlink repos | Table shows only skipped rows; exit 0 |
@@ -203,14 +228,20 @@ Consequence to document: when repos depend on each other (for example `api` befo
 - `git.Runner` additions: `CommitsAhead(repoPath, base, branch string) (int, error)` and `PushTo(repoPath, branch, remoteBranch string) error` (refspec push, no force). `Push` and `FastForward` already exist. The test runner in `internal/cmd/testrunner_test.go` needs matching stubs.
 - `remote.Runner` additions: `FindPR(ctx, host, ownerRepo, head string) (pr PR, found bool, err error)`, `CreatePR(ctx, host, ownerRepo, head, base string, draft bool) (PR, error)`, `PRBody(ctx, host, ownerRepo string, number int) (string, error)` and `SetPRBody(ctx, host, ownerRepo string, number int, body string) error`. `PR` carries `Number` and `URL`. Host acceptance (D6) is a small change next to `ParseGitHubRemote`.
 - Sibling block (D7): a pure function `withSiblingBlock(body, workspace string, siblings []PRRef) string` that inserts or replaces the marked block. It is the part with the most edge cases (no markers, markers present, empty body, CRLF line endings, a stray start marker without an end), so it is unit-tested on its own with a table of inputs, including idempotence (applying it twice equals applying it once).
-- Config: a `land` section (`strategy`, `rule[]`) in `internal/config`, scaffolded commented-out by `wtg config init`, as for the other sections ([ADR 0011](0011-config-command.md)).
+- Strategy lookup: a `Runner` method, for example `ConfigGet(repoPath, key string) (value, origin string, found bool, err error)`, wrapping `git config --show-origin --get`. No new section in wtg's `config.toml` and nothing for `wtg config init` to scaffold. The README documents the two git config snippets of D3.
 - Command code: `internal/cmd/land.go` with `LandCommand(runner, ghRunner)` and `RunSpaceLand(...)`, reusing `opResult`, `ui.NewTableWriter`, `resolveSpaceArg`, and the `push` diverged-branch hint. Registered next to `PushCommand`.
-- Tests ship with the implementation (`AGENTS.md`): mock-runner tests for E1–E22 and strategy selection (first-match rules, default, override), plus real-git scenarios via `internal/git/testhelper` for a fast-forward landing, a rejected non-fast-forward, and a landing followed by `delete -d`. `gh` is faked through the `remote.Runner` interface, including a fake that records the bodies written, to assert that the second pass runs only after all PRs exist.
-- Docs: README section for `wtg land` and the `[land]` config, `CHANGELOG.md` entry under *Unreleased → Added*, and the index row in [`DESIGN.md`](../DESIGN.md) (added with this ADR).
+- Tests ship with the implementation (`AGENTS.md`): mock-runner tests for E1–E22 and strategy selection (command line beats repo config beats default; unset; unknown value; origin reported), with real-git cases for a per-clone value and an `includeIf "hasconfig:remote.*.url"` rule, plus real-git scenarios via `internal/git/testhelper` for a fast-forward landing, a rejected non-fast-forward, and a landing followed by `delete -d`. `gh` is faked through the `remote.Runner` interface, including a fake that records the bodies written, to assert that the second pass runs only after all PRs exist.
+- Docs: README section for `wtg land` and the `wtg.landStrategy` git config key, `CHANGELOG.md` entry under *Unreleased → Added*, and the index row in [`DESIGN.md`](../DESIGN.md) (added with this ADR).
+
+## Without wtg ([ADR 0022](0022-no-tool-dependency.md))
+
+- **What others see:** ordinary pushes of an ordinary branch, an ordinary fast-forward of the default branch, or an ordinary PR whose title and body come from the commits (`--fill`). The only wtg-specific text is the sibling block in PR descriptions (D7), which is plain Markdown, can be edited or deleted by anyone, and is switched off with `--no-link`. ADR 0022 D5 records it as the one deliberate exception.
+- **What stays local:** the strategy choice, in git config (D3), not in any tracked file.
+- **Reproducible by hand:** every step is a git or `gh` command: `git push origin <branch>:<default>`, `git push --set-upstream`, `gh pr create --fill`, `gh pr edit`.
 
 ## Consequences
 
-- The end of the workflow becomes one command, and the answer to "may I merge this directly?" lives in configuration instead of in the developer's head.
+- The end of the workflow becomes one command, and the answer to "may I merge this directly?" lives in the user's git configuration instead of in the developer's head, and no collaborator has to use wtg or see any trace of it.
 - A workspace can be deleted as soon as its branches are pushed or PRs are open. The branch lives on until it is merged, and `wtg new` brings it back.
 - wtg's first dependence on a forge for something other than archiving. It is limited to `gh pr list`, `gh pr create`, and reading and editing PR bodies, and the `merge` strategy stays provider-agnostic.
 - Reviewers of any one PR see the rest of the feature from there, which is the main value of landing a workspace instead of N unrelated repos.
@@ -224,8 +255,9 @@ Consequence to document: when repos depend on each other (for example `api` befo
 - **Make PR handling a separate tool (`gh` only).** Rejected: opening N PRs for one feature and keeping them consistent is exactly the multi-repo chore wtg exists for. The boundary in D7 keeps this from growing into a forge client.
 - **`git merge --ff-only` in the main clone.** Rejected in D5.
 - **`land --delete` / auto-delete after landing.** Rejected in D1.
-- **Prompt before merging into a default branch.** Rejected in D3: it breaks scripting, and configuration plus `--dry-run` give the same protection.
-- **Infer the strategy from the remote or org.** Rejected in D3.
+- **Prompt before merging into a default branch.** Rejected in D3: it breaks scripting, and git config plus `--dry-run` give the same protection.
+- **Infer the strategy from the remote or org, with no recorded choice.** Rejected in D3.
+- **A `[land]` section in wtg's own config, or a tracked per-repo file.** Rejected in D3: git config is local by construction and already has per-repo and per-remote layering.
 - **Record PR URLs in the space state.** Rejected: state is deleted with the workspace, and the PR can be found again through `gh` (D6 step 2), so it would only add data that can go stale.
 
 ## Follow-ups
@@ -240,7 +272,7 @@ Consequence to document: when repos depend on each other (for example `api` befo
 |----|----------|
 | D1 | `land` publishes; `delete` releases the workspace. Neither implies the other |
 | D2 | One verb `wtg land` with strategies `merge` and `pr` |
-| D3 | Strategy from `[land]` config rules (glob on repo short name); default `pr`; `--strategy` overrides; no prompts |
+| D3 | Strategy from git config `wtg.landStrategy` (per clone or via `includeIf hasconfig:remote.*.url`); default `pr`; `--strategy` overrides; no wtg config section, no tracked files, no prompts |
 | D4 | Land only repos whose branch has commits beyond `origin/<default>`; uncommitted changes warn |
 | D5 | `merge` = `git push origin <branch>:<default>` (fast-forward only), then best-effort fast-forward of the main clone |
 | D6 | `pr` = push, find existing PR, else `gh pr create --fill`; idempotent; `GH_HOST` pinned |

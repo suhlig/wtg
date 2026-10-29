@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-20
+- Author: Steffen Uhlig
 
 ## Context
 

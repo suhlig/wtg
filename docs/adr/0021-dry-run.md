@@ -2,6 +2,7 @@
 
 - Status: Proposed
 - Date: 2026-10-29
+- Author: Steffen Uhlig
 
 ## Context
 
@@ -108,6 +109,10 @@ The renderer is the one used by `--summary` (ADR 0020 D5), with the heading "Wou
 - Convert in this order: `delete` (the original motivation and the highest risk), `new`, `add`, `remove`, `push`, `rebase`, `exec`, `repo archive`, `repo unarchive` (replacing their local flags). `land` ships with `--dry-run` from the start.
 - Tests: for each converted command, a real-repo scenario asserting that no ref, file, symlink, or state file changed (compare a snapshot of the main clone, the worktree list, and the data directory before and after), and that the output lists the expected commands. Plus a test that an unconverted command rejects the flag.
 - Docs: README (a "Previewing" section), `CHANGELOG.md` entry, and index rows in [`DESIGN.md`](../DESIGN.md).
+
+## Without wtg ([ADR 0022](0022-no-tool-dependency.md))
+
+`--dry-run` changes nothing, so it leaves no trace in a repository or on a remote. The commands it prints are plain git and `gh` commands that anyone can run.
 
 ## Consequences
 
