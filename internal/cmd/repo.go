@@ -238,6 +238,8 @@ func RunFetch(cfg *config.Config, runner git.Runner, args []string, out io.Write
 			}
 			if err := runner.Fetch(p); err != nil {
 				results[i] = opResult{name, ui.SymFail, err.Error()}
+			} else if trace.IsDry(runner) {
+				results[i] = opResult{name, ui.SymPlan, "would fetch"}
 			} else {
 				results[i] = opResult{name, ui.SymOK, "fetched"}
 			}
@@ -420,7 +422,12 @@ func syncOne(repoPath string, runner git.Runner) (string, string) {
 		return ui.SymFail, fmt.Sprintf("error: %v", err)
 	}
 
+	dry := trace.IsDry(runner)
 	if st.Behind == 0 {
+		if dry {
+			// The fetch was skipped, so this is the state as of the last fetch.
+			return ui.SymOK, "up to date (as of the last fetch)"
+		}
 		return ui.SymOK, "up to date"
 	}
 
@@ -432,6 +439,9 @@ func syncOne(repoPath string, runner git.Runner) (string, string) {
 	commits := "commits"
 	if n == 1 {
 		commits = "commit"
+	}
+	if dry {
+		return ui.SymPlan, fmt.Sprintf("would fetch and fast-forward to origin/%s (%d %s behind as of the last fetch)", defaultBranch, n, commits)
 	}
 	return ui.SymUp, fmt.Sprintf("fast-forwarded to origin/%s (%d %s)", defaultBranch, n, commits)
 }

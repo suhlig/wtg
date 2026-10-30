@@ -349,3 +349,35 @@ func TestRunSpaceRebase_Parallel(t *testing.T) {
 		}
 	})
 }
+
+func TestRunSpaceRebase_DryRun_PlansAndNamesTheLastFetch(t *testing.T) {
+	out, err := runRebase(t, rebaseRunner(), "")
+	if err != nil {
+		t.Fatalf("baseline: %v", err)
+	}
+	if !strings.Contains(out, "rebased") {
+		t.Fatalf("baseline should rebase: %q", out)
+	}
+
+	isolateState(t)
+	makeSpace(t, "feat", "geoff/feat", t.TempDir(), []string{"api"}, "/repos")
+	var dry bytes.Buffer
+	if err := RunSpaceRebase(dryGit{rebaseRunner()}, "feat", "", false, &dry); err != nil {
+		t.Fatalf("dry run: %v", err)
+	}
+	if !strings.Contains(dry.String(), "would rebase onto origin/main (as of the last fetch)") {
+		t.Errorf("expected plan wording, got %q", dry.String())
+	}
+
+	isolateState(t)
+	makeSpace(t, "feat", "geoff/feat", t.TempDir(), []string{"api"}, "/repos")
+	upToDate := rebaseRunner()
+	upToDate.isAncestorFn = func(string, string, string) (bool, error) { return true, nil }
+	dry.Reset()
+	if err := RunSpaceRebase(dryGit{upToDate}, "feat", "", false, &dry); err != nil {
+		t.Fatalf("dry run: %v", err)
+	}
+	if !strings.Contains(dry.String(), "up to date (as of the last fetch)") {
+		t.Errorf("expected last-fetch note, got %q", dry.String())
+	}
+}

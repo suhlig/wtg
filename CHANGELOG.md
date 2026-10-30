@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `wtg delete` and `wtg remove` now warn about commits that exist on no remote instead of commits ahead of the upstream, so a never-pushed branch is protected and a merge-landed branch raises no false alarm; `delete -d` deletes a branch when no commit exists only on it
 - `wtg delete` exits non-zero when it does not delete (declined prompt, or no terminal without `--yes`) and keeps a repo whose `always.secrets` copy was changed (ADR 0019 D11)
+- `wtg --dry-run repo sync` and `wtg --dry-run rebase` say "as of the last fetch", because a dry run never fetches
 - `.golangci.yml` now forbids direct filesystem mutation and process creation outside the `trace` package and the git/`gh` boundaries (ADR 0020 D7)
 
 - `wtg delete` now infers the workspace from the current directory when `<workspace>` is omitted, like `push`, `rebase`, `exec`, `add` and `remove`; outside any workspace it still asks you to name one

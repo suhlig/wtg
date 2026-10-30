@@ -268,7 +268,11 @@ func rebaseOne(runner git.Runner, branch, onto string, r state.RepoEntry, phase 
 		return fail("cannot compare with %s: %v", ref, err), false
 	}
 	if upToDate {
-		return rebaseResult{opResult: opResult{r.Name, ui.SymOK, "up to date"}}, false
+		msg := "up to date"
+		if trace.IsDry(runner) {
+			msg += " (as of the last fetch)"
+		}
+		return rebaseResult{opResult: opResult{r.Name, ui.SymOK, msg}}, false
 	}
 
 	old, err := runner.ShortRev(r.WorktreePath, "HEAD")

@@ -533,3 +533,21 @@ func TestRunSync_NoRootDir(t *testing.T) {
 		t.Errorf("expected no output, got: %q", out.String())
 	}
 }
+
+// --- --dry-run: the fetch is skipped, so the answer is "as of the last fetch" ---
+
+func TestSyncOne_DryRun_UpToDateSaysLastFetch(t *testing.T) {
+	r := syncRunner("main", []git.RepoStatus{{Branch: "main"}, {Branch: "main"}}, nil, nil)
+	sym, msg := syncOne(t.TempDir(), dryGit{r})
+	if sym != ui.SymOK || !strings.Contains(msg, "as of the last fetch") {
+		t.Errorf("got %q %q", sym, msg)
+	}
+}
+
+func TestSyncOne_DryRun_BehindIsPlanned(t *testing.T) {
+	r := syncRunner("main", []git.RepoStatus{{Branch: "main"}, {Branch: "main", Behind: 2}}, nil, nil)
+	sym, msg := syncOne(t.TempDir(), dryGit{r})
+	if sym != ui.SymPlan || !strings.HasPrefix(msg, "would fetch and fast-forward to origin/main (2 commits") {
+		t.Errorf("got %q %q", sym, msg)
+	}
+}

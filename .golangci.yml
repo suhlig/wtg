@@ -11,9 +11,18 @@ linters:
         # ADR 0020 D7: every filesystem mutation goes through trace.FS, and
         # every started process through the git/gh boundaries or trace.Command
         # + trace.RunProcess, so --summary and --dry-run see all of them.
-        - pattern: ^os\.(WriteFile|Mkdir|MkdirAll|Remove|RemoveAll|Rename|Symlink|Create|OpenFile|Chmod|Truncate)$
+        - pattern: ^os\.(WriteFile|Mkdir|MkdirAll|MkdirTemp|Remove|RemoveAll|Rename|Symlink|Link|Create|CreateTemp|OpenFile|Chmod|Chown|Lchown|Chtimes|Truncate|CopyFS)$
           msg: use trace.FS (ADR 0020 D7)
-        - pattern: ^exec\.(Command|CommandContext)$
+        # Writes through an already-open file are the route the os.* rule alone
+        # cannot see; os.Stdout and os.Stderr are *os.File too, so only the
+        # calls that change a file's content, mode or owner are listed.
+        - pattern: ^(\*?os\.File)\.(Write|WriteAt|WriteString|WriteTo|ReadFrom|Truncate|Chmod|Chown)$
+          msg: use trace.FS (ADR 0020 D7)
+        - pattern: ^syscall\.(Unlink|Rmdir|Rename|Mkdir|Symlink|Link|Open|Creat|Write|Truncate|Chmod|Chown|Exec|ForkExec|StartProcess)$
+          msg: use trace.FS or the git/gh boundaries (ADR 0020 D7)
+        - pattern: ^ioutil\.
+          msg: deprecated, and bypasses trace.FS (ADR 0020 D7)
+        - pattern: ^(exec\.(Command|CommandContext)|os\.StartProcess)$
           msg: use the git/gh runner, or trace.Command with trace.RunProcess (ADR 0020 D7)
   exclusions:
     rules:

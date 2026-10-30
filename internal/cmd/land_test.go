@@ -132,3 +132,41 @@ func TestRunSpaceLand_DryRun_PlansAndDoesNotLinkBodies(t *testing.T) {
 		t.Errorf("a dry run must not write PR bodies: %v", gh.prBodies)
 	}
 }
+
+func TestRunSpaceLand_DryRun_MergeStrategyPlansPushToDefaultBranch(t *testing.T) {
+	isolateState(t)
+	makeSpace(t, "feat", "feat", t.TempDir(), []string{"github.com/owner/api"}, "/repos")
+	// A production dry-run runner skips PushTo at the boundary; this test only
+	// checks the wording that the command derives from the dry-run state.
+	r := landRunner()
+
+	var out bytes.Buffer
+	if err := RunSpaceLand(t.Context(), dryGit{r}, &fakeGH{}, SpaceLandArgs{Name: "feat", Strategy: "merge"}, &out); err != nil {
+		t.Fatalf("RunSpaceLand: %v\n%s", err, out.String())
+	}
+	got := out.String()
+	if !strings.Contains(got, "would push feat to origin/main") || strings.Contains(got, "landed (merge)") {
+		t.Errorf("expected plan wording, got:\n%s", got)
+	}
+}
+
+func TestRunSpaceLand_PRStrategy_NonGitHubRemoteFails(t *testing.T) {
+	isolateState(t)
+	makeSpace(t, "feat", "feat", t.TempDir(), []string{"github.com/owner/api"}, "/repos")
+	r := landRunner()
+	r.remoteURLFn = func(string, string) (string, error) { return "git@example.com:owner/repo.git", nil }
+	var pushed bool
+	r.pushFn = func(string, string) error { pushed = true; return nil }
+
+	var out bytes.Buffer
+	err := RunSpaceLand(t.Context(), r, &fakeGH{}, SpaceLandArgs{Name: "feat", Strategy: "pr", NoLink: true}, &out)
+	if err == nil {
+		t.Fatal("a non-GitHub remote with the pr strategy must fail the run")
+	}
+	if !pushed {
+		t.Error("the branch is pushed before the failure is reported (ADR 0019 E10)")
+	}
+	if !strings.Contains(out.String(), "pr strategy needs a GitHub remote") {
+		t.Errorf("expected the E10 message, got:\n%s", out.String())
+	}
+}
