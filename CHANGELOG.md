@@ -7,7 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `wtg land [<workspace>] [--strategy merge|pr] [--draft] [--no-link]` — publish every repo's branch: fast-forward the remote default branch (`merge`) or push and open a pull request (`pr`), with the choice read from `git config wtg.landStrategy`; PRs of one workspace link to each other in a marked block of their description, and the command exits non-zero when any repo needs attention (ADR 0019)
+- `--summary` (global) — after the run, print the mutating git and `gh` commands and filesystem effects, grouped by repo, to stderr (ADR 0020)
+- `--dry-run` (global) — print the plan without changing anything; supported by every command, never fetches, prompts or runs hooks (ADR 0021)
+- `wtg delete --yes` — answer the confirmation prompt with yes
+
 ### Changed
+
+- `wtg delete` and `wtg remove` now warn about commits that exist on no remote instead of commits ahead of the upstream, so a never-pushed branch is protected and a merge-landed branch raises no false alarm; `delete -d` deletes a branch when no commit exists only on it
+- `wtg delete` exits non-zero when it does not delete (declined prompt, or no terminal without `--yes`) and keeps a repo whose `always.secrets` copy was changed (ADR 0019 D11)
+- `.golangci.yml` now forbids direct filesystem mutation and process creation outside the `trace` package and the git/`gh` boundaries (ADR 0020 D7)
 
 - `wtg delete` now infers the workspace from the current directory when `<workspace>` is omitted, like `push`, `rebase`, `exec`, `add` and `remove`; outside any workspace it still asks you to name one
 

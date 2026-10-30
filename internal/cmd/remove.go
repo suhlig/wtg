@@ -16,11 +16,12 @@ import (
 	"github.com/suhlig/wtg/internal/config"
 	"github.com/suhlig/wtg/internal/git"
 	"github.com/suhlig/wtg/internal/state"
+	"github.com/suhlig/wtg/internal/trace"
 	"github.com/suhlig/wtg/internal/ui"
 )
 
 // RemoveCommand returns the `wtg remove` command.
-func RemoveCommand(runner git.Runner) *cli.Command {
+func RemoveCommand(runner git.Runner, fsys ...trace.FS) *cli.Command {
 	return &cli.Command{
 		Name:      "remove",
 		Aliases:   []string{"rm"},
@@ -65,7 +66,7 @@ known workspace — it will be inferred automatically.`,
 				Repos:        repos,
 				DeleteBranch: cmd.Bool("delete-branch"),
 				ForceBranch:  cmd.Bool("force-delete-branch"),
-			}, os.Stdin, os.Stdout)
+			}, os.Stdin, os.Stdout, fsys...)
 		},
 	}
 }
@@ -88,7 +89,11 @@ type SpaceRemoveArgs struct {
 // is restored in its place rather than leaving the repo absent from the space.
 // Removing a repo that is currently a symlink leaves it absent (the user
 // explicitly opted out for this space).
-func RunSpaceRemove(cfg *config.Config, runner git.Runner, args SpaceRemoveArgs, in io.Reader, out io.Writer) error {
+func RunSpaceRemove(cfg *config.Config, runner git.Runner, args SpaceRemoveArgs, in io.Reader, out io.Writer, fsys ...trace.FS) error {
+	var f trace.FS = trace.NewOsFS(nil)
+	if len(fsys) > 0 && fsys[0] != nil {
+		f = fsys[0]
+	}
 	sp, err := state.Load(args.Name)
 	if err != nil {
 		return fmt.Errorf("load space %q: %w", args.Name, err)
@@ -158,9 +163,7 @@ func RunSpaceRemove(cfg *config.Config, runner git.Runner, args SpaceRemoveArgs,
 			if len(st.Files) > 0 {
 				msgs = append(msgs, fmt.Sprintf("%s: has uncommitted changes", r.Name))
 			}
-			if st.Ahead > 0 {
-				msgs = append(msgs, fmt.Sprintf("%s: has %d unpushed commit(s)", r.Name, st.Ahead))
-			}
+			msgs = append(msgs, unpushedWarnings(runner, r, sp.Branch, st.Branch)...)
 			warnResults[i] = warnResult{msgs}
 		}(i, r)
 	}
@@ -176,12 +179,16 @@ func RunSpaceRemove(cfg *config.Config, runner git.Runner, args SpaceRemoveArgs,
 		for _, w := range warnings {
 			_, _ = fmt.Fprintf(out, "  %s %s\n", ui.SymWarn, w)
 		}
-		ok, err := confirm(bufio.NewReader(in), out, "Remove repos anyway?")
-		if err != nil {
-			return err
-		}
-		if !ok {
-			return nil
+		if trace.IsDryRun(f) {
+			_, _ = fmt.Fprintln(out, "would ask: Remove repos anyway?")
+		} else {
+			ok, err := confirm(bufio.NewReader(in), out, "Remove repos anyway?")
+			if err != nil {
+				return err
+			}
+			if !ok {
+				return nil
+			}
 		}
 	}
 
@@ -190,14 +197,14 @@ func RunSpaceRemove(cfg *config.Config, runner git.Runner, args SpaceRemoveArgs,
 	hadError := false
 	tbl := ui.NewTableWriter(out)
 	for _, r := range toRemove {
-		sym, msg := deleteOne(runner, r, sp.Branch, args.DeleteBranch, args.ForceBranch, needsForce)
+		sym, msg := deleteOne(runner, r, sp.Branch, args.DeleteBranch, args.ForceBranch, needsForce, f)
 		tbl.Row(r.Name, sym+" "+msg)
 		if sym == ui.SymFail {
 			hadError = true
 		} else {
 			// The worktree is gone; prune the now-empty intermediate
 			// directories (e.g. the org/group level of a nested repo name).
-			removeEmptyParents(r.WorktreePath, sp.Path)
+			removeEmptyParents(r.WorktreePath, sp.Path, f)
 		}
 	}
 	tbl.Flush()
@@ -224,11 +231,11 @@ func RunSpaceRemove(cfg *config.Config, runner git.Runner, args SpaceRemoveArgs,
 			// The worktree's parent dirs were pruned above (or never existed if
 			// the worktree was externally deleted); recreate them before
 			// symlinking, mirroring symlinkStep in workspace.go.
-			if err := os.MkdirAll(filepath.Dir(r.WorktreePath), 0o750); err != nil {
+			if err := f.MkdirAll(filepath.Dir(r.WorktreePath), 0o750); err != nil {
 				_, _ = fmt.Fprintf(out, "  %s could not restore symlink for %s: %v\n", ui.SymWarn, r.Name, err)
 				continue
 			}
-			if err := os.Symlink(r.RepoPath, r.WorktreePath); err != nil {
+			if err := f.Symlink(r.RepoPath, r.WorktreePath); err != nil {
 				_, _ = fmt.Fprintf(out, "  %s could not restore symlink for %s: %v\n", ui.SymWarn, r.Name, err)
 				continue
 			}
@@ -254,15 +261,15 @@ func RunSpaceRemove(cfg *config.Config, runner git.Runner, args SpaceRemoveArgs,
 		if anyGoMod {
 			remainingGoWorkspace = true
 			goVersion := detectGoVersion(remainingTargets, hasGoMod)
-			if err := writeGoWork(goWorkPath, sp.Path, remainingTargets, hasGoMod, goVersion); err != nil {
+			if err := writeGoWork(goWorkPath, sp.Path, remainingTargets, hasGoMod, goVersion, f); err != nil {
 				_, _ = fmt.Fprintf(out, "  %s could not update go.work: %v\n", ui.SymWarn, err)
 			}
 		} else {
-			if err := os.Remove(goWorkPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			if err := f.Remove(goWorkPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
 				_, _ = fmt.Fprintf(out, "  %s could not remove go.work: %v\n", ui.SymWarn, err)
 			}
 		}
-		if err := os.Remove(goWorkSumPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		if err := f.Remove(goWorkSumPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			_, _ = fmt.Fprintf(out, "  %s could not remove go.work.sum: %v\n", ui.SymWarn, err)
 		}
 	}
@@ -270,17 +277,21 @@ func RunSpaceRemove(cfg *config.Config, runner git.Runner, args SpaceRemoveArgs,
 	updated := *sp
 	updated.Repos = keepEntries
 	updated.GoWorkspace = remainingGoWorkspace
-	if err := state.Save(&updated); err != nil {
+	if err := state.Save(&updated, f); err != nil {
 		return fmt.Errorf("save state: %w", err)
 	}
 
-	_, _ = fmt.Fprintf(out, "%s removed from space %q\n", ui.SymOK, args.Name)
+	if isDry(runner, f) {
+		_, _ = fmt.Fprintf(out, "%s would remove from space %q\n", ui.SymPlan, args.Name)
+	} else {
+		_, _ = fmt.Fprintf(out, "%s removed from space %q\n", ui.SymOK, args.Name)
+	}
 	_, _ = fmt.Fprintf(out, "Workspace root: %s\n", sp.Path)
 
 	removedNames := make([]string, len(toRemove))
 	for i, r := range toRemove {
 		removedNames[i] = r.Name
 	}
-	runSpaceScript(cfg, "remove", &updated, removedNames, out)
+	runSpaceScript(cfg, "remove", &updated, removedNames, out, f)
 	return nil
 }

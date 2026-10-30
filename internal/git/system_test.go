@@ -607,3 +607,36 @@ func TestPendingWork_NoRemote(t *testing.T) {
 		t.Errorf("stashes: got %d, want 0", stashes)
 	}
 }
+
+// --- CommitsOnNoRemote ---
+
+func TestCommitsOnNoRemote(t *testing.T) {
+	t.Parallel()
+	local, _ := testhelper.InitWithRemote(t)
+	r := runner()
+
+	// Never pushed: one commit exists only here.
+	local.GitCmd("checkout", "-b", "feat")
+	local.Commit("one")
+	if n, err := r.CommitsOnNoRemote(local.Path, "refs/heads/feat"); err != nil || n != 1 {
+		t.Fatalf("never pushed: got %d, %v; want 1", n, err)
+	}
+
+	// Pushed: on a remote now.
+	local.GitCmd("push", "-u", "origin", "feat")
+	if n, _ := r.CommitsOnNoRemote(local.Path, "refs/heads/feat"); n != 0 {
+		t.Fatalf("pushed: got %d; want 0", n)
+	}
+
+	// Pushed earlier, plus a newer commit.
+	local.Commit("two")
+	if n, _ := r.CommitsOnNoRemote(local.Path, "refs/heads/feat"); n != 1 {
+		t.Fatalf("pushed earlier plus newer commit: got %d; want 1", n)
+	}
+
+	// Merge-landed: origin/main contains the tip, origin/feat does not.
+	local.GitCmd("push", "origin", "feat:main")
+	if n, _ := r.CommitsOnNoRemote(local.Path, "refs/heads/feat"); n != 0 {
+		t.Fatalf("merge-landed: got %d; want 0", n)
+	}
+}

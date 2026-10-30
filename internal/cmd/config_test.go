@@ -12,6 +12,7 @@ import (
 	"github.com/urfave/cli/v3"
 
 	"github.com/suhlig/wtg/internal/config"
+	"github.com/suhlig/wtg/internal/trace"
 )
 
 // configApp wraps ConfigCommand in a root carrying the global --config flag.
@@ -330,4 +331,24 @@ func koanfTags(t reflect.Type) []string {
 		}
 	}
 	return tags
+}
+
+func TestRunConfigInit_DryRunWritesNothing(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sub", "config.toml")
+	rec := trace.NewRecorder(true)
+	var out bytes.Buffer
+	if err := runConfigInit(path, false, &out, trace.NewOsFS(rec)); err != nil {
+		t.Fatalf("runConfigInit: %v", err)
+	}
+	if _, err := os.Stat(path); err == nil {
+		t.Error("dry run must not write the config file")
+	}
+	if !strings.Contains(out.String(), "would write config to") {
+		t.Errorf("expected plan wording, got %q", out.String())
+	}
+	var plan strings.Builder
+	rec.Print(&plan, "Would run")
+	if !strings.Contains(plan.String(), "(wtg) write "+path) {
+		t.Errorf("plan should list the write:\n%s", plan.String())
+	}
 }

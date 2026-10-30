@@ -122,14 +122,26 @@ Branch behaviour per repo:
 ### `wtg delete [<workspace>]`
 
 Delete a workspace and remove its worktrees. Prompts for confirmation if any
-repo has uncommitted changes or unpushed commits.
+repo has uncommitted changes or commits that exist on no remote (so a branch
+that was merge-landed with `wtg land` does not trigger a false alarm).
 
 ```sh
 wtg delete my-feature            # remove worktrees, keep branches
-wtg delete my-feature -d         # also delete branches if merged
+wtg delete my-feature -d         # also delete branches when no commit exists only on them
 wtg delete my-feature -D         # force-delete branches
+wtg delete my-feature --yes      # answer the prompt with yes (scripts)
 wtg delete                       # workspace inferred from CWD
 ```
+
+`delete` exits non-zero whenever it does not delete, so `wtg land && wtg delete`
+stops: a declined prompt prints `aborted: nothing deleted`, and without a
+terminal and without `--yes` it refuses instead of reading an answer from a pipe.
+
+A repo whose `always.secrets` copy differs from the main clone, or whose source
+no longer exists, is **kept** (with its branch), the other repos are deleted as
+usual, and `delete` exits non-zero. Copy the change back (or discard it) and run
+`wtg delete` again; it resumes with exactly the kept repos. Other ignored files
+you created yourself are not detected.
 
 ### `wtg add [<workspace>] <repo>...`
 
@@ -168,6 +180,33 @@ wtg push                          # workspace inferred from CWD
 If a push is rejected because the branch has diverged from its upstream
 (typically after `wtg rebase`), the output says so and shows the
 `git push --force-with-lease` command. wtg never force-pushes.
+
+### `wtg land [<workspace>] [--strategy merge|pr] [--draft] [--no-link]`
+
+Publish every repo's branch that has commits beyond `origin/<default>`, in
+parallel. With the `pr` strategy (the default) the branch is pushed and a pull
+request is opened (an existing one is reused); with `merge` the remote default
+branch is fast-forwarded to the branch. `land` never forces and never deletes
+anything, so `wtg land && wtg delete` is the end of the workflow: `land` exits
+non-zero if any repo failed or needs attention (wrong branch, not a
+fast-forward, `gh` missing, siblings not linked).
+
+The strategy is a per-repo choice kept in git config, not in a tracked file:
+
+```sh
+git -C ~/git/api config --local wtg.landStrategy merge      # one clone
+```
+
+```gitconfig
+# ~/.gitconfig: every repo whose remote matches
+[includeIf "hasconfig:remote.*.url:git@github.com:myorg/**"]
+    path = ~/.gitconfig-myorg-merge
+```
+
+`--strategy` overrides the setting for one run. With the `pr` strategy, each
+pull request description gets a marked block that links the other PRs of the
+workspace; `--no-link` suppresses it. `--dry-run` shows the plan, including
+`would link N sibling PRs`.
 
 ### `wtg rebase [<workspace>] [--onto <branch>] [--progress]`
 
@@ -228,6 +267,26 @@ wtg exec my-feature -- git status
 wtg exec my-feature --parallel -- go test ./...
 wtg exec -- git status            # workspace inferred from CWD
 ```
+
+## Previewing and reporting
+
+Two global flags work with any command, before or after the subcommand.
+
+```sh
+wtg --dry-run new my-feature api payments   # print the plan; change nothing
+wtg push --summary                          # run, then list what was executed
+```
+
+`--dry-run` runs the real code with every mutation turned off and prints what
+it would do: result rows say `→ would …`, followed by the git, `gh` and
+filesystem commands under "Would run". Reads still run, so the plan is based on
+current state and on the last `fetch`; a dry run never fetches, never prompts
+(`would ask: …`), and never runs the `always.run` hook or an `exec` command.
+Its exit code is 0 when a plan could be made.
+
+`--summary` runs the command normally and, afterwards, prints the mutating git
+and `gh` commands and filesystem effects (`(wtg) write …`) to stderr, grouped
+by repo. Failed commands are marked with their exit code.
 
 ## Repo commands
 

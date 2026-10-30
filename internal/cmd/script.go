@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"strings"
 
 	"github.com/suhlig/wtg/internal/config"
 	"github.com/suhlig/wtg/internal/state"
+	"github.com/suhlig/wtg/internal/trace"
 	"github.com/suhlig/wtg/internal/ui"
 )
 
@@ -20,9 +20,13 @@ import (
 // sp describes the space state the script should see: the final state for
 // create/add/remove, or the pre-deletion state for delete. eventRepos lists the
 // repos this specific event affected (added or removed).
-func runSpaceScript(cfg *config.Config, event string, sp *state.Space, eventRepos []string, out io.Writer) {
+func runSpaceScript(cfg *config.Config, event string, sp *state.Space, eventRepos []string, out io.Writer, fsys ...trace.FS) {
 	if cfg.Always.Run == "" {
 		return
+	}
+	var f trace.FS = trace.NewOsFS(nil)
+	if len(fsys) > 0 && fsys[0] != nil {
+		f = fsys[0]
 	}
 
 	paths := make([]string, len(sp.Repos))
@@ -30,7 +34,7 @@ func runSpaceScript(cfg *config.Config, event string, sp *state.Space, eventRepo
 		paths[i] = r.WorktreePath
 	}
 
-	cmd := exec.Command(cfg.Always.Run) // #nosec G204 -- user-configured always.run script
+	cmd := trace.Command(cfg.Always.Run)
 	cmd.Env = append(os.Environ(),
 		"WTG_SPACE_NAME="+sp.Name,
 		"WTG_SPACE_ROOT="+sp.Path,
@@ -42,7 +46,10 @@ func runSpaceScript(cfg *config.Config, event string, sp *state.Space, eventRepo
 	)
 	cmd.Stdout = out
 	cmd.Stderr = out
-	if err := cmd.Run(); err != nil {
+	line := fmt.Sprintf("%s %s", cfg.Always.Run, event)
+	if err := trace.RunProcess(f, "", line, func() error {
+		return cmd.Run()
+	}); err != nil {
 		_, _ = fmt.Fprintf(out, "  %s always.run script failed: %v\n", ui.SymWarn, err)
 	}
 }

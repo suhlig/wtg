@@ -12,6 +12,7 @@ import (
 
 	"github.com/suhlig/wtg/internal/git"
 	"github.com/suhlig/wtg/internal/state"
+	"github.com/suhlig/wtg/internal/trace"
 	"github.com/suhlig/wtg/internal/ui"
 )
 
@@ -64,6 +65,7 @@ func RunSpacePush(runner git.Runner, spaceName string, out io.Writer) error {
 	}
 
 	results := make([]opResult, len(sp.Repos))
+	dry := trace.IsDry(runner)
 
 	var g errgroup.Group
 	for i, r := range sp.Repos {
@@ -79,7 +81,11 @@ func RunSpacePush(runner git.Runner, spaceName string, out io.Writer) error {
 				}
 				results[i] = opResult{r.Name, ui.SymFail, msg}
 			} else {
-				results[i] = opResult{r.Name, ui.SymOK, "pushed " + sp.Branch}
+				if dry {
+					results[i] = opResult{r.Name, ui.SymPlan, "would push " + sp.Branch}
+				} else {
+					results[i] = opResult{r.Name, ui.SymOK, "pushed " + sp.Branch}
+				}
 			}
 			return nil
 		})

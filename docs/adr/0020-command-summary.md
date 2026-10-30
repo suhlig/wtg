@@ -137,7 +137,7 @@ Allowed locations (path exclusions): `internal/trace/` (the implementation), `in
 | E9 | A file write fails halfway | The `(wtg)` line is kept and marked with the error, as for a failed git call (E2) |
 | E10 | Code outside the allowed locations calls `os.Remove` or `exec.Command` | `forbidigo` fails the CI lint job (D7) |
 
-## Implementation notes (not yet implemented)
+## Implementation notes (implemented)
 
 - New package `internal/trace`: `Recorder` (mutex-guarded slice), `Entry`, `Classify` (D3), the `FS` interface with its production, in-memory, and (ADR 0021) skipping implementations (D4), the process wrapper (D4), and a renderer (D5).
 - `git.New()` and `remote.SystemRunner` accept an optional `*trace.Recorder`. With a nil recorder behaviour is unchanged, so existing tests do not need to change.

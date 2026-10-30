@@ -14,6 +14,7 @@ import (
 
 	"github.com/suhlig/wtg/internal/git"
 	"github.com/suhlig/wtg/internal/state"
+	"github.com/suhlig/wtg/internal/trace"
 	"github.com/suhlig/wtg/internal/ui"
 )
 
@@ -280,6 +281,9 @@ func rebaseOne(runner git.Runner, branch, onto string, r state.RepoEntry, phase 
 
 	err = runner.Rebase(r.WorktreePath, ref)
 	switch {
+	case err == nil && trace.IsDry(runner):
+		return rebaseResult{opResult: opResult{r.Name, ui.SymPlan, "would rebase onto " + ref + " (as of the last fetch)"}}, false
+
 	case err == nil:
 		return rebaseResult{opResult: opResult{r.Name, ui.SymUp, rebased}}, false
 

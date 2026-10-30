@@ -12,6 +12,10 @@ import (
 	"github.com/suhlig/wtg/internal/trace"
 )
 
+// PlaceholderPRNumber is the number of the PR that a skipped `gh pr create`
+// returns under --dry-run. It is never a real PR number.
+const PlaceholderPRNumber = -1
+
 // PR holds the number and URL of a GitHub pull request.
 type PR struct {
 	Number int
@@ -101,6 +105,9 @@ func (s *SystemRunner) Unarchive(ctx context.Context, host, ownerRepo string) er
 	return nil
 }
 
+// DryRun reports whether the runner is skipping mutating calls (--dry-run).
+func (s *SystemRunner) DryRun() bool { return s.rec.DryRun() }
+
 // ghOutput runs gh with args and returns its combined output. GH_HOST pins the
 // command to host so a GitHub Enterprise default in the user's gh config cannot
 // redirect an archival. Mutating calls are recorded when a Recorder is present.
@@ -153,13 +160,18 @@ func (s *SystemRunner) CreatePR(ctx context.Context, host, ownerRepo, head, base
 	if err != nil {
 		return PR{}, fmt.Errorf("gh pr create %s failed:\n%s", ownerRepo, strings.TrimSpace(string(out)))
 	}
+	if s.rec.DryRun() {
+		// ADR 0021 D3: the PR does not exist; return a placeholder so the
+		// code after it can continue and show what it would do.
+		return PR{Number: PlaceholderPRNumber, URL: "#?"}, nil
+	}
 	// gh pr create returns the PR URL on stdout
 	prURL := strings.TrimSpace(string(out))
 	// Parse the PR number from the URL (/pull/<number>)
 	var number int
 	parts := strings.Split(prURL, "/")
 	if len(parts) > 0 {
-		fmt.Sscanf(parts[len(parts)-1], "%d", &number)
+		_, _ = fmt.Sscanf(parts[len(parts)-1], "%d", &number)
 	}
 	return PR{Number: number, URL: prURL}, nil
 }

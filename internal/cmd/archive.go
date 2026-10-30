@@ -22,11 +22,12 @@ import (
 	"github.com/suhlig/wtg/internal/remote"
 	"github.com/suhlig/wtg/internal/saga"
 	"github.com/suhlig/wtg/internal/state"
+	"github.com/suhlig/wtg/internal/trace"
 	"github.com/suhlig/wtg/internal/ui"
 )
 
 // ArchiveCommand returns the `wtg repo archive` subcommand.
-func ArchiveCommand(runner git.Runner) *cli.Command {
+func ArchiveCommand(runner git.Runner, fsys ...trace.FS) *cli.Command {
 	return &cli.Command{
 		Name:      "archive",
 		Usage:     "retire main repo clones by moving them to an archive directory",
@@ -49,7 +50,6 @@ first.`,
 		ShellComplete: completeRepos,
 		Flags: []cli.Flag{
 			&cli.BoolFlag{Name: "force", Usage: "proceed despite uncommitted, unpushed, or stashed work"},
-			&cli.BoolFlag{Name: "dry-run", Usage: "show what would happen without moving anything"},
 			&cli.BoolFlag{Name: "remote", Usage: "also archive each repo on GitHub via the gh CLI"},
 			&cli.StringFlag{Name: "archive-dir", Usage: "override archive.root_dir for this run"},
 		},
@@ -64,10 +64,10 @@ first.`,
 			return RunRepoArchive(cfg, runner, RepoArchiveArgs{
 				Repos:      cmd.Args().Slice(),
 				Force:      cmd.Bool("force"),
-				DryRun:     cmd.Bool("dry-run"),
+				DryRun:     cmd.Bool("dry-run") || cmd.Root().Bool("dry-run"),
 				ArchiveDir: cmd.String("archive-dir"),
 				Remote:     cmd.Bool("remote"),
-			}, os.Stdout)
+			}, os.Stdout, fsys...)
 		},
 	}
 }
@@ -110,7 +110,11 @@ type archiveTarget struct {
 // With args.Remote, each repo is also archived upstream on GitHub via gh, after
 // an auth pre-flight and as part of the same saga, so a failure rolls the local
 // moves back. See docs/adr/0013-repo-archive.md.
-func RunRepoArchive(cfg *config.Config, runner git.Runner, args RepoArchiveArgs, out io.Writer) error {
+func RunRepoArchive(cfg *config.Config, runner git.Runner, args RepoArchiveArgs, out io.Writer, fsys ...trace.FS) error {
+	var f trace.FS = trace.NewOsFS(nil)
+	if len(fsys) > 0 && fsys[0] != nil {
+		f = fsys[0]
+	}
 	if len(args.Repos) == 0 {
 		return errors.New("at least one repo is required")
 	}
@@ -160,7 +164,7 @@ func RunRepoArchive(cfg *config.Config, runner git.Runner, args RepoArchiveArgs,
 		return fmt.Errorf("%s\nRefusing to archive with pending work; re-run with --force to proceed", strings.Join(warnings, "\n"))
 	}
 
-	if args.DryRun {
+	if args.DryRun || trace.IsDryRun(f) {
 		printArchivePlan(out, targets, args.Remote)
 		return nil
 	}
@@ -189,9 +193,9 @@ func RunRepoArchive(cfg *config.Config, runner git.Runner, args RepoArchiveArgs,
 
 	steps := make([]saga.Step, 0, len(targets)*2+1)
 	for _, t := range targets {
-		steps = append(steps, archiveMoveStep(t, archiveRoot))
+		steps = append(steps, archiveMoveStep(t, archiveRoot, f))
 	}
-	steps = append(steps, archiveRecordStep(targets))
+	steps = append(steps, archiveRecordStep(targets, f))
 	if args.Remote {
 		for _, t := range targets {
 			if !already[t.name] {
@@ -414,15 +418,15 @@ func pendingWorkWarnings(runner git.Runner, t *archiveTarget) []string {
 // A cross-filesystem move (EXDEV) is reported, never silently downgraded to a
 // copy. That branch is untested — reproducing it needs two real filesystems,
 // which the suite cannot create portably — and is accepted tech debt.
-func archiveMoveStep(t *archiveTarget, archiveRoot string) saga.Step {
+func archiveMoveStep(t *archiveTarget, archiveRoot string, f trace.FS) saga.Step {
 	return saga.Step{
 		Name: fmt.Sprintf("move %s", t.name),
 		Do: func(ctx context.Context) error {
-			if err := os.MkdirAll(filepath.Dir(t.dest), 0o750); err != nil {
+			if err := f.MkdirAll(filepath.Dir(t.dest), 0o750); err != nil {
 				return fmt.Errorf("create archive dir: %w", err)
 			}
-			if err := os.Rename(t.clone, t.dest); err != nil {
-				removeEmptyParents(t.dest, archiveRoot)
+			if err := f.Rename(t.clone, t.dest); err != nil {
+				removeEmptyParents(t.dest, archiveRoot, f)
 				if errors.Is(err, syscall.EXDEV) {
 					return fmt.Errorf("cannot move %s across filesystems; put archive.root_dir on the same filesystem as the repo", t.name)
 				}
@@ -431,10 +435,10 @@ func archiveMoveStep(t *archiveTarget, archiveRoot string) saga.Step {
 			return nil
 		},
 		Undo: func(ctx context.Context) error {
-			if err := os.Rename(t.dest, t.clone); err != nil {
+			if err := f.Rename(t.dest, t.clone); err != nil {
 				return err
 			}
-			removeEmptyParents(t.dest, archiveRoot)
+			removeEmptyParents(t.dest, archiveRoot, f)
 			return nil
 		},
 	}
@@ -442,7 +446,7 @@ func archiveMoveStep(t *archiveTarget, archiveRoot string) saga.Step {
 
 // archiveRecordStep appends the provenance records for all moved clones, and
 // removes them again on rollback.
-func archiveRecordStep(targets []*archiveTarget) saga.Step {
+func archiveRecordStep(targets []*archiveTarget, f trace.FS) saga.Step {
 	records := make([]archive.Record, 0, len(targets))
 	names := make([]string, 0, len(targets))
 	now := time.Now().UTC()
@@ -459,10 +463,10 @@ func archiveRecordStep(targets []*archiveTarget) saga.Step {
 	return saga.Step{
 		Name: "record provenance",
 		Do: func(ctx context.Context) error {
-			return archive.Append(records...)
+			return archive.AppendFS(f, records...)
 		},
 		Undo: func(ctx context.Context) error {
-			return archive.Remove(names...)
+			return archive.RemoveFS(f, names...)
 		},
 	}
 }

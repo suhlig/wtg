@@ -33,6 +33,7 @@ type testRunner struct {
 	remotesListFn        func(repoPath string) ([]string, error)
 	pendingWorkFn        func(repoPath string) (int, int, error)
 	commitsAheadFn       func(repoPath, base, branch string) (int, error)
+	commitsOnNoRemoteFn  func(repoPath, ref string) (int, error)
 	configGetFn          func(repoPath, key string) (string, bool, error)
 }
 
@@ -195,6 +196,13 @@ func (r *testRunner) CommitsAhead(repoPath, base, branch string) (int, error) {
 		panic(fmt.Sprintf("unexpected CommitsAhead(%q, %q, %q)", repoPath, base, branch))
 	}
 	return r.commitsAheadFn(repoPath, base, branch)
+}
+
+func (r *testRunner) CommitsOnNoRemote(repoPath, ref string) (int, error) {
+	if r.commitsOnNoRemoteFn == nil {
+		return 0, nil // default: everything is on a remote
+	}
+	return r.commitsOnNoRemoteFn(repoPath, ref)
 }
 
 func (r *testRunner) ConfigGet(repoPath, key string) (string, bool, error) {

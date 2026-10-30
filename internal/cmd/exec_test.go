@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/suhlig/wtg/internal/state"
+	"github.com/suhlig/wtg/internal/trace"
 )
 
 // execSpace creates a space whose worktree paths are real directories.
@@ -365,5 +366,30 @@ func TestRunSpaceExec_InferFromCWD(t *testing.T) {
 	}
 	if strings.Count(out.String(), "hello") != 2 {
 		t.Errorf("expected 'hello' twice (once per repo): %q", out.String())
+	}
+}
+
+func TestRunSpaceExec_DryRun(t *testing.T) {
+	isolateState(t)
+	sp := execSpace(t, "feat", []string{"api", "svc"})
+
+	rec := trace.NewRecorder(true)
+	fs := trace.NewOsFS(rec)
+
+	var out bytes.Buffer
+	// "nonexistent-cmd-xyz" would fail if executed
+	if err := RunSpaceExec("feat", []string{"nonexistent-cmd-xyz", "arg1"}, false, &out, fs); err != nil {
+		t.Fatalf("RunSpaceExec: %v", err)
+	}
+
+	got := out.String()
+	if !strings.Contains(got, "api") || !strings.Contains(got, "svc") {
+		t.Errorf("output missing repo headers: %q", got)
+	}
+	if !strings.Contains(got, "would run in") || !strings.Contains(got, "nonexistent-cmd-xyz arg1") {
+		t.Errorf("expected 'would run in' in output, got: %q", got)
+	}
+	if !strings.Contains(got, sp.Repos[0].WorktreePath) {
+		t.Errorf("expected worktree path in output, got: %q", got)
 	}
 }

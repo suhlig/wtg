@@ -127,7 +127,7 @@ func TestRecorder_exitCode(t *testing.T) {
 func TestRecorder_dryRunSkips(t *testing.T) {
 	rec := trace.NewRecorder(true)
 	rec.Record("/repo/a", "git -C /repo/a fetch origin", -1, true) // skipped
-	rec.Record("", "(wtg) write /space/go.work", -1, true)          // skipped
+	rec.Record("", "(wtg) write /space/go.work", -1, true)         // skipped
 
 	var sb strings.Builder
 	rec.Print(&sb, "Would run")
@@ -152,5 +152,23 @@ func TestRecorder_setDryRun(t *testing.T) {
 	rec.SetDryRun(true)
 	if !rec.DryRun() {
 		t.Error("expected DryRun=true after SetDryRun(true)")
+	}
+}
+
+func TestRecorder_wtgGroupIsPrintedLast(t *testing.T) {
+	rec := trace.NewRecorder(true)
+	rec.Record("", "(wtg) mkdir /state", -1, true)
+	rec.Record("/repo/a", "git -C /repo/a worktree add x", -1, true)
+	rec.Record("", "(wtg) write /space/go.work", -1, true)
+	rec.Record("/repo/b", "git -C /repo/b worktree add y", -1, true)
+
+	var sb strings.Builder
+	rec.Print(&sb, "Would run")
+	out := sb.String()
+
+	lastGit := strings.LastIndex(out, "git -C /repo/b")
+	firstWtg := strings.Index(out, "(wtg) mkdir")
+	if lastGit < 0 || firstWtg < 0 || firstWtg < lastGit {
+		t.Errorf("(wtg) lines must follow all repo groups:\n%s", out)
 	}
 }

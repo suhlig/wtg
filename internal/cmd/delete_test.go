@@ -11,6 +11,7 @@ import (
 	"github.com/suhlig/wtg/internal/config"
 	"github.com/suhlig/wtg/internal/git"
 	"github.com/suhlig/wtg/internal/state"
+	"github.com/suhlig/wtg/internal/trace"
 )
 
 // deleteRunner builds a testRunner for delete scenarios. statusFn is called for
@@ -102,8 +103,9 @@ func TestRunSpaceDelete_DirtyWorktree_UserDeclines(t *testing.T) {
 
 	var out bytes.Buffer
 	// "n\n" → user declines
-	if err := RunSpaceDelete(&config.Config{}, r, SpaceDeleteArgs{Name: "feat"}, strings.NewReader("n\n"), &out); err != nil {
-		t.Fatalf("RunSpaceDelete: %v", err)
+	err := RunSpaceDelete(&config.Config{}, r, SpaceDeleteArgs{Name: "feat"}, strings.NewReader("n\n"), &out)
+	if err == nil || !strings.Contains(err.Error(), "aborted: nothing deleted") {
+		t.Fatalf("declined prompt must exit non-zero with 'aborted: nothing deleted', got %v", err)
 	}
 	// State should still exist (nothing deleted).
 	if _, err := state.Load("feat"); err != nil {
@@ -148,10 +150,15 @@ func TestRunSpaceDelete_UnpushedCommits_Warned(t *testing.T) {
 	spacePath := t.TempDir()
 	makeSpace(t, "feat", "feat", spacePath, []string{"api"}, root)
 
-	aheadStatus := func(_ string) (git.RepoStatus, error) {
-		return git.RepoStatus{Ahead: 2}, nil
+	r := deleteRunner(func(_ string) (git.RepoStatus, error) {
+		return git.RepoStatus{Branch: "feat"}, nil
+	})
+	r.commitsOnNoRemoteFn = func(_, ref string) (int, error) {
+		if ref != "refs/heads/feat" {
+			t.Errorf("unexpected ref %q", ref)
+		}
+		return 2, nil
 	}
-	r := deleteRunner(aheadStatus)
 
 	var out bytes.Buffer
 	_ = RunSpaceDelete(&config.Config{}, r, SpaceDeleteArgs{Name: "feat"}, strings.NewReader("n\n"), &out)
@@ -184,8 +191,152 @@ func TestRunSpaceDelete_DeleteBranch(t *testing.T) {
 	if deletedBranch != "mybranch" {
 		t.Errorf("expected branch mybranch to be deleted, got %q", deletedBranch)
 	}
-	if deletedForce {
-		t.Error("-d should not force-delete branch")
+	if !deletedForce {
+		t.Error("-d uses git branch -D internally once the commits-on-no-remote check passed (ADR 0019 D11 Q1)")
+	}
+}
+
+func TestRunSpaceDelete_DeleteBranch_RefusedWhenCommitsOnNoRemote(t *testing.T) {
+	isolateState(t)
+	makeSpace(t, "feat", "mybranch", t.TempDir(), []string{"api"}, t.TempDir())
+
+	r := deleteRunner(cleanStatus)
+	r.commitsOnNoRemoteFn = func(_, _ string) (int, error) { return 1, nil }
+	// branchDeleteFn intentionally not set: BranchDelete must not be called.
+
+	var out bytes.Buffer
+	err := RunSpaceDelete(&config.Config{}, r, SpaceDeleteArgs{Name: "feat", DeleteBranch: true, Yes: true}, &bytes.Buffer{}, &out)
+	if err != nil {
+		t.Fatalf("RunSpaceDelete: %v", err)
+	}
+	if !strings.Contains(out.String(), "exist on no remote") {
+		t.Errorf("expected refusal message, got %q", out.String())
+	}
+}
+
+func TestRunSpaceDelete_WarnsAboutOtherCheckedOutBranch(t *testing.T) {
+	isolateState(t)
+	makeSpace(t, "feat", "feat", t.TempDir(), []string{"api"}, t.TempDir())
+
+	r := deleteRunner(func(_ string) (git.RepoStatus, error) { return git.RepoStatus{Branch: "scratch"}, nil })
+	r.commitsOnNoRemoteFn = func(_, ref string) (int, error) {
+		if ref == "refs/heads/scratch" {
+			return 3, nil
+		}
+		return 0, nil
+	}
+	var out bytes.Buffer
+	_ = RunSpaceDelete(&config.Config{}, r, SpaceDeleteArgs{Name: "feat"}, strings.NewReader("n\n"), &out)
+	if !strings.Contains(out.String(), "3 unpushed commit(s) on scratch") {
+		t.Errorf("expected warning for the checked-out branch, got %q", out.String())
+	}
+}
+
+func TestRunSpaceDelete_NoTerminal_RefusesWithoutYes(t *testing.T) {
+	isolateState(t)
+	makeSpace(t, "feat", "feat", t.TempDir(), []string{"api"}, t.TempDir())
+	r := deleteRunner(func(_ string) (git.RepoStatus, error) {
+		return git.RepoStatus{Files: []git.FileStatus{{Path: "a.go", Index: 'M'}}}, nil
+	})
+	err := RunSpaceDelete(&config.Config{}, r, SpaceDeleteArgs{Name: "feat", NoTerminal: true}, strings.NewReader("y\n"), &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "--yes") {
+		t.Fatalf("expected a refusal that mentions --yes, got %v", err)
+	}
+	if _, err := state.Load("feat"); err != nil {
+		t.Error("nothing may be deleted")
+	}
+}
+
+func TestRunSpaceDelete_Yes_SkipsPrompt(t *testing.T) {
+	isolateState(t)
+	makeSpace(t, "feat", "feat", t.TempDir(), []string{"api"}, t.TempDir())
+	r := deleteRunner(func(_ string) (git.RepoStatus, error) {
+		return git.RepoStatus{Files: []git.FileStatus{{Path: "a.go", Index: 'M'}}}, nil
+	})
+	if err := RunSpaceDelete(&config.Config{}, r, SpaceDeleteArgs{Name: "feat", Yes: true, NoTerminal: true}, strings.NewReader(""), &bytes.Buffer{}); err != nil {
+		t.Fatalf("RunSpaceDelete: %v", err)
+	}
+	if _, err := state.Load("feat"); err == nil {
+		t.Error("state should be deleted with --yes")
+	}
+}
+
+// --- always.secrets safety (ADR 0019 D11, change 5) ---
+
+func TestRunSpaceDelete_ChangedSecret_KeepsRepoAndFails(t *testing.T) {
+	isolateState(t)
+	root := t.TempDir()
+	spacePath := t.TempDir()
+	makeSpace(t, "feat", "feat", spacePath, []string{"api", "web"}, root)
+	for _, repo := range []string{"api", "web"} {
+		if err := os.MkdirAll(filepath.Join(root, repo), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(spacePath, repo), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		_ = os.WriteFile(filepath.Join(root, repo, ".env.local"), []byte("A=1\n"), 0o600)
+		_ = os.WriteFile(filepath.Join(spacePath, repo, ".env.local"), []byte("A=1\n"), 0o600)
+	}
+	// api's copy was edited after it was seeded.
+	_ = os.WriteFile(filepath.Join(spacePath, "api", ".env.local"), []byte("A=2\n"), 0o600)
+
+	var removed []string
+	r := deleteRunner(cleanStatus)
+	r.worktreeRemoveFn = func(_, wt string, _ bool) error { removed = append(removed, filepath.Base(wt)); return nil }
+	cfg := &config.Config{Always: config.AlwaysConfig{Secrets: []string{".env.local"}}}
+
+	var out bytes.Buffer
+	err := RunSpaceDelete(cfg, r, SpaceDeleteArgs{Name: "feat", ForceBranch: false, Yes: true}, &bytes.Buffer{}, &out)
+	if err == nil {
+		t.Fatal("expected a non-zero exit when a repo is kept")
+	}
+	if len(removed) != 1 || removed[0] != "web" {
+		t.Errorf("only the unchanged repo may be removed, got %v", removed)
+	}
+	if !strings.Contains(out.String(), ".env.local differs from the main clone") {
+		t.Errorf("expected a kept line, got %q", out.String())
+	}
+	sp, loadErr := state.Load("feat")
+	if loadErr != nil {
+		t.Fatalf("state must remain: %v", loadErr)
+	}
+	if len(sp.Repos) != 1 || sp.Repos[0].Name != "api" {
+		t.Errorf("state must list only the kept repo, got %+v", sp.Repos)
+	}
+
+	// Once the copy is reconciled, a second run finishes the job.
+	_ = os.WriteFile(filepath.Join(root, "api", ".env.local"), []byte("A=2\n"), 0o600)
+	if err := RunSpaceDelete(cfg, r, SpaceDeleteArgs{Name: "feat", Yes: true}, &bytes.Buffer{}, &bytes.Buffer{}); err != nil {
+		t.Fatalf("second run: %v", err)
+	}
+	if _, err := state.Load("feat"); err == nil {
+		t.Error("state should be gone after the second run")
+	}
+}
+
+func TestRunSpaceDelete_SecretSourceMissing_Keeps(t *testing.T) {
+	isolateState(t)
+	root := t.TempDir()
+	spacePath := t.TempDir()
+	makeSpace(t, "feat", "feat", spacePath, []string{"api"}, root)
+	_ = os.MkdirAll(filepath.Join(spacePath, "api"), 0o750)
+	_ = os.WriteFile(filepath.Join(spacePath, "api", ".env.local"), []byte("A=1\n"), 0o600)
+	cfg := &config.Config{Always: config.AlwaysConfig{Secrets: []string{".env.local"}}}
+	if err := RunSpaceDelete(cfg, deleteRunner(cleanStatus), SpaceDeleteArgs{Name: "feat", Yes: true}, &bytes.Buffer{}, &bytes.Buffer{}); err == nil {
+		t.Fatal("the worktree holds the only copy: delete must keep the repo and fail")
+	}
+}
+
+func TestRunSpaceDelete_SecretCopyMissingInWorktree_Deletes(t *testing.T) {
+	isolateState(t)
+	root := t.TempDir()
+	makeSpace(t, "feat", "feat", t.TempDir(), []string{"api"}, root)
+	_ = os.MkdirAll(filepath.Join(root, "api"), 0o750)
+	_ = os.WriteFile(filepath.Join(root, "api", ".env.local"), []byte("A=1\n"), 0o600)
+	cfg := &config.Config{Always: config.AlwaysConfig{Secrets: []string{".env.local"}}}
+	if err := RunSpaceDelete(cfg, deleteRunner(cleanStatus), SpaceDeleteArgs{Name: "feat", Yes: true}, &bytes.Buffer{}, &bytes.Buffer{}); err != nil {
+		t.Fatalf("a missing copy loses nothing: %v", err)
 	}
 }
 
@@ -362,6 +513,44 @@ func TestRunSpaceDelete_EmptySpace_DeletesState(t *testing.T) {
 	}
 	if _, err := state.Load("feat"); err == nil {
 		t.Error("state should be deleted for empty space")
+	}
+}
+
+func TestRunSpaceDelete_DryRun(t *testing.T) {
+	isolateState(t)
+	root := t.TempDir()
+	spacePath := t.TempDir()
+	makeSpace(t, "feat", "feat", spacePath, []string{"api"}, root)
+
+	dirtyStatus := func(_ string) (git.RepoStatus, error) {
+		return git.RepoStatus{Files: []git.FileStatus{{Path: "a.go", Index: 'M'}}}, nil
+	}
+	r := &testRunner{
+		statusFn: dirtyStatus,
+		worktreeRemoveFn: func(_, _ string, _ bool) error {
+			return nil
+		},
+	}
+
+	rec := trace.NewRecorder(true)
+	fs := trace.NewOsFS(rec)
+
+	var out bytes.Buffer
+	// Empty reader — if it prompts, it would fail or decline
+	if err := RunSpaceDelete(&config.Config{}, r, SpaceDeleteArgs{Name: "feat"}, &bytes.Buffer{}, &out, fs); err != nil {
+		t.Fatalf("RunSpaceDelete: %v", err)
+	}
+
+	got := out.String()
+	if !strings.Contains(got, "would ask: Delete workspace anyway?") {
+		t.Errorf("expected 'would ask' in output, got: %q", got)
+	}
+	if !strings.Contains(got, "would remove worktree") {
+		t.Errorf("expected 'would remove worktree' in output, got: %q", got)
+	}
+	// State should still exist because FS was in dry-run mode
+	if _, err := state.Load("feat"); err != nil {
+		t.Errorf("state should still exist after dry-run delete: %v", err)
 	}
 }
 

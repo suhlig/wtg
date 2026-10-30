@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"strings"
 	"sync"
 )
@@ -88,33 +89,38 @@ func (r *Recorder) Entries() []Entry {
 func (r *Recorder) Print(w io.Writer, heading string) {
 	entries := r.Entries()
 
-	// Collect repos in first-seen order and group entries.
+	// Collect repos in first-seen order and group entries. The "(wtg)" group
+	// (workspace-level effects) is printed last (ADR 0020 D5).
+	const wtgGroup = "(wtg)"
 	var repos []string
 	byRepo := make(map[string][]Entry)
 	for _, e := range entries {
 		key := e.Repo
 		if key == "" {
-			key = "(wtg)"
+			key = wtgGroup
 		}
-		if _, seen := byRepo[key]; !seen {
+		if _, seen := byRepo[key]; !seen && key != wtgGroup {
 			repos = append(repos, key)
 		}
 		byRepo[key] = append(byRepo[key], e)
 	}
+	if _, ok := byRepo[wtgGroup]; ok {
+		repos = append(repos, wtgGroup)
+	}
 
 	if len(entries) == 0 {
-		fmt.Fprintf(w, "\n%s: (none)\n", heading)
+		_, _ = fmt.Fprintf(w, "\n%s: (none)\n", heading)
 		return
 	}
 
-	fmt.Fprintf(w, "\n%s:\n", heading)
+	_, _ = fmt.Fprintf(w, "\n%s:\n", heading)
 	for _, repo := range repos {
 		for _, e := range byRepo[repo] {
 			line := "  " + e.Line
 			if !e.Skipped && e.ExitCode != 0 {
 				line = fmt.Sprintf("  %s   # exit %d", e.Line, e.ExitCode)
 			}
-			fmt.Fprintln(w, line)
+			_, _ = fmt.Fprintln(w, line)
 		}
 	}
 }
@@ -202,6 +208,12 @@ type OsFS struct {
 // NewOsFS returns an OsFS. rec may be nil (no recording, no dry-run skipping).
 func NewOsFS(rec *Recorder) *OsFS { return &OsFS{rec: rec} }
 
+// DryRun reports whether the FS is in dry-run mode.
+func (f *OsFS) DryRun() bool { return f.dryRun() }
+
+// Recorder returns the underlying recorder, if any.
+func (f *OsFS) Recorder() *Recorder { return f.rec }
+
 // dryRun reports whether the FS is in dry-run mode.
 func (f *OsFS) dryRun() bool { return f.rec != nil && f.rec.DryRun() }
 
@@ -276,6 +288,29 @@ func (f *OsFS) Symlink(target, link string) error {
 	return err
 }
 
+// IsDryRun reports whether f is in dry-run mode.
+func IsDryRun(f FS) bool {
+	if dr, ok := f.(interface{ DryRun() bool }); ok {
+		return dr.DryRun()
+	}
+	return false
+}
+
+// IsDry reports whether v (a git or gh runner, or an FS) is in dry-run mode.
+// Values that do not expose DryRun() are never dry.
+func IsDry(v any) bool {
+	if dr, ok := v.(interface{ DryRun() bool }); ok {
+		return dr.DryRun()
+	}
+	return false
+}
+
+// FmtArgs shell-quotes arguments that contain spaces or special characters,
+// so the printed line is copy-pasteable.
+func FmtArgs(args []string) string {
+	return fmtArgs(args)
+}
+
 // fmtArgs shell-quotes arguments that contain spaces or special characters,
 // so the printed line is copy-pasteable.
 func fmtArgs(args []string) string {
@@ -297,4 +332,43 @@ func FormatGitLine(repoPath string, args []string) string {
 // FormatGHLine returns the copy-pasteable representation of a gh call.
 func FormatGHLine(args []string) string {
 	return "gh " + fmtArgs(args)
+}
+
+// Command constructs a program for a user-supplied command line (wtg exec, the
+// always.run hook, $EDITOR). It is the only place outside the git and gh
+// boundaries that may build a process (ADR 0020 D7); callers run it through
+// RunProcess so it is recorded and skipped under --dry-run.
+func Command(name string, args ...string) *exec.Cmd {
+	return exec.Command(name, args...) // #nosec G204 -- user-supplied program
+}
+
+// RunProcess executes runFn, or skips it in dry-run mode, recording "(wtg) run: <line>".
+func (r *Recorder) RunProcess(repo, line string, runFn func() error) error {
+	if r != nil && r.DryRun() {
+		r.Record(repo, "(wtg) run: "+line, -1, true)
+		return nil
+	}
+	var err error
+	if runFn != nil {
+		err = runFn()
+	}
+	if r != nil {
+		code := 0
+		if err != nil {
+			code = 1
+		}
+		r.Record(repo, "(wtg) run: "+line, code, false)
+	}
+	return err
+}
+
+// RunProcess runs a process through the FS's recorder, or directly if no recorder is attached.
+func RunProcess(f FS, repo, line string, runFn func() error) error {
+	if osfs, ok := f.(*OsFS); ok && osfs.rec != nil {
+		return osfs.rec.RunProcess(repo, line, runFn)
+	}
+	if runFn != nil {
+		return runFn()
+	}
+	return nil
 }

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"strings"
 	"sync"
 
@@ -14,6 +13,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/suhlig/wtg/internal/state"
+	"github.com/suhlig/wtg/internal/trace"
 	"github.com/suhlig/wtg/internal/ui"
 )
 
@@ -25,7 +25,7 @@ var execTermWidthFn = func() int {
 }
 
 // ExecCommand returns the `wtg exec` command.
-func ExecCommand() *cli.Command {
+func ExecCommand(fsys ...trace.FS) *cli.Command {
 	return &cli.Command{
 		Name:      "exec",
 		Usage:     "run a command in each repo of a workspace",
@@ -57,7 +57,7 @@ workspace name from the command:
 			if err != nil {
 				return err
 			}
-			return RunSpaceExec(spaceName, execArgs, cmd.Bool("parallel"), os.Stdout)
+			return RunSpaceExec(spaceName, execArgs, cmd.Bool("parallel"), os.Stdout, fsys...)
 		},
 	}
 }
@@ -140,20 +140,25 @@ func resolveExecArgs(args []string) (spaceName string, execArgs []string, err er
 // complete buffered output is printed serially in repo order once all commands
 // have finished. In both modes execution continues past failures and all
 // failed repos are reported at the end.
-func RunSpaceExec(spaceName string, args []string, parallel bool, out io.Writer) error {
+func RunSpaceExec(spaceName string, args []string, parallel bool, out io.Writer, fsys ...trace.FS) error {
+	var f trace.FS = trace.NewOsFS(nil)
+	if len(fsys) > 0 && fsys[0] != nil {
+		f = fsys[0]
+	}
 	sp, err := state.Load(spaceName)
 	if err != nil {
 		return fmt.Errorf("load space %q: %w", spaceName, err)
 	}
 
 	if !parallel {
-		return runSpaceExecSerial(sp, args, out)
+		return runSpaceExecSerial(sp, args, out, f)
 	}
-	return runSpaceExecParallel(sp, args, out)
+	return runSpaceExecParallel(sp, args, out, f)
 }
 
-func runSpaceExecSerial(sp *state.Space, args []string, out io.Writer) error {
+func runSpaceExecSerial(sp *state.Space, args []string, out io.Writer, f trace.FS) error {
 	var failed []string
+	isDry := trace.IsDryRun(f)
 	for i, r := range sp.Repos {
 		if i > 0 {
 			_, _ = fmt.Fprintln(out)
@@ -163,12 +168,17 @@ func runSpaceExecSerial(sp *state.Space, args []string, out io.Writer) error {
 			_, _ = fmt.Fprintf(out, "%s\n", ui.Warn.Render(ui.SymWarn+" skipped — symlink (always.repos)"))
 			continue
 		}
-		cmd := exec.Command(args[0], args[1:]...) // #nosec G204
+		if isDry {
+			_ = trace.RunProcess(f, r.WorktreePath, trace.FmtArgs(args), nil)
+			_, _ = fmt.Fprintf(out, "%s\n", ui.OK.Render("→ would run in "+r.WorktreePath+": "+trace.FmtArgs(args)))
+			continue
+		}
+		cmd := trace.Command(args[0], args[1:]...)
 		cmd.Dir = r.WorktreePath
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = out
 		cmd.Stderr = out
-		if err := cmd.Run(); err != nil {
+		if err := trace.RunProcess(f, r.WorktreePath, trace.FmtArgs(args), func() error { return cmd.Run() }); err != nil {
 			failed = append(failed, r.Name)
 			_, _ = fmt.Fprintf(out, "%s\n", ui.Fail.Render(ui.SymFail+" failed"))
 		} else {
@@ -190,9 +200,10 @@ type execResult struct {
 	skipped bool
 }
 
-func runSpaceExecParallel(sp *state.Space, args []string, out io.Writer) error {
+func runSpaceExecParallel(sp *state.Space, args []string, out io.Writer, f trace.FS) error {
 	repos := sp.Repos
 	results := make([]execResult, len(repos))
+	isDry := trace.IsDryRun(f)
 
 	// syms holds the current display symbol for each repo slot (progress bar).
 	syms := make([]string, len(repos))
@@ -239,13 +250,23 @@ func runSpaceExecParallel(sp *state.Space, args []string, out io.Writer) error {
 				results[i] = res
 				return
 			}
+			if isDry {
+				_ = trace.RunProcess(f, r.WorktreePath, trace.FmtArgs(args), nil)
+				res.output = []byte("→ would run in " + r.WorktreePath + ": " + trace.FmtArgs(args) + "\n")
+				mu.Lock()
+				syms[i] = ui.OK.Render(ui.SymOK)
+				printProgress()
+				mu.Unlock()
+				results[i] = res
+				return
+			}
 			var buf bytes.Buffer
-			cmd := exec.Command(args[0], args[1:]...) // #nosec G204
+			cmd := trace.Command(args[0], args[1:]...)
 			cmd.Dir = r.WorktreePath
 			cmd.Stdin = os.Stdin
 			cmd.Stdout = &buf
 			cmd.Stderr = &buf
-			if err := cmd.Run(); err != nil {
+			if err := trace.RunProcess(f, r.WorktreePath, trace.FmtArgs(args), func() error { return cmd.Run() }); err != nil {
 				res.failed = true
 			}
 			res.output = buf.Bytes()
@@ -274,6 +295,10 @@ func runSpaceExecParallel(sp *state.Space, args []string, out io.Writer) error {
 		_, _ = fmt.Fprintf(out, "%s\n", ui.SectionHeader(res.name))
 		if res.skipped {
 			_, _ = fmt.Fprintf(out, "%s\n", ui.Warn.Render(ui.SymWarn+" skipped — symlink (always.repos)"))
+			continue
+		}
+		if isDry {
+			_, _ = out.Write(res.output)
 			continue
 		}
 		_, _ = out.Write(res.output)

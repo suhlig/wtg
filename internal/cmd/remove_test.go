@@ -11,6 +11,7 @@ import (
 	"github.com/suhlig/wtg/internal/config"
 	"github.com/suhlig/wtg/internal/git"
 	"github.com/suhlig/wtg/internal/state"
+	"github.com/suhlig/wtg/internal/trace"
 )
 
 // removeRunner builds a testRunner for remove scenarios.
@@ -230,10 +231,10 @@ func TestRunSpaceRemove_UnpushedCommits_Warned(t *testing.T) {
 	spacePath := t.TempDir()
 	makeSpace(t, "feat", "feat", spacePath, []string{"api", "frontend"}, root)
 
-	aheadStatus := func(_ string) (git.RepoStatus, error) {
-		return git.RepoStatus{Ahead: 3}, nil
-	}
-	r := removeRunner(aheadStatus)
+	r := removeRunner(func(_ string) (git.RepoStatus, error) {
+		return git.RepoStatus{Branch: "feat"}, nil
+	})
+	r.commitsOnNoRemoteFn = func(_, _ string) (int, error) { return 3, nil }
 
 	var out bytes.Buffer
 	_ = RunSpaceRemove(&config.Config{}, r, SpaceRemoveArgs{Name: "feat", Repos: []string{"frontend"}}, strings.NewReader("n\n"), &out)
@@ -266,8 +267,8 @@ func TestRunSpaceRemove_DeleteBranch(t *testing.T) {
 	if deletedBranch != "mybranch" {
 		t.Errorf("expected branch mybranch to be deleted, got %q", deletedBranch)
 	}
-	if deletedForce {
-		t.Error("-d should not force-delete branch")
+	if !deletedForce {
+		t.Error("-d uses git branch -D internally once the commits-on-no-remote check passed (ADR 0019 D11 Q1)")
 	}
 }
 
@@ -749,5 +750,39 @@ func TestRunSpaceRemove_SymlinkEntry_SkipsPreflightCheck(t *testing.T) {
 
 	if statusCalled {
 		t.Error("Status should not be called for symlink entries during pre-flight")
+	}
+}
+
+func TestRunSpaceRemove_DryRun(t *testing.T) {
+	isolateState(t)
+	root := t.TempDir()
+	spacePath := t.TempDir()
+	makeSpace(t, "feat", "feat", spacePath, []string{"api", "frontend"}, root)
+
+	dirtyStatus := func(_ string) (git.RepoStatus, error) {
+		return git.RepoStatus{Files: []git.FileStatus{{Path: "a.go", Index: 'M'}}}, nil
+	}
+	r := removeRunner(dirtyStatus)
+
+	rec := trace.NewRecorder(true)
+	fs := trace.NewOsFS(rec)
+
+	var out bytes.Buffer
+	// Empty reader — if it prompts, it would fail or decline
+	if err := RunSpaceRemove(&config.Config{}, r, SpaceRemoveArgs{Name: "feat", Repos: []string{"frontend"}}, &bytes.Buffer{}, &out, fs); err != nil {
+		t.Fatalf("RunSpaceRemove: %v", err)
+	}
+
+	got := out.String()
+	if !strings.Contains(got, "would ask: Remove repos anyway?") {
+		t.Errorf("expected 'would ask' in output, got: %q", got)
+	}
+	// State should NOT be updated in dry-run mode
+	sp, err := state.Load("feat")
+	if err != nil {
+		t.Fatalf("state.Load: %v", err)
+	}
+	if len(sp.Repos) != 2 {
+		t.Errorf("state should still have 2 repos in dry-run mode, got %d", len(sp.Repos))
 	}
 }

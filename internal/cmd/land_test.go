@@ -1,8 +1,12 @@
 package cmd
 
 import (
+	"bytes"
+	"io"
 	"strings"
 	"testing"
+
+	"github.com/suhlig/wtg/internal/git"
 )
 
 func TestWithSiblingBlock_append(t *testing.T) {
@@ -55,5 +59,76 @@ func TestWithSiblingBlock_idempotent(t *testing.T) {
 	second := withSiblingBlock(first, "feat", siblings)
 	if first != second {
 		t.Errorf("withSiblingBlock not idempotent:\nfirst:  %q\nsecond: %q", first, second)
+	}
+}
+
+// --- RunSpaceLand: exit codes and --dry-run (ADR 0019 D11.1, ADR 0021 D3) ---
+
+// dryGH is a fakeGH that reports dry-run mode, like the production runner does
+// when the recorder is in dry-run mode.
+type dryGH struct{ *fakeGH }
+
+func (dryGH) DryRun() bool { return true }
+
+// dryGit is a testRunner that reports dry-run mode.
+type dryGit struct{ *testRunner }
+
+func (dryGit) DryRun() bool { return true }
+
+func landRunner() *testRunner {
+	return &testRunner{
+		statusFn:        func(string) (git.RepoStatus, error) { return git.RepoStatus{Branch: "feat"}, nil },
+		defaultBranchFn: func(string) (string, error) { return "main", nil },
+		commitsAheadFn:  func(_, _, _ string) (int, error) { return 1, nil },
+		configGetFn:     func(_, _ string) (string, bool, error) { return "", false, nil },
+		remoteURLFn:     func(string, string) (string, error) { return "git@github.com:owner/repo.git", nil },
+		pushFn:          func(string, string) error { return nil },
+		pushToFn:        func(_, _, _ string) error { return nil },
+		fastForwardFn:   func(_, _ string) error { return nil },
+	}
+}
+
+func TestRunSpaceLand_ExitsNonZeroWhenARepoNeedsAttention(t *testing.T) {
+	isolateState(t)
+	makeSpace(t, "feat", "feat", t.TempDir(), []string{"github.com/owner/api"}, "/repos")
+	r := landRunner()
+	r.statusFn = func(string) (git.RepoStatus, error) { return git.RepoStatus{Branch: "other"}, nil }
+
+	err := RunSpaceLand(t.Context(), r, &fakeGH{}, SpaceLandArgs{Name: "feat", NoLink: true}, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "needs attention") {
+		t.Fatalf("a repo on the wrong branch must make land fail, got %v", err)
+	}
+}
+
+func TestRunSpaceLand_NothingToLandIsNotAFailure(t *testing.T) {
+	isolateState(t)
+	makeSpace(t, "feat", "feat", t.TempDir(), []string{"github.com/owner/api"}, "/repos")
+	r := landRunner()
+	r.commitsAheadFn = func(_, _, _ string) (int, error) { return 0, nil }
+
+	if err := RunSpaceLand(t.Context(), r, &fakeGH{}, SpaceLandArgs{Name: "feat", NoLink: true}, io.Discard); err != nil {
+		t.Fatalf("nothing to land must exit 0: %v", err)
+	}
+}
+
+func TestRunSpaceLand_DryRun_PlansAndDoesNotLinkBodies(t *testing.T) {
+	isolateState(t)
+	makeSpace(t, "feat", "feat", t.TempDir(), []string{"github.com/owner/api", "github.com/owner/web"}, "/repos")
+	gh := &fakeGH{}
+
+	var out bytes.Buffer
+	err := RunSpaceLand(t.Context(), dryGit{landRunner()}, dryGH{gh}, SpaceLandArgs{Name: "feat"}, &out)
+	if err != nil {
+		t.Fatalf("RunSpaceLand: %v\n%s", err, out.String())
+	}
+	got := out.String()
+	if !strings.Contains(got, "would push feat and open PR") {
+		t.Errorf("expected plan wording, got:\n%s", got)
+	}
+	if !strings.Contains(got, "would link 2 sibling PRs") {
+		t.Errorf("expected 'would link 2 sibling PRs', got:\n%s", got)
+	}
+	if len(gh.prBodies) != 0 {
+		t.Errorf("a dry run must not write PR bodies: %v", gh.prBodies)
 	}
 }

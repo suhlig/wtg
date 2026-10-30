@@ -11,6 +11,7 @@ import (
 
 	"github.com/suhlig/wtg/internal/config"
 	"github.com/suhlig/wtg/internal/state"
+	"github.com/suhlig/wtg/internal/trace"
 )
 
 // makeSpace saves a space to state with the given repos already in it.
@@ -654,5 +655,38 @@ func TestResolveSpaceAndRepos_NoArgs(t *testing.T) {
 	_, _, err := resolveSpaceAndRepos([]string{})
 	if err == nil {
 		t.Fatal("expected error for empty args")
+	}
+}
+
+func TestRunSpaceAdd_DryRun(t *testing.T) {
+	root := t.TempDir()
+	spacesRoot := t.TempDir()
+	isolateState(t)
+	makeRepo(t, root, "api")
+	makeRepo(t, root, "frontend")
+	spacePath := filepath.Join(spacesRoot, "feat")
+	makeSpace(t, "feat", "feat", spacePath, []string{"api"}, root)
+	cfg := spaceCreateCfg(root, spacesRoot)
+
+	rec := trace.NewRecorder(true)
+	fs := trace.NewOsFS(rec)
+
+	r := &testRunner{
+		branchExistsFn: func(_, _ string) (bool, error) { return false, nil },
+		worktreeAddFn:  func(_, _, _, _ string, _ bool) error { return nil },
+	}
+
+	var out bytes.Buffer
+	if err := RunSpaceAdd(cfg, r, SpaceAddArgs{Name: "feat", Repos: []string{"frontend"}}, &out, fs); err != nil {
+		t.Fatalf("RunSpaceAdd: %v", err)
+	}
+
+	// State should NOT have frontend added in dry-run mode
+	sp, err := state.Load("feat")
+	if err != nil {
+		t.Fatalf("state.Load: %v", err)
+	}
+	if len(sp.Repos) != 1 || sp.Repos[0].Name != "api" {
+		t.Errorf("state should remain unchanged in dry-run mode, got %v", sp.Repos)
 	}
 }

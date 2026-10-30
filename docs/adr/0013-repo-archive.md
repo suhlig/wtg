@@ -1,6 +1,6 @@
 # ADR 0013: Retiring repos with `wtg repo archive`
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-06
 - Author: Steffen Uhlig
 

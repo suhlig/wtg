@@ -13,6 +13,7 @@ import (
 	"github.com/suhlig/wtg/internal/git"
 	"github.com/suhlig/wtg/internal/remote"
 	"github.com/suhlig/wtg/internal/state"
+	"github.com/suhlig/wtg/internal/trace"
 	"github.com/suhlig/wtg/internal/ui"
 )
 
@@ -274,6 +275,10 @@ func landMerge(runner git.Runner, r state.RepoEntry, branch, defaultBranch, unco
 	// Failure here does not fail the land — `wtg repo sync` handles it.
 	_ = runner.FastForward(r.RepoPath, defaultBranch)
 
+	if trace.IsDry(runner) {
+		msg := fmt.Sprintf("would push %s to origin/%s%s", branch, defaultBranch, uncommittedWarn)
+		return landResult{opResult: opResult{r.Name, ui.SymPlan, msg}}
+	}
 	msg := "landed (merge)" + uncommittedWarn
 	return landResult{opResult: opResult{r.Name, ui.SymOK, msg}}
 }
@@ -325,6 +330,10 @@ func landPR(ctx context.Context, runner git.Runner, gh remote.Runner, r state.Re
 		return warn(remote.PR{}, "pushed, PR not created: %v", err)
 	}
 
+	if trace.IsDry(runner) {
+		msg := fmt.Sprintf("would push %s and open PR%s", branch, uncommittedWarn)
+		return landResult{opResult: opResult{r.Name, ui.SymPlan, msg}, pr: pr}
+	}
 	msg := fmt.Sprintf("PR %s%s", pr.URL, uncommittedWarn)
 	return landResult{opResult: opResult{r.Name, ui.SymOK, msg}, pr: pr}
 }
@@ -354,6 +363,12 @@ func linkSiblings(ctx context.Context, gh remote.Runner, spaceName string, resul
 
 	if len(prs) < 2 {
 		return nil // nothing to link
+	}
+
+	// ADR 0021 D3: a dry run does not write PR bodies; it says what it would do.
+	if trace.IsDry(gh) {
+		_, _ = fmt.Fprintf(out, "%s would link %d sibling PRs\n", ui.SymPlan, len(prs))
+		return nil
 	}
 
 	// For each PR, build the sibling references (all others).

@@ -15,6 +15,7 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"github.com/suhlig/wtg/internal/state"
+	"github.com/suhlig/wtg/internal/trace"
 )
 
 // schemaVersion is the on-disk format version written at the top of the file.
@@ -62,18 +63,22 @@ func Load() (*File, error) {
 }
 
 // Save writes the record, creating the data directory if needed.
-func Save(f *File) error {
+func Save(f *File, fsys ...trace.FS) error {
+	var fsInst trace.FS = trace.NewOsFS(nil)
+	if len(fsys) > 0 && fsys[0] != nil {
+		fsInst = fsys[0]
+	}
 	if f.Version == 0 {
 		f.Version = schemaVersion
 	}
-	if err := os.MkdirAll(filepath.Dir(Path()), 0o750); err != nil { // #nosec G301 -- user data dir
+	if err := fsInst.MkdirAll(filepath.Dir(Path()), 0o750); err != nil { // #nosec G301 -- user data dir
 		return fmt.Errorf("create data dir: %w", err)
 	}
 	data, err := yaml.Marshal(f)
 	if err != nil {
 		return fmt.Errorf("marshal archive record: %w", err)
 	}
-	if err := os.WriteFile(Path(), data, 0o600); err != nil {
+	if err := fsInst.WriteFile(Path(), data, 0o600); err != nil {
 		return fmt.Errorf("write archive record: %w", err)
 	}
 	return nil
@@ -81,6 +86,11 @@ func Save(f *File) error {
 
 // Append adds records, replacing any existing entry with the same name.
 func Append(records ...Record) error {
+	return AppendFS(trace.NewOsFS(nil), records...)
+}
+
+// AppendFS adds records using the specified FS, replacing any existing entry with the same name.
+func AppendFS(fsInst trace.FS, records ...Record) error {
 	f, err := Load()
 	if err != nil {
 		return err
@@ -88,12 +98,18 @@ func Append(records ...Record) error {
 	for _, rec := range records {
 		f.set(rec)
 	}
-	return Save(f)
+	return Save(f, fsInst)
 }
 
 // Remove deletes the named entries. When no entries remain the file is removed,
 // so a rolled-back first archive leaves no trace.
 func Remove(names ...string) error {
+	return RemoveFS(trace.NewOsFS(nil), names...)
+}
+
+// RemoveFS deletes the named entries using the specified FS. When no entries
+// remain the file is removed, so a rolled-back first archive leaves no trace.
+func RemoveFS(fsInst trace.FS, names ...string) error {
 	f, err := Load()
 	if err != nil {
 		return err
@@ -102,12 +118,12 @@ func Remove(names ...string) error {
 		f.delete(name)
 	}
 	if len(f.Entries) == 0 {
-		if err := os.Remove(Path()); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		if err := fsInst.Remove(Path()); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return fmt.Errorf("remove archive record: %w", err)
 		}
 		return nil
 	}
-	return Save(f)
+	return Save(f, fsInst)
 }
 
 // set inserts rec, replacing an existing entry with the same name.

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/suhlig/wtg/internal/trace"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -70,15 +71,19 @@ func Load(name string) (*Space, error) {
 }
 
 // Save writes the space state to disk, creating the state directory if needed.
-func Save(space *Space) error {
-	if err := os.MkdirAll(DataDir(), 0o750); err != nil {
+func Save(space *Space, fsys ...trace.FS) error {
+	var f trace.FS = trace.NewOsFS(nil)
+	if len(fsys) > 0 && fsys[0] != nil {
+		f = fsys[0]
+	}
+	if err := f.MkdirAll(DataDir(), 0o750); err != nil {
 		return fmt.Errorf("create state dir: %w", err)
 	}
 	data, err := yaml.Marshal(space)
 	if err != nil {
 		return fmt.Errorf("marshal space %q: %w", space.Name, err)
 	}
-	if err := os.WriteFile(spacePath(space.Name), data, 0o600); err != nil {
+	if err := f.WriteFile(spacePath(space.Name), data, 0o600); err != nil {
 		return fmt.Errorf("write space %q: %w", space.Name, err)
 	}
 	return nil
@@ -112,8 +117,12 @@ func List() ([]*Space, error) {
 
 // Delete removes the state file for the named space. Returns a wrapped
 // fs.ErrNotExist if no state file exists.
-func Delete(name string) error {
-	err := os.Remove(spacePath(name))
+func Delete(name string, fsys ...trace.FS) error {
+	var f trace.FS = trace.NewOsFS(nil)
+	if len(fsys) > 0 && fsys[0] != nil {
+		f = fsys[0]
+	}
+	err := f.Remove(spacePath(name))
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return fmt.Errorf("space %q not found: %w", name, fs.ErrNotExist)

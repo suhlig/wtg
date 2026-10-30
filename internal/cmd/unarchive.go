@@ -17,11 +17,12 @@ import (
 	"github.com/suhlig/wtg/internal/config"
 	"github.com/suhlig/wtg/internal/remote"
 	"github.com/suhlig/wtg/internal/saga"
+	"github.com/suhlig/wtg/internal/trace"
 	"github.com/suhlig/wtg/internal/ui"
 )
 
 // UnarchiveCommand returns the `wtg repo unarchive` subcommand.
-func UnarchiveCommand() *cli.Command {
+func UnarchiveCommand(fsys ...trace.FS) *cli.Command {
 	return &cli.Command{
 		Name:      "unarchive",
 		Usage:     "restore archived repo clones to their original locations",
@@ -35,7 +36,6 @@ origin, and is idempotent (a repo that is already unarchived upstream is left
 as is). Use --dry-run to see the plan first.`,
 		ShellComplete: completeArchivedRepos,
 		Flags: []cli.Flag{
-			&cli.BoolFlag{Name: "dry-run", Usage: "show what would happen without moving anything"},
 			&cli.BoolFlag{Name: "remote", Usage: "also unarchive each repo on GitHub via the gh CLI"},
 			&cli.StringFlag{Name: "archive-dir", Usage: "override archive.root_dir for this run"},
 		},
@@ -49,10 +49,10 @@ as is). Use --dry-run to see the plan first.`,
 			}
 			return RunRepoUnarchive(cfg, RepoUnarchiveArgs{
 				Repos:      cmd.Args().Slice(),
-				DryRun:     cmd.Bool("dry-run"),
+				DryRun:     cmd.Bool("dry-run") || cmd.Root().Bool("dry-run"),
 				Remote:     cmd.Bool("remote"),
 				ArchiveDir: cmd.String("archive-dir"),
-			}, os.Stdout)
+			}, os.Stdout, fsys...)
 		},
 	}
 }
@@ -85,7 +85,11 @@ type unarchiveTarget struct {
 // never deletes anything. With args.Remote each repo is also unarchived
 // upstream on GitHub, after an auth pre-flight and as part of the same saga, so
 // a failure rolls the local restores back. See docs/adr/0013-repo-archive.md.
-func RunRepoUnarchive(cfg *config.Config, args RepoUnarchiveArgs, out io.Writer) error {
+func RunRepoUnarchive(cfg *config.Config, args RepoUnarchiveArgs, out io.Writer, fsys ...trace.FS) error {
+	var f trace.FS = trace.NewOsFS(nil)
+	if len(fsys) > 0 && fsys[0] != nil {
+		f = fsys[0]
+	}
 	if len(args.Repos) == 0 {
 		return errors.New("at least one repo is required")
 	}
@@ -123,7 +127,7 @@ func RunRepoUnarchive(cfg *config.Config, args RepoUnarchiveArgs, out io.Writer)
 		return errors.New(strings.Join(hardErrs, "\n\n"))
 	}
 
-	if args.DryRun {
+	if args.DryRun || trace.IsDryRun(f) {
 		printUnarchivePlan(out, targets, args.Remote)
 		return nil
 	}
@@ -156,9 +160,9 @@ func RunRepoUnarchive(cfg *config.Config, args RepoUnarchiveArgs, out io.Writer)
 
 	steps := make([]saga.Step, 0, len(targets)*2+1)
 	for _, t := range targets {
-		steps = append(steps, unarchiveMoveStep(t, archiveRoot))
+		steps = append(steps, unarchiveMoveStep(t, archiveRoot, f))
 	}
-	steps = append(steps, unarchiveRecordStep(targets))
+	steps = append(steps, unarchiveRecordStep(targets, f))
 	if args.Remote {
 		for _, t := range targets {
 			if archived[t.name] {
@@ -269,31 +273,31 @@ func requireGitHubUnarchiveTargets(remoteMode bool, targets []*unarchiveTarget) 
 // cleaning up the emptied archive directories, and reversing the rename on
 // rollback. Its EXDEV branch is reported, not copied, and — like
 // archiveMoveStep's — is untested and accepted tech debt.
-func unarchiveMoveStep(t *unarchiveTarget, archiveRoot string) saga.Step {
+func unarchiveMoveStep(t *unarchiveTarget, archiveRoot string, f trace.FS) saga.Step {
 	return saga.Step{
 		Name: fmt.Sprintf("restore %s", t.name),
 		Do: func(ctx context.Context) error {
-			if err := os.MkdirAll(filepath.Dir(t.dest), 0o750); err != nil {
+			if err := f.MkdirAll(filepath.Dir(t.dest), 0o750); err != nil {
 				return fmt.Errorf("create parent dir: %w", err)
 			}
-			if err := os.Rename(t.source, t.dest); err != nil {
-				removeEmptyParents(t.dest, t.stop)
+			if err := f.Rename(t.source, t.dest); err != nil {
+				removeEmptyParents(t.dest, t.stop, f)
 				if errors.Is(err, syscall.EXDEV) {
 					return fmt.Errorf("cannot move %s across filesystems; put archive.root_dir on the same filesystem as the repo", t.name)
 				}
 				return err
 			}
-			removeEmptyParents(t.source, archiveRoot)
+			removeEmptyParents(t.source, archiveRoot, f)
 			return nil
 		},
 		Undo: func(ctx context.Context) error {
-			if err := os.MkdirAll(filepath.Dir(t.source), 0o750); err != nil {
+			if err := f.MkdirAll(filepath.Dir(t.source), 0o750); err != nil {
 				return err
 			}
-			if err := os.Rename(t.dest, t.source); err != nil {
+			if err := f.Rename(t.dest, t.source); err != nil {
 				return err
 			}
-			removeEmptyParents(t.dest, t.stop)
+			removeEmptyParents(t.dest, t.stop, f)
 			return nil
 		},
 	}
@@ -301,7 +305,7 @@ func unarchiveMoveStep(t *unarchiveTarget, archiveRoot string) saga.Step {
 
 // unarchiveRecordStep removes the provenance records for the restored clones,
 // and re-appends them on rollback.
-func unarchiveRecordStep(targets []*unarchiveTarget) saga.Step {
+func unarchiveRecordStep(targets []*unarchiveTarget, f trace.FS) saga.Step {
 	records := make([]archive.Record, 0, len(targets))
 	names := make([]string, 0, len(targets))
 	for _, t := range targets {
@@ -311,10 +315,10 @@ func unarchiveRecordStep(targets []*unarchiveTarget) saga.Step {
 	return saga.Step{
 		Name: "forget provenance",
 		Do: func(ctx context.Context) error {
-			return archive.Remove(names...)
+			return archive.RemoveFS(f, names...)
 		},
 		Undo: func(ctx context.Context) error {
-			return archive.Append(records...)
+			return archive.AppendFS(f, records...)
 		},
 	}
 }

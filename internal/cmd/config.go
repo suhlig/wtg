@@ -15,6 +15,8 @@ import (
 	"github.com/urfave/cli/v3"
 
 	"github.com/suhlig/wtg/internal/config"
+	"github.com/suhlig/wtg/internal/trace"
+	"github.com/suhlig/wtg/internal/ui"
 )
 
 // configTemplate is the commented config scaffold written by `wtg config init`.
@@ -80,7 +82,7 @@ const configTemplate = `# wtg configuration. Every setting is shown commented ou
 
 // ConfigCommand returns the `wtg config` command group. With no subcommand it
 // prints the resolved config file's raw contents.
-func ConfigCommand() *cli.Command {
+func ConfigCommand(fsys ...trace.FS) *cli.Command {
 	return &cli.Command{
 		Name:  "config",
 		Usage: "show and manage the wtg config file",
@@ -113,14 +115,14 @@ already exists; pass --force to overwrite. -o sets the output path;
 					if out == "" {
 						out = config.DefaultPath()
 					}
-					return runConfigInit(out, cmd.Bool("force"), os.Stdout)
+					return runConfigInit(out, cmd.Bool("force"), os.Stdout, fsys...)
 				},
 			},
 			{
 				Name:  "edit",
 				Usage: "open the resolved config file in $EDITOR",
 				Action: func(ctx context.Context, cmd *cli.Command) error {
-					return runConfigEdit(config.ResolvePath(cmd.String("config")))
+					return runConfigEdit(config.ResolvePath(cmd.String("config")), fsys...)
 				},
 			},
 			{
@@ -133,6 +135,14 @@ already exists; pass --force to overwrite. -o sets the output path;
 			},
 		},
 	}
+}
+
+// fsFrom returns the first non-nil FS in fsys, or an unrecorded OsFS.
+func fsFrom(fsys []trace.FS) trace.FS {
+	if len(fsys) > 0 && fsys[0] != nil {
+		return fsys[0]
+	}
+	return trace.NewOsFS(nil)
 }
 
 // runConfigPrint writes the raw contents of the file at path to out, or a note to
@@ -152,7 +162,8 @@ func runConfigPrint(path string, out, note io.Writer) error {
 
 // runConfigInit writes the config template. With path "-" it writes to stdout and
 // never refuses. Otherwise it refuses if the target exists unless force is set.
-func runConfigInit(path string, force bool, out io.Writer) error {
+func runConfigInit(path string, force bool, out io.Writer, fsys ...trace.FS) error {
+	f := fsFrom(fsys)
 	if path == "-" {
 		_, err := io.WriteString(out, configTemplate)
 		return err
@@ -167,13 +178,17 @@ func runConfigInit(path string, force bool, out io.Writer) error {
 			return fmt.Errorf("config already exists at %s (use --force to overwrite)", path)
 		}
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil { // #nosec G301 -- user config dir
+	if err := f.MkdirAll(filepath.Dir(path), 0o750); err != nil { // #nosec G301 -- user config dir
 		return fmt.Errorf("create config dir: %w", err)
 	}
-	if err := os.WriteFile(path, []byte(configTemplate), 0o600); err != nil {
+	if err := f.WriteFile(path, []byte(configTemplate), 0o600); err != nil {
 		return fmt.Errorf("write config: %w", err)
 	}
-	_, _ = fmt.Fprintf(out, "Config written to %s\n", path)
+	if trace.IsDryRun(f) {
+		_, _ = fmt.Fprintf(out, "%s would write config to %s\n", ui.SymPlan, path)
+	} else {
+		_, _ = fmt.Fprintf(out, "Config written to %s\n", path)
+	}
 	// A sibling config.yaml still loads, but config.toml now takes precedence;
 	// warn so its settings don't silently appear to vanish.
 	if legacy := filepath.Join(filepath.Dir(path), "config.yaml"); legacy != path {
@@ -185,22 +200,23 @@ func runConfigInit(path string, force bool, out io.Writer) error {
 }
 
 // runConfigEdit launches the user's preferred editor to edit the config file at path.
-func runConfigEdit(path string) error {
+func runConfigEdit(path string, fsys ...trace.FS) error {
+	f := fsFrom(fsys)
 	editorCmd := resolveEditor()
 	if len(editorCmd) == 0 {
 		return errors.New("no editor found (set $VISUAL or $EDITOR)")
 	}
 
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil { // #nosec G301 -- user config dir
+	if err := f.MkdirAll(filepath.Dir(path), 0o750); err != nil { // #nosec G301 -- user config dir
 		return fmt.Errorf("create config dir: %w", err)
 	}
 
 	args := append(editorCmd[1:], path)
-	c := exec.Command(editorCmd[0], args...) // #nosec G204 -- user-configured editor
+	c := trace.Command(editorCmd[0], args...)
 	c.Stdin = os.Stdin
 	c.Stdout = os.Stdout
 	c.Stderr = os.Stderr
-	if err := c.Run(); err != nil {
+	if err := trace.RunProcess(f, "", trace.FmtArgs(append([]string{editorCmd[0]}, args...)), c.Run); err != nil {
 		return fmt.Errorf("run editor %s: %w", editorCmd[0], err)
 	}
 	return nil

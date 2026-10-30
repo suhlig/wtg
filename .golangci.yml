@@ -1,0 +1,29 @@
+version: "2"
+
+linters:
+  default: standard
+  enable:
+    - forbidigo
+  settings:
+    forbidigo:
+      analyze-types: true
+      forbid:
+        # ADR 0020 D7: every filesystem mutation goes through trace.FS, and
+        # every started process through the git/gh boundaries or trace.Command
+        # + trace.RunProcess, so --summary and --dry-run see all of them.
+        - pattern: ^os\.(WriteFile|Mkdir|MkdirAll|Remove|RemoveAll|Rename|Symlink|Create|OpenFile|Chmod|Truncate)$
+          msg: use trace.FS (ADR 0020 D7)
+        - pattern: ^exec\.(Command|CommandContext)$
+          msg: use the git/gh runner, or trace.Command with trace.RunProcess (ADR 0020 D7)
+  exclusions:
+    rules:
+      - path: ^internal/trace/
+        linters: [forbidigo]
+      - path: ^internal/git/system\.go$
+        linters: [forbidigo]
+      - path: ^internal/remote/gh\.go$
+        linters: [forbidigo]
+      - path: ^internal/git/testhelper/
+        linters: [forbidigo]
+      - path: _test\.go$
+        linters: [forbidigo]

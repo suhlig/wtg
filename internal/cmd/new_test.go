@@ -14,6 +14,7 @@ import (
 	"github.com/suhlig/wtg/internal/config"
 	"github.com/suhlig/wtg/internal/git"
 	"github.com/suhlig/wtg/internal/state"
+	"github.com/suhlig/wtg/internal/trace"
 )
 
 // spaceCreateCfg returns a config with both discovery and spaces root set.
@@ -1109,5 +1110,30 @@ func TestRunSpaceNew_AlwaysSecrets_AlwaysRepoSymlink_Skipped(t *testing.T) {
 	}
 	if fi.Mode()&os.ModeSymlink == 0 {
 		t.Fatal("docs should remain a symlink")
+	}
+}
+
+func TestRunSpaceNew_DryRun(t *testing.T) {
+	root := t.TempDir()
+	isolateState(t)
+	makeRepo(t, root, "api")
+	cfg := spaceCreateCfg(root, t.TempDir())
+
+	rec := trace.NewRecorder(true)
+	fs := trace.NewOsFS(rec)
+
+	r := &testRunner{
+		branchExistsFn: func(_, _ string) (bool, error) { return false, nil },
+		worktreeAddFn:  func(_, _, _, _ string, _ bool) error { return nil },
+	}
+
+	var out bytes.Buffer
+	if err := RunSpaceNew(cfg, r, SpaceNewArgs{Name: "feat", Repos: []string{"api"}}, &out, fs); err != nil {
+		t.Fatalf("RunSpaceNew: %v", err)
+	}
+
+	// State should NOT be saved in dry-run mode
+	if _, err := state.Load("feat"); err == nil {
+		t.Error("state should not be saved in dry-run mode")
 	}
 }

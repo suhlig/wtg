@@ -14,11 +14,12 @@ import (
 	"github.com/suhlig/wtg/internal/git"
 	"github.com/suhlig/wtg/internal/saga"
 	"github.com/suhlig/wtg/internal/state"
+	"github.com/suhlig/wtg/internal/trace"
 	"github.com/suhlig/wtg/internal/ui"
 )
 
 // AddCommand returns the `wtg add` command.
-func AddCommand(runner git.Runner) *cli.Command {
+func AddCommand(runner git.Runner, fsys ...trace.FS) *cli.Command {
 	return &cli.Command{
 		Name:      "add",
 		Usage:     "add repos to a workspace",
@@ -51,7 +52,7 @@ known workspace — it will be inferred automatically.`,
 			return RunSpaceAdd(cfg, runner, SpaceAddArgs{
 				Name:  spaceName,
 				Repos: repos,
-			}, os.Stdout)
+			}, os.Stdout, fsys...)
 		},
 	}
 }
@@ -66,7 +67,11 @@ type SpaceAddArgs struct {
 // the space's branch and updating the go.work file and state. If a requested
 // repo is currently a symlink in the space (added via always.repos), the
 // symlink is replaced with a proper worktree on the space's branch.
-func RunSpaceAdd(cfg *config.Config, runner git.Runner, args SpaceAddArgs, out io.Writer) error {
+func RunSpaceAdd(cfg *config.Config, runner git.Runner, args SpaceAddArgs, out io.Writer, fsys ...trace.FS) error {
+	var f trace.FS = trace.NewOsFS(nil)
+	if len(fsys) > 0 && fsys[0] != nil {
+		f = fsys[0]
+	}
 	if len(args.Repos) == 0 {
 		return fmt.Errorf("no repos specified")
 	}
@@ -157,19 +162,19 @@ func RunSpaceAdd(cfg *config.Config, runner git.Runner, args SpaceAddArgs, out i
 		t := upgradeTargets[i]
 		steps = append(steps, saga.Step{
 			Name: fmt.Sprintf("remove symlink %s", t.name),
-			Do:   func(ctx context.Context) error { return os.Remove(t.worktreePath) },
-			Undo: func(ctx context.Context) error { return os.Symlink(t.repoPath, t.worktreePath) },
+			Do:   func(ctx context.Context) error { return f.Remove(t.worktreePath) },
+			Undo: func(ctx context.Context) error { return f.Symlink(t.repoPath, t.worktreePath) },
 		})
-		steps = append(steps, worktreeStep(runner, t, sp.Branch, ""))
-		sec, err := secretCopySteps(cfg, t)
+		steps = append(steps, worktreeStep(runner, t, sp.Branch, "", f))
+		sec, err := secretCopySteps(cfg, t, f)
 		if err != nil {
 			return err
 		}
 		steps = append(steps, sec...)
 	}
 	for i := range newTargets {
-		steps = append(steps, worktreeStep(runner, newTargets[i], sp.Branch, ""))
-		sec, err := secretCopySteps(cfg, newTargets[i])
+		steps = append(steps, worktreeStep(runner, newTargets[i], sp.Branch, "", f))
+		sec, err := secretCopySteps(cfg, newTargets[i], f)
 		if err != nil {
 			return err
 		}
@@ -179,7 +184,7 @@ func RunSpaceAdd(cfg *config.Config, runner git.Runner, args SpaceAddArgs, out i
 	goWorkPath := filepath.Join(sp.Path, "go.work")
 	if anyGoMod {
 		goVersion := detectGoVersion(allTargets, hasGoMod)
-		steps = append(steps, goWorkStep(goWorkPath, sp.Path, allTargets, hasGoMod, goVersion))
+		steps = append(steps, goWorkStep(goWorkPath, sp.Path, allTargets, hasGoMod, goVersion, f))
 	}
 
 	oldState := *sp
@@ -204,10 +209,10 @@ func RunSpaceAdd(cfg *config.Config, runner git.Runner, args SpaceAddArgs, out i
 				})
 			}
 			updated.Repos = repos
-			return state.Save(&updated)
+			return state.Save(&updated, f)
 		},
 		Undo: func(ctx context.Context) error {
-			return state.Save(&oldState)
+			return state.Save(&oldState, f)
 		},
 	})
 
@@ -215,18 +220,27 @@ func RunSpaceAdd(cfg *config.Config, runner git.Runner, args SpaceAddArgs, out i
 		return err
 	}
 
-	_, _ = fmt.Fprintf(out, "%s added to space %q\n", ui.SymOK, args.Name)
+	dry := isDry(runner, f)
+	if dry {
+		_, _ = fmt.Fprintf(out, "%s would add to space %q\n", ui.SymPlan, args.Name)
+	} else {
+		_, _ = fmt.Fprintf(out, "%s added to space %q\n", ui.SymOK, args.Name)
+	}
 	tbl := ui.NewTableWriter(out)
 	addedNames := make([]string, len(allNew))
 	for i, t := range allNew {
-		tbl.Row("  "+t.name, t.worktreePath)
+		if dry {
+			tbl.Row("  "+t.name, ui.SymPlan+" would create worktree "+t.worktreePath)
+		} else {
+			tbl.Row("  "+t.name, t.worktreePath)
+		}
 		addedNames[i] = t.name
 	}
 	tbl.Flush()
 	_, _ = fmt.Fprintf(out, "Workspace root: %s\n", sp.Path)
 
 	if sp, err := state.Load(args.Name); err == nil {
-		runSpaceScript(cfg, "add", sp, addedNames, out)
+		runSpaceScript(cfg, "add", sp, addedNames, out, f)
 	}
 	return nil
 }

@@ -27,6 +27,9 @@ func New(rec ...*trace.Recorder) *SystemRunner {
 	return &SystemRunner{rec: r}
 }
 
+// DryRun reports whether the runner is skipping mutating calls (--dry-run).
+func (r *SystemRunner) DryRun() bool { return r.rec.DryRun() }
+
 // runError wraps a failed git command with its exit code and stderr output.
 type runError struct {
 	args     []string
@@ -294,6 +297,19 @@ func (r *SystemRunner) PushTo(repoPath, branch, remoteBranch string) error {
 // CommitsAhead counts commits reachable from branch but not from base.
 func (r *SystemRunner) CommitsAhead(repoPath, base, branch string) (int, error) {
 	out, err := r.run(repoPath, "rev-list", "--count", base+".."+branch)
+	if err != nil {
+		return 0, err
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(out))
+	if err != nil {
+		return 0, fmt.Errorf("parse rev-list count %q: %w", out, err)
+	}
+	return n, nil
+}
+
+// CommitsOnNoRemote counts commits reachable from ref that are on no remote.
+func (r *SystemRunner) CommitsOnNoRemote(repoPath, ref string) (int, error) {
+	out, err := r.run(repoPath, "rev-list", "--count", ref, "--not", "--remotes")
 	if err != nil {
 		return 0, err
 	}

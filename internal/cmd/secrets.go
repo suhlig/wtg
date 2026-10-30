@@ -11,6 +11,7 @@ import (
 
 	"github.com/suhlig/wtg/internal/config"
 	"github.com/suhlig/wtg/internal/saga"
+	"github.com/suhlig/wtg/internal/trace"
 )
 
 // validateSecretPath rejects absolute paths, empty paths, and .. escapes.
@@ -34,7 +35,11 @@ func validateSecretPath(rel string) error {
 }
 
 // copySecretFileStep copies src to dst (creating parent dirs) and removes dst on undo.
-func copySecretFileStep(src, dst string) saga.Step {
+func copySecretFileStep(src, dst string, fsys ...trace.FS) saga.Step {
+	var f trace.FS = trace.NewOsFS(nil)
+	if len(fsys) > 0 && fsys[0] != nil {
+		f = fsys[0]
+	}
 	return saga.Step{
 		Name: fmt.Sprintf("copy %s", filepath.Base(src)),
 		Do: func(ctx context.Context) error {
@@ -42,13 +47,13 @@ func copySecretFileStep(src, dst string) saga.Step {
 			if err != nil {
 				return fmt.Errorf("read %s: %w", src, err)
 			}
-			if err := os.MkdirAll(filepath.Dir(dst), 0o750); err != nil {
+			if err := f.MkdirAll(filepath.Dir(dst), 0o750); err != nil {
 				return fmt.Errorf("mkdir %s: %w", filepath.Dir(dst), err)
 			}
-			return os.WriteFile(dst, data, 0o600) // #nosec G703 -- dst is a user-provided secrets path
+			return f.WriteFile(dst, data, 0o600) // #nosec G703 -- dst is a user-provided secrets path
 		},
 		Undo: func(ctx context.Context) error {
-			if err := os.Remove(dst); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			if err := f.Remove(dst); err != nil && !errors.Is(err, fs.ErrNotExist) {
 				return err
 			}
 			return nil
@@ -59,7 +64,7 @@ func copySecretFileStep(src, dst string) saga.Step {
 // secretCopySteps returns saga steps that copy always.secrets entries from the
 // source repo into the worktree when present. Missing sources are skipped;
 // directories and invalid paths are hard errors.
-func secretCopySteps(cfg *config.Config, t *repoTarget) ([]saga.Step, error) {
+func secretCopySteps(cfg *config.Config, t *repoTarget, fsys ...trace.FS) ([]saga.Step, error) {
 	if cfg == nil || len(cfg.Always.Secrets) == 0 {
 		return nil, nil
 	}
@@ -86,7 +91,7 @@ func secretCopySteps(cfg *config.Config, t *repoTarget) ([]saga.Step, error) {
 			return nil, fmt.Errorf("always.secrets: %s is a directory (files only)", rel)
 		}
 		dst := filepath.Join(t.worktreePath, cleaned)
-		steps = append(steps, copySecretFileStep(src, dst))
+		steps = append(steps, copySecretFileStep(src, dst, fsys...))
 	}
 	return steps, nil
 }

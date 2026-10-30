@@ -419,9 +419,9 @@ type fakeGH struct {
 	archiveCalls   []string
 	unarchiveCalls []string
 	// PR fields
-	existingPRs map[string]remote.PR // "ownerRepo/head" -> existing PR
-	createPRErr error
-	prBodies    map[string]string // "ownerRepo/number" -> body
+	existingPRs  map[string]remote.PR // "ownerRepo/head" -> existing PR
+	createPRErr  error
+	prBodies     map[string]string // "ownerRepo/number" -> body
 	setPRBodyErr error
 }
 

@@ -101,7 +101,7 @@ If this later turns out to be unwelcome in a team, the remedy is to make linking
 | E5 | The user uninstalls wtg | Worktrees and branches remain valid; `git worktree prune` cleans up stale entries |
 | E6 | A teammate has a repo with the same remote and no wtg | Unaffected. `wtg.landStrategy` exists only in the user's own git configuration |
 
-## Implementation notes (not yet implemented)
+## Implementation notes (implemented)
 
 - The no-footprint test (D6) in `internal/cmd`, using `internal/git/testhelper`.
 - `AGENTS.md` gains one line under Conventions: "Collaborators never need wtg: see ADR 0022."

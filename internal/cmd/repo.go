@@ -17,6 +17,7 @@ import (
 
 	"github.com/suhlig/wtg/internal/config"
 	"github.com/suhlig/wtg/internal/git"
+	"github.com/suhlig/wtg/internal/trace"
 	"github.com/suhlig/wtg/internal/ui"
 )
 
@@ -63,7 +64,7 @@ func (r opResult) renderSym() string {
 }
 
 // RepoCommand returns the `wtg repo` command with its subcommands.
-func RepoCommand(runner git.Runner) *cli.Command {
+func RepoCommand(runner git.Runner, fsys ...trace.FS) *cli.Command {
 	return &cli.Command{
 		Name:  "repo",
 		Usage: "manage repositories",
@@ -133,8 +134,8 @@ Use --progress to watch per-repo progress; ~ means a fetch is in flight.`,
 					return RunSync(cfg, runner, cmd.Args().Slice(), cmd.Bool("progress"), os.Stdout)
 				},
 			},
-			ArchiveCommand(runner),
-			UnarchiveCommand(),
+			ArchiveCommand(runner, fsys...),
+			UnarchiveCommand(fsys...),
 		},
 	}
 }

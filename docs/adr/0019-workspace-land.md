@@ -268,7 +268,7 @@ The cause of cases 2, 5 and 8 is one check: `delete` counts commits ahead of the
 | E21 | `--no-link`, or `--dry-run` | `--no-link`: no body is read or written. `--dry-run`: bodies are not written, and the plan says `would link N sibling PRs` (ADR 0021 D3 supplies placeholder PR numbers) |
 | E22 | A `pr` repo failed before getting a PR | The block lists only the PRs that exist. A re-run links the rest, and replaces the block (E19) |
 
-## Implementation notes (not yet implemented)
+## Implementation notes (implemented)
 
 - `git.Runner` additions: `CommitsAhead(repoPath, base, branch string) (int, error)` and `PushTo(repoPath, branch, remoteBranch string) error` (refspec push, no force). `Push` and `FastForward` already exist. The test runner in `internal/cmd/testrunner_test.go` needs matching stubs.
 - `remote.Runner` additions: `FindPR(ctx, host, ownerRepo, head string) (pr PR, found bool, err error)`, `CreatePR(ctx, host, ownerRepo, head, base string, draft bool) (PR, error)`, `PRBody(ctx, host, ownerRepo string, number int) (string, error)` and `SetPRBody(ctx, host, ownerRepo string, number int, body string) error`. `PR` carries `Number` and `URL`. Host acceptance (D6) is a small change next to `ParseGitHubRemote`.

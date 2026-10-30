@@ -16,11 +16,12 @@ import (
 	"github.com/suhlig/wtg/internal/git"
 	"github.com/suhlig/wtg/internal/saga"
 	"github.com/suhlig/wtg/internal/state"
+	"github.com/suhlig/wtg/internal/trace"
 	"github.com/suhlig/wtg/internal/ui"
 )
 
 // NewCommand returns the `wtg new` command.
-func NewCommand(runner git.Runner) *cli.Command {
+func NewCommand(runner git.Runner, fsys ...trace.FS) *cli.Command {
 	return &cli.Command{
 		Name:      "new",
 		Usage:     "create a workspace",
@@ -67,7 +68,7 @@ the source repo, and any always.run hook fires once the workspace is created.`,
 				Path:   cmd.String("path"),
 				Base:   cmd.String("base"),
 				Repos:  cmd.Args().Tail(),
-			}, os.Stdout)
+			}, os.Stdout, fsys...)
 		},
 	}
 }
@@ -88,7 +89,11 @@ type SpaceNewArgs struct {
 // Files listed in cfg.Always.Files are copied into the space root.
 // Paths in cfg.Always.Secrets are copied from each source repo into its
 // worktree when present.
-func RunSpaceNew(cfg *config.Config, runner git.Runner, args SpaceNewArgs, out io.Writer) error {
+func RunSpaceNew(cfg *config.Config, runner git.Runner, args SpaceNewArgs, out io.Writer, fsys ...trace.FS) error {
+	var f trace.FS = trace.NewOsFS(nil)
+	if len(fsys) > 0 && fsys[0] != nil {
+		f = fsys[0]
+	}
 	branch := args.Branch
 	if branch == "" {
 		branch = cfg.Git.BranchPrefix + args.Name
@@ -136,7 +141,7 @@ func RunSpaceNew(cfg *config.Config, runner git.Runner, args SpaceNewArgs, out i
 		Name: "save state",
 		Do: func(ctx context.Context) error {
 			sp := buildSpaceState(args.Name, spacePath, branch, anyGoMod, allTargets)
-			if err := state.Save(sp); err != nil {
+			if err := state.Save(sp, f); err != nil {
 				return err
 			}
 			savedState = true
@@ -144,48 +149,61 @@ func RunSpaceNew(cfg *config.Config, runner git.Runner, args SpaceNewArgs, out i
 		},
 		Undo: func(ctx context.Context) error {
 			if savedState {
-				return state.Delete(args.Name)
+				return state.Delete(args.Name, f)
 			}
 			return nil
 		},
 	}}
 	for i := range targets {
-		steps = append(steps, worktreeStep(runner, targets[i], branch, args.Base))
-		sec, err := secretCopySteps(cfg, targets[i])
+		steps = append(steps, worktreeStep(runner, targets[i], branch, args.Base, f))
+		sec, err := secretCopySteps(cfg, targets[i], f)
 		if err != nil {
 			return err
 		}
 		steps = append(steps, sec...)
 	}
 	for i := range symlinkTargets {
-		steps = append(steps, symlinkStep(symlinkTargets[i]))
+		steps = append(steps, symlinkStep(symlinkTargets[i], f))
 	}
-	for _, f := range cfg.Always.Files {
-		steps = append(steps, copyFileStep(f, spacePath))
+	for _, fPath := range cfg.Always.Files {
+		steps = append(steps, copyFileStep(fPath, spacePath, f))
 	}
 	goWorkPath := filepath.Join(spacePath, "go.work")
 	if anyGoMod {
 		goVersion := detectGoVersion(allTargets, hasGoMod)
-		steps = append(steps, goWorkStep(goWorkPath, spacePath, allTargets, hasGoMod, goVersion))
+		steps = append(steps, goWorkStep(goWorkPath, spacePath, allTargets, hasGoMod, goVersion, f))
 	}
 
 	if err := saga.Run(context.Background(), steps); err != nil {
 		return err
 	}
 
-	_, _ = fmt.Fprintf(out, "%s created space %q on branch %s\n", ui.SymOK, args.Name, branch)
+	dry := isDry(runner, f)
+	if dry {
+		_, _ = fmt.Fprintf(out, "%s would create space %q on branch %s\n", ui.SymPlan, args.Name, branch)
+	} else {
+		_, _ = fmt.Fprintf(out, "%s created space %q on branch %s\n", ui.SymOK, args.Name, branch)
+	}
 	tbl := ui.NewTableWriter(out)
 	for _, t := range targets {
-		tbl.Row("  "+t.name, t.worktreePath)
+		if dry {
+			tbl.Row("  "+t.name, ui.SymPlan+" would create worktree "+t.worktreePath)
+		} else {
+			tbl.Row("  "+t.name, t.worktreePath)
+		}
 	}
 	for _, t := range symlinkTargets {
-		tbl.Row("  "+t.name, ui.Muted.Render(ui.SymLink+" "+t.repoPath))
+		if dry {
+			tbl.Row("  "+t.name, ui.Muted.Render(ui.SymPlan+" would symlink "+t.repoPath))
+		} else {
+			tbl.Row("  "+t.name, ui.Muted.Render(ui.SymLink+" "+t.repoPath))
+		}
 	}
 	tbl.Flush()
 	_, _ = fmt.Fprintf(out, "Workspace root: %s\n", spacePath)
 
 	sp := buildSpaceState(args.Name, spacePath, branch, anyGoMod, allTargets)
-	runSpaceScript(cfg, "create", sp, repoNames(sp), out)
+	runSpaceScript(cfg, "create", sp, repoNames(sp), out, f)
 	return nil
 }
 

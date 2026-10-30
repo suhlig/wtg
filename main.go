@@ -19,14 +19,22 @@ import (
 // all its mutations go through the git runner, the gh runner, or the FS
 // interface — never through direct os.* calls.
 //
-// Converted so far: land (ships with dry-run from the start, ADR 0019 D10).
-// Not yet converted: new, add, remove, delete, push, rebase, exec, repo archive,
-// repo unarchive (they call os.* directly and must be migrated first).
+// Every command is converted. A new command must stay out of this map until all
+// its mutations go through the git runner, the gh runner, the FS interface, or
+// trace.RunProcess; the forbidigo rule in .golangci.yml enforces that.
 var dryRunCommands = map[string]bool{
-	"land": true,
-	// read-only commands: dry-run is a no-op for these
+	"land":   true,
 	"status": true,
 	"path":   true,
+	"new":    true,
+	"delete": true,
+	"add":    true,
+	"remove": true,
+	"exec":   true,
+	"push":   true,
+	"rebase": true,
+	"repo":   true,
+	"config": true,
 }
 
 func main() {
@@ -34,7 +42,8 @@ func main() {
 	// it, so SetDryRun() called in Before will be seen by all of them at call time.
 	rec := trace.NewRecorder(false)
 
-	// Build all runners once, sharing the single recorder.
+	// Build all runners and FS once, sharing the single recorder.
+	fs := trace.NewOsFS(rec)
 	gitRunner := git.New(rec)
 	ghRunner := remote.NewSystemRunner(rec)
 
@@ -70,8 +79,7 @@ func main() {
 					rejected = true
 					return ctx, fmt.Errorf(
 						"--dry-run is not yet supported for %q\n\n"+
-							"Commands converted so far: land, status, path\n"+
-							"Pending: new, add, remove, delete, push, rebase, exec, repo archive, repo unarchive\n\n"+
+							"Supported commands: land, status, path, new, delete, add, remove, exec, push, rebase, repo, config\n\n"+
 							"Run without --dry-run, or check the progress in docs/adr/0021-dry-run.md",
 						subcmd,
 					)
@@ -79,6 +87,12 @@ func main() {
 				// Activate dry-run mode in the shared recorder so all runners
 				// skip mutations from this point forward.
 				rec.SetDryRun(true)
+				// D3/D4/D5 (ADR 0021): the heading comes first, so the plan
+				// below is not mistaken for something that happened.
+				if subcmd != "" {
+					_, _ = fmt.Fprintln(os.Stdout, "DRY RUN — nothing was changed; the plan is based on the last fetch")
+					_, _ = fmt.Fprintln(os.Stdout)
+				}
 			}
 			return ctx, nil
 		},
@@ -89,8 +103,7 @@ func main() {
 			dryRun := c.Bool("dry-run")
 			summary := c.Bool("summary")
 			if dryRun {
-				// D5 (ADR 0021): output to stdout with the required header.
-				fmt.Fprintln(os.Stdout, "DRY RUN — nothing was changed")
+				// D5 (ADR 0021): the plan goes to stdout, after the result rows.
 				rec.Print(os.Stdout, "Would run")
 			} else if summary {
 				// ADR 0020 D5: output to stderr after the run.
@@ -99,14 +112,14 @@ func main() {
 			return nil
 		},
 		Commands: []*cli.Command{
-			cmd.ConfigCommand(),
-			cmd.RepoCommand(gitRunner),
+			cmd.ConfigCommand(fs),
+			cmd.RepoCommand(gitRunner, fs),
 			cmd.StatusCommand(gitRunner),
-			cmd.NewCommand(gitRunner),
-			cmd.DeleteCommand(gitRunner),
-			cmd.AddCommand(gitRunner),
-			cmd.RemoveCommand(gitRunner),
-			cmd.ExecCommand(),
+			cmd.NewCommand(gitRunner, fs),
+			cmd.DeleteCommand(gitRunner, fs),
+			cmd.AddCommand(gitRunner, fs),
+			cmd.RemoveCommand(gitRunner, fs),
+			cmd.ExecCommand(fs),
 			cmd.PushCommand(gitRunner),
 			cmd.RebaseCommand(gitRunner),
 			cmd.LandCommand(gitRunner, ghRunner),

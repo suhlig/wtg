@@ -18,6 +18,7 @@ import (
 	"github.com/suhlig/wtg/internal/git"
 	"github.com/suhlig/wtg/internal/saga"
 	"github.com/suhlig/wtg/internal/state"
+	"github.com/suhlig/wtg/internal/trace"
 	"github.com/suhlig/wtg/internal/ui"
 )
 
@@ -196,14 +197,18 @@ func resolveRepoName(rootDir string, names []string, input string) (string, erro
 // until (but not including) stop. Directories that still contain files or
 // subdirectories are left untouched. This cleans up the intermediate
 // directories left behind when a nested (org/group) repo worktree is removed.
-func removeEmptyParents(path, stop string) {
+func removeEmptyParents(path, stop string, fsys ...trace.FS) {
+	var f trace.FS = trace.NewOsFS(nil)
+	if len(fsys) > 0 && fsys[0] != nil {
+		f = fsys[0]
+	}
 	stop = filepath.Clean(stop)
 	if stop == "" {
 		return
 	}
 	prefix := stop + string(filepath.Separator)
 	for dir := filepath.Dir(path); dir != stop && strings.HasPrefix(dir, prefix); dir = filepath.Dir(dir) {
-		if err := os.Remove(dir); err != nil {
+		if err := f.Remove(dir); err != nil {
 			return
 		}
 	}
@@ -319,12 +324,16 @@ func cmpGoVersion(a, b string) int {
 
 // worktreeStep returns a saga.Step that creates a linked worktree and undoes it
 // on rollback (also deleting the branch if it was newly created).
-func worktreeStep(runner git.Runner, t *repoTarget, branch, base string) saga.Step {
+func worktreeStep(runner git.Runner, t *repoTarget, branch, base string, fsys ...trace.FS) saga.Step {
+	var f trace.FS = trace.NewOsFS(nil)
+	if len(fsys) > 0 && fsys[0] != nil {
+		f = fsys[0]
+	}
 	return saga.Step{
 		Name: fmt.Sprintf("create worktree %s", t.name),
 		Do: func(ctx context.Context) error {
 			parentDir := filepath.Dir(t.worktreePath)
-			if err := os.MkdirAll(parentDir, 0o750); err != nil {
+			if err := f.MkdirAll(parentDir, 0o750); err != nil {
 				return fmt.Errorf("create parent dir: %w", err)
 			}
 			effectiveBase := base
@@ -334,16 +343,16 @@ func worktreeStep(runner git.Runner, t *repoTarget, branch, base string) saga.St
 			if err := runner.WorktreeAdd(t.repoPath, t.worktreePath, branch, effectiveBase, t.createBranch); err != nil {
 				// Clean up the dir we just created; ignore error (may not be empty
 				// if another worktree in the same space already populated it).
-				_ = os.Remove(parentDir)
+				_ = f.Remove(parentDir)
 				return err
 			}
 			return nil
 		},
 		Undo: func(ctx context.Context) error {
 			removeErr := runner.WorktreeRemove(t.repoPath, t.worktreePath, true)
-			// Clean up the parent dir created by MkdirAll; os.Remove is a no-op
+			// Clean up the parent dir created by MkdirAll; f.Remove is a no-op
 			// if the dir is non-empty or does not exist.
-			_ = os.Remove(filepath.Dir(t.worktreePath))
+			_ = f.Remove(filepath.Dir(t.worktreePath))
 			if removeErr != nil {
 				return removeErr
 			}
@@ -357,21 +366,25 @@ func worktreeStep(runner git.Runner, t *repoTarget, branch, base string) saga.St
 
 // symlinkStep returns a saga.Step that creates a symlink from worktreePath to
 // repoPath and removes it on rollback.
-func symlinkStep(t *repoTarget) saga.Step {
+func symlinkStep(t *repoTarget, fsys ...trace.FS) saga.Step {
+	var f trace.FS = trace.NewOsFS(nil)
+	if len(fsys) > 0 && fsys[0] != nil {
+		f = fsys[0]
+	}
 	return saga.Step{
 		Name: fmt.Sprintf("create symlink %s", t.name),
 		Do: func(ctx context.Context) error {
 			parentDir := filepath.Dir(t.worktreePath)
-			if err := os.MkdirAll(parentDir, 0o750); err != nil {
+			if err := f.MkdirAll(parentDir, 0o750); err != nil {
 				return fmt.Errorf("create parent dir: %w", err)
 			}
-			return os.Symlink(t.repoPath, t.worktreePath)
+			return f.Symlink(t.repoPath, t.worktreePath)
 		},
 		Undo: func(ctx context.Context) error {
-			if err := os.Remove(t.worktreePath); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			if err := f.Remove(t.worktreePath); err != nil && !errors.Is(err, fs.ErrNotExist) {
 				return err
 			}
-			_ = os.Remove(filepath.Dir(t.worktreePath))
+			_ = f.Remove(filepath.Dir(t.worktreePath))
 			return nil
 		},
 	}
@@ -379,7 +392,11 @@ func symlinkStep(t *repoTarget) saga.Step {
 
 // copyFileStep returns a saga.Step that copies src into dstDir and removes the
 // copy on rollback.
-func copyFileStep(src, dstDir string) saga.Step {
+func copyFileStep(src, dstDir string, fsys ...trace.FS) saga.Step {
+	var f trace.FS = trace.NewOsFS(nil)
+	if len(fsys) > 0 && fsys[0] != nil {
+		f = fsys[0]
+	}
 	dst := filepath.Join(dstDir, filepath.Base(src))
 	return saga.Step{
 		Name: fmt.Sprintf("copy %s", filepath.Base(src)),
@@ -388,10 +405,10 @@ func copyFileStep(src, dstDir string) saga.Step {
 			if err != nil {
 				return fmt.Errorf("read %s: %w", src, err)
 			}
-			return os.WriteFile(dst, data, 0o600) // #nosec G703 -- dst is a user-provided path
+			return f.WriteFile(dst, data, 0o600) // #nosec G703 -- dst is a user-provided path
 		},
 		Undo: func(ctx context.Context) error {
-			if err := os.Remove(dst); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			if err := f.Remove(dst); err != nil && !errors.Is(err, fs.ErrNotExist) {
 				return err
 			}
 			return nil
@@ -401,19 +418,23 @@ func copyFileStep(src, dstDir string) saga.Step {
 
 // goWorkStep returns a saga.Step that writes a go.work and restores the prior
 // content (or removes the file) on rollback.
-func goWorkStep(goWorkPath, spacePath string, targets []*repoTarget, hasGoMod []bool, goVersion string) saga.Step {
+func goWorkStep(goWorkPath, spacePath string, targets []*repoTarget, hasGoMod []bool, goVersion string, fsys ...trace.FS) saga.Step {
+	var f trace.FS = trace.NewOsFS(nil)
+	if len(fsys) > 0 && fsys[0] != nil {
+		f = fsys[0]
+	}
 	// Capture existing content before the saga runs so undo can restore it.
 	oldContent, _ := os.ReadFile(goWorkPath) // #nosec G304,G306,G703 -- path derived from workspace root; go.work needs 0644
 	return saga.Step{
 		Name: "write go.work",
 		Do: func(ctx context.Context) error {
-			return writeGoWork(goWorkPath, spacePath, targets, hasGoMod, goVersion)
+			return writeGoWork(goWorkPath, spacePath, targets, hasGoMod, goVersion, f)
 		},
 		Undo: func(ctx context.Context) error {
 			if oldContent != nil {
-				return os.WriteFile(goWorkPath, oldContent, 0o644) // #nosec G304,G306,G703 -- path derived from workspace root; go.work needs 0644
+				return f.WriteFile(goWorkPath, oldContent, 0o644) // #nosec G304,G306,G703 -- path derived from workspace root; go.work needs 0644
 			}
-			if err := os.Remove(goWorkPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			if err := f.Remove(goWorkPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
 				return err
 			}
 			return nil
@@ -424,7 +445,11 @@ func goWorkStep(goWorkPath, spacePath string, targets []*repoTarget, hasGoMod []
 // writeGoWork writes a go.work file at goWorkPath with a use directive for
 // each repo that has a go.mod. hasGoMod[i] corresponds to targets[i].
 // goVersion is written as the go directive (e.g. "1.24").
-func writeGoWork(goWorkPath, spacePath string, targets []*repoTarget, hasGoMod []bool, goVersion string) error {
+func writeGoWork(goWorkPath, spacePath string, targets []*repoTarget, hasGoMod []bool, goVersion string, fsys ...trace.FS) error {
+	var f trace.FS = trace.NewOsFS(nil)
+	if len(fsys) > 0 && fsys[0] != nil {
+		f = fsys[0]
+	}
 	var usePaths []string
 	for i, t := range targets {
 		if !hasGoMod[i] {
@@ -447,7 +472,7 @@ func writeGoWork(goWorkPath, spacePath string, targets []*repoTarget, hasGoMod [
 	}
 	b.WriteString(")\n")
 
-	return os.WriteFile(goWorkPath, []byte(b.String()), 0o644) // #nosec G304,G306,G703 -- path derived from workspace root; go.work needs 0644
+	return f.WriteFile(goWorkPath, []byte(b.String()), 0o644) // #nosec G304,G306,G703 -- path derived from workspace root; go.work needs 0644
 }
 
 // buildSpaceState constructs the state.Space value to persist.
@@ -475,21 +500,48 @@ func buildSpaceState(name, spacePath, branch string, goWorkspace bool, targets [
 // flags are ignored for them since symlinks have no branch context in the space.
 // force causes WorktreeRemove to bypass git's dirty-check (used when the user
 // has already confirmed they want to proceed despite uncommitted changes).
-func deleteOne(runner git.Runner, r state.RepoEntry, branch string, deleteBranch, forceBranch, force bool) (sym, msg string) {
+func deleteOne(runner git.Runner, r state.RepoEntry, branch string, deleteBranch, forceBranch, force bool, fsys ...trace.FS) (sym, msg string) {
+	var f trace.FS = trace.NewOsFS(nil)
+	if len(fsys) > 0 && fsys[0] != nil {
+		f = fsys[0]
+	}
+	dry := isDry(runner, f)
+	// done returns the success symbol and message, in plan wording under --dry-run.
+	done := func(msg, planMsg string) (string, string) {
+		if dry {
+			return ui.SymPlan, planMsg
+		}
+		return ui.SymOK, msg
+	}
 	if r.Symlink {
-		if err := os.Remove(r.WorktreePath); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		if err := f.Remove(r.WorktreePath); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return ui.SymFail, fmt.Sprintf("remove symlink: %v", err)
 		}
-		return ui.SymOK, "symlink removed"
+		return done("symlink removed", "would remove symlink")
 	}
 	if err := runner.WorktreeRemove(r.RepoPath, r.WorktreePath, force); err != nil {
 		return ui.SymFail, fmt.Sprintf("remove worktree: %v", err)
 	}
 	if !deleteBranch && !forceBranch {
-		return ui.SymOK, "worktree removed"
+		return done("worktree removed", "would remove worktree")
 	}
-	if err := runner.BranchDelete(r.RepoPath, branch, forceBranch); err != nil {
+	// -d means "no commit exists only on this branch" (ADR 0019 D11, Q1). git
+	// branch -d judges against the upstream, which is stale after a merge-landing
+	// and absent for a never-pushed branch, so the check is made here and the
+	// branch is then deleted with -D.
+	forceDelete := forceBranch
+	if !forceBranch {
+		n, err := runner.CommitsOnNoRemote(r.RepoPath, "refs/heads/"+branch)
+		if err != nil {
+			return ui.SymWarn, fmt.Sprintf("worktree removed, branch not deleted: cannot check for unpushed commits: %v", err)
+		}
+		if n > 0 {
+			return ui.SymWarn, fmt.Sprintf("worktree removed, branch not deleted: %d commit(s) exist on no remote (use -D to delete anyway)", n)
+		}
+		forceDelete = true
+	}
+	if err := runner.BranchDelete(r.RepoPath, branch, forceDelete); err != nil {
 		return ui.SymWarn, fmt.Sprintf("worktree removed, branch not deleted: %v", err)
 	}
-	return ui.SymOK, "worktree removed, branch deleted"
+	return done("worktree removed, branch deleted", "would remove worktree and delete branch")
 }

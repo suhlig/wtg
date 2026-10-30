@@ -209,3 +209,15 @@ func TestResolveSpaceArg_InferFromCWD_NotInAnySpace(t *testing.T) {
 		t.Fatal("expected error when CWD is not inside any workspace")
 	}
 }
+
+func TestRunSpacePush_DryRun_UsesPlanWording(t *testing.T) {
+	isolateState(t)
+	makeSpace(t, "feat", "feat", t.TempDir(), []string{"api"}, "/repos")
+	var out bytes.Buffer
+	if err := RunSpacePush(dryGit{&testRunner{pushFn: func(string, string) error { return nil }}}, "feat", &out); err != nil {
+		t.Fatalf("RunSpacePush: %v", err)
+	}
+	if !strings.Contains(out.String(), "would push feat") || strings.Contains(out.String(), "pushed feat") {
+		t.Errorf("expected plan wording, got %q", out.String())
+	}
+}

@@ -18,3 +18,5 @@ Before any destructive action, the tool checks:
 2. Does any branch have commits not pushed to origin?
 
 If either is true, a summary is printed and the user is prompted to confirm.
+
+> **Amendment ([ADR 0019](0019-workspace-land.md) D11).** "Commits not pushed to origin" is now "commits on no remote ref" (`git rev-list --count <ref> --not --remotes`), checked for the workspace branch and for whatever else is checked out in each worktree. `-d` deletes a branch when that count is zero (using `git branch -D` internally, because `git branch -d` judges against the upstream); a declined prompt or a missing terminal without `--yes` exits non-zero; and a repo whose `always.secrets` copy changed is kept.

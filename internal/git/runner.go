@@ -96,6 +96,11 @@ type Runner interface {
 	// CommitsAhead counts commits reachable from branch but not from base.
 	// Used by `wtg land` to decide whether a repo has work to publish.
 	CommitsAhead(repoPath, base, branch string) (int, error)
+	// CommitsOnNoRemote counts commits reachable from ref that no remote-tracking
+	// ref contains (git rev-list --count <ref> --not --remotes). A non-zero
+	// count means the commits exist only in this clone. Used by `wtg delete`
+	// (docs/adr/0019-workspace-land.md D11).
+	CommitsOnNoRemote(repoPath, ref string) (int, error)
 	// ConfigGet reads a git config key from repoPath. found is false when
 	// the key is absent (exit 1); other errors are real errors.
 	ConfigGet(repoPath, key string) (value string, found bool, err error)

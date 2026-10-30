@@ -99,10 +99,11 @@ The renderer is the one used by `--summary` (ADR 0020 D5), with the heading "Wou
 | E9 | Parallel commands (`push`, `rebase`, `exec --parallel`) | Recorded per repo and printed grouped, as in ADR 0020 E3 |
 | E10 | Saga would fail halfway | Cannot fail from a skipped step; failures come from real reads only, so rollback does not occur |
 | E11 | Code mutates state directly, bypassing the runner and `FS` | Caught by the `forbidigo` rule of ADR 0020 D7, which fails CI for direct `os` mutations and `exec.Command` outside the boundaries. Not caught: mutation through another package (`syscall`, a library), which review has to catch. Commands still opt in (D1), because until a file is converted its `//nolint` markers mean it is not safe to skip |
-| E12 | `--dry-run` on `status`, `path`, `config` | Accepted and a no-op: they mutate nothing (`config init`/`edit` are not converted, so they reject it) |
+| E12 | `--dry-run` on `status`, `path`, `config` | Accepted. `status`, `path`, `config path` and bare `config` mutate nothing. `config init` writes through `FS` and `config edit` starts `$EDITOR` through `trace.RunProcess`, so both are previewed (`would write config to …`, `(wtg) run: …`) |
 
-## Implementation notes (not yet implemented)
+## Implementation notes (implemented)
 
+- As built: `trace.Recorder` carries the dry-run switch; the git and `gh` runners and `OsFS` consult it. Commands learn about it through `trace.IsDry(runner)` / `trace.IsDryRun(fs)`, which the production runners and `OsFS` satisfy by exposing `DryRun()`. A skipped `gh pr create` returns `remote.PlaceholderPRNumber`. The heading is printed in the root `Before` hook, so it precedes the result rows; `Print` lists the `(wtg)` group last.
 - Depends on [ADR 0020](0020-command-summary.md): the recorder, `Classify`, `FS`, the `forbidigo` rule, and the renderer land first. This ADR adds a `DryRun` mode to the recorder and runners.
 - `git.Runner`/`SystemRunner`: in dry-run mode, a mutating call is recorded and returns without running. The mock runner used by command tests is unaffected.
 - A per-command opt-in, for example a field on the command's constructor or a `DryRunnable` marker checked in the root `Before` hook, which produces E1.
