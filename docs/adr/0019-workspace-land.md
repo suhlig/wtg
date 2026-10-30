@@ -197,7 +197,7 @@ Consequence to document: when repos depend on each other (for example `api` befo
 
 `land` mutates remotes, and the `merge` strategy writes to a default branch. `--dry-run` runs the checks against the last fetched state and prints for every repo what it would do (`would push to origin/main`, `would open PR`, `PR #12 exists`), without pushing, fetching, or calling `gh pr create`. It is the global flag of [ADR 0021](0021-dry-run.md), which decides how a preview is produced (mutating calls skipped at the git and `gh` boundaries, no fetch, no prompts); `land` supports it from the start.
 
-### D11. `land && delete` must be safe end to end (changes `delete`; three questions open)
+### D11. `land && delete` must be safe end to end (changes `delete`; decided)
 
 D1 promises that `wtg land && wtg delete` covers the whole end of the workflow. This was checked against the current binary (git 2.56, throwaway repositories with a bare `origin`, a main clone, and one workspace). It does not hold yet:
 
@@ -211,7 +211,7 @@ D1 promises that `wtg land && wtg delete` covers the whole end of the workflow. 
 | 6 | Same, but the branch was pushed after its last commit | Clean; `-d` deletes | Works |
 | 7 | Prompt declined, or stdin is not a terminal | Prompt printed, nothing deleted, **exit 0** | **A chain continues as if the workspace were gone** |
 | 8 | Worktree left on another branch with unpushed commits (`land` skips it, E3) | No warning. The branch survives in the main clone | Silent; `land` has to report it |
-| 9 | Ignored files in the worktree (for example `.env.local`) | Removed with the worktree, no warning, because `git status` does not list ignored files | Gap that exists today; see Q3 |
+| 9 | `always.secrets` copies in the worktree (for example `.env.local`), edited since they were copied | Removed with the worktree, no warning, because `git status` does not list ignored files | **Data-loss gap** (exists today); fixed by change 5 |
 | 10 | Stash in the worktree | Survives: `refs/stash` is shared with the main clone | Works |
 | 11 | Untracked file | Warns and prompts | Works |
 
@@ -222,12 +222,24 @@ The cause of cases 2, 5 and 8 is one check: `delete` counts commits ahead of the
 1. **Exit codes of `land`.** Non-zero if any repo failed, was skipped with `⚠` (wrong branch E3, not a fast-forward E5, `gh` missing E9, PR not created, siblings not linked E20), as `rebase` does for "failed or needing attention" (ADR 0018). `ø nothing to land` is not a failure. This is what makes `&&` stop (case 8).
 2. **`delete` asks "does any commit exist only here?"** It counts commits on no remote ref for the workspace branch and for whatever is checked out in each worktree, replacing the Ahead-versus-upstream count. This fixes cases 2, 5 and 8. The warning text stays ("has N unpushed commit(s)").
 3. **`delete` exits non-zero when it does not delete.** A declined prompt or end-of-input exits non-zero with `aborted: nothing deleted` (case 7), so `land && delete && …` cannot proceed on the assumption that the workspace is gone.
+4. **`delete --yes`** skips the confirmation prompt (Q2). Without `--yes` and without a terminal, `delete` does not read an answer from a pipe: it refuses with a hint to pass `--yes`, and exits non-zero (change 3). `--yes` answers only the prompt; it does not override change 5.
+5. **`delete` keeps a repo whose `always.secrets` copy was changed** (Q3), as described next.
 
-**Decide before implementing** (these change documented behaviour, so they are open):
+**Decided**
 
-- **Q1. What `-d` means.** ADR 0009 defines `-d` as `git branch -d` semantics, which judge a branch against its upstream (case 5). The alternative is "delete if no commit exists only on this branch" (the check in change 2), then `git branch -D`. That deletes in cases 3, 5 and 6, still refuses a never-pushed branch, and also resolves the squash-merge limit of D9 for as long as `origin/<branch>` exists. It amends ADR 0009.
-- **Q2. `--yes`.** `AGENTS.md` asks for scriptable commands. A prompt that cannot be answered in a chain is awkward; `delete --yes` would skip it, and without a terminal it would refuse with a hint. The alternative is to keep the prompt and rely on change 3.
-- **Q3. Ignored files** (case 9). Options: do nothing (today), warn with a count (`git status --ignored`), or list them under `--dry-run` only. `always.secrets` copies are recreated from the main clone, so the concern is files the user made.
+- **Q1. `-d` means "no commit exists only on this branch".** `delete -d` deletes the branch when the check of change 2 finds no commit that is on no remote ref, using `git branch -D` internally, because `git branch -d` judges against the upstream and gives the false alarm of case 5. A never-pushed branch is still refused, and `-D` still forces. This amends [ADR 0009](0009-delete-and-branch-safety.md); the amendment note is added there when the change is implemented. It also resolves the squash-merge limit of D9 for as long as `origin/<branch>` exists.
+- **Q2. `--yes` is added** (change 4).
+- **Q3. Changed `always.secrets` copies keep their repo.** Only files from the `always.secrets` list can be compared, because they are the only ignored files wtg created and therefore the only ones with a known origin. Other ignored files the user made are out of scope; that is stated in the README, not detected.
+
+**Secrets comparison (change 5).**
+
+- For each non-symlink repo, for each `always.secrets` entry that exists in the worktree, `delete` compares the worktree file byte for byte with the same relative path in the main clone (the source `secretCopySteps` copied it from).
+- The copy counts as **changed**, and the repo is kept, when the contents differ or when the source no longer exists (the worktree holds the only copy). A copy missing from the worktree is not a change: nothing would be lost.
+- The comparison is read-only and runs in the pre-flight phase, in parallel with the status checks (ADR 0023 D3).
+- A changed repo is **not removed and its branch is not deleted**, even with `-D` and `--yes`. All other repos are processed as usual: this is the "do not stop the other repos" rule.
+- The repo is listed with `✗ kept: <path> differs from the main clone` (one line per file), and `delete` exits non-zero at the end. The space stays in wtg's state with **only the kept repos** listed, so running `delete` again after the user has copied the change back, or removed the file, resumes with exactly those repos.
+- The user resolves it with ordinary tools: `diff` the two files, copy the worktree file over the source (or discard it), run `wtg delete` again. Nothing here needs wtg ([ADR 0022](0022-no-tool-dependency.md)): the files are left where they are.
+- Rationale for failing instead of warning: the data is not recoverable from git (ignored, so not in the reflog), a prompt cannot be answered in a chain, and the user explicitly asked for a hard stop on exactly this case.
 
 ## Edge cases
 
@@ -264,8 +276,8 @@ The cause of cases 2, 5 and 8 is one check: `delete` counts commits ahead of the
 - Strategy lookup: a `Runner` method, for example `ConfigGet(repoPath, key string) (value, origin string, found bool, err error)`, wrapping `git config --show-origin --get`. No new section in wtg's `config.toml` and nothing for `wtg config init` to scaffold. The README documents the two git config snippets of D3.
 - Command code: `internal/cmd/land.go` with `LandCommand(runner, ghRunner)` and `RunSpaceLand(...)`, reusing `opResult`, `ui.NewTableWriter`, `resolveSpaceArg`, and the `push` diverged-branch hint. Registered next to `PushCommand`.
 - Tests ship with the implementation (`AGENTS.md`): mock-runner tests for E1–E22 and strategy selection (command line beats repo config beats default; unset; unknown value; origin reported), with real-git cases for a per-clone value and an `includeIf "hasconfig:remote.*.url"` rule, plus real-git scenarios via `internal/git/testhelper` for a fast-forward landing, a rejected non-fast-forward, and a landing followed by `delete -d`. `gh` is faked through the `remote.Runner` interface, including a fake that records the bodies written, to assert that the second pass runs only after all PRs exist.
-- `delete` changes (D11): a `Runner` method such as `CommitsOnNoRemote(repoPath, ref string) (int, error)` (`git rev-list --count <ref> --not --remotes`) used by `RunSpaceDelete` in place of `RepoStatus.Ahead`; a non-zero exit when the prompt is declined; `land` returns an error when any row is `!` or `⚠`. Q1 to Q3 are settled first.
-- Tests for D11 use real repositories (`internal/git/testhelper`, a bare origin) and run `land` followed by `delete` for each case in the table: PR flow, merge-landing with and without an earlier upstream, never-pushed (with `-D`), a worktree on another branch, a declined prompt (exit code), and a stale local default branch.
+- `delete` changes (D11): a `Runner` method such as `CommitsOnNoRemote(repoPath, ref string) (int, error)` (`git rev-list --count <ref> --not --remotes`) used by `RunSpaceDelete` in place of `RepoStatus.Ahead`; a non-zero exit when the prompt is declined; `delete --yes` and the refusal without a terminal; a pre-flight secrets comparison (reusing the path validation and root check of `secretCopySteps`) that moves a repo from the removal loop to a `kept` result and rewrites the space state to the kept repos; `delete -d` using the same count for the branch decision; `land` returns an error when any row is `!` or `⚠`. ADR 0009 gets an amendment note when this is implemented.
+- Tests for D11 use real repositories (`internal/git/testhelper`, a bare origin) and run `land` followed by `delete` for each case in the table: PR flow, merge-landing with and without an earlier upstream, never-pushed (with `-D`), a worktree on another branch, a declined prompt (exit code), no terminal without `--yes`, a stale local default branch, and secrets: unchanged copy (deleted), edited copy (kept, exit non-zero, other repos deleted, state lists only the kept repo, second run succeeds after the copy was reconciled), source missing, copy missing, and a symlinked repo.
 - Docs: README section for `wtg land` and the `wtg.landStrategy` git config key, `CHANGELOG.md` entry under *Unreleased → Added*, and the index row in [`DESIGN.md`](../DESIGN.md) (added with this ADR).
 
 ## Without wtg ([ADR 0022](0022-no-tool-dependency.md))
@@ -315,4 +327,4 @@ The cause of cases 2, 5 and 8 is one check: `delete` counts commits ahead of the
 | D8 | No cross-repo transaction; dependent repos should use `pr` |
 | D9 | `land` does not clean up branches; squash-merge cleanup is a known gap |
 | D10 | `--dry-run` prints the plan from the last fetched state, without changing or fetching anything (ADR 0021) |
-| D11 | `land && delete` made safe: `land` exits non-zero on any failure or warning; `delete` counts commits on no remote ref and exits non-zero when it does not delete; Q1 to Q3 open |
+| D11 | `land && delete` made safe: `land` exits non-zero on any failure or warning; `delete` counts commits on no remote ref, `-d` means "no commit only here" (amends ADR 0009), `--yes` skips the prompt, it exits non-zero when it does not delete, and it keeps (and fails for) any repo whose `always.secrets` copy differs from its source |
