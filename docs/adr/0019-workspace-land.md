@@ -39,19 +39,20 @@ wtg land [<workspace>] [--strategy pr|merge] [--draft] [--no-link] [--dry-run]
 
 - The workspace is inferred from the current directory, as in `push` and `rebase`.
 - When the run produces two or more pull requests, each one is linked to its siblings (D7). `--no-link` turns that off.
-- Per-repo work runs in parallel and is reported per repo in a table, like `wtg push`. The exit code is non-zero if any repo failed.
+- Per-repo work runs in parallel and is reported per repo in a table, like `wtg push`. The exit code is non-zero if any repo failed or was left needing attention (D11.1), so that `wtg land && wtg delete` stops.
 - `land` never deletes anything. The usual sequence is `wtg rebase` (if needed), `wtg land`, then `wtg delete`.
 
 ## Decisions
 
 ### D1. Landing is separate from deleting (decided)
 
-`land` publishes. `delete` releases the local workspace. Neither implies the other.
+`land` publishes. `delete` releases the local workspace. Neither implies the other. The intended daily sequence is `wtg land && wtg delete`, run from inside the workspace (both infer it from the current directory; checked with the current binary).
 
 - After `land`, nothing local has been removed, so a mistake costs nothing.
-- After `land`, `wtg delete` has nothing to warn about (everything is pushed), so it runs without a prompt. That is the "I am done here" signal.
+- `delete` is the "I am done here" signal. That only holds if `delete` recognises a landed workspace as safe, and if a chain stops when `land` did not finish or `delete` did not delete. The current `delete` does neither reliably; D11 lists what was measured and what has to change.
 - The branch survives `delete` (no `-d`) for as long as the PR is open. When review feedback arrives, `wtg new <workspace> <repos…>` re-attaches it.
-- Rejected: `land --delete`. A convenience that can be added later, but v1 keeps the two verbs composable (`wtg land && wtg delete`), so a failed or partial land never deletes a workspace.
+- Rejected: `land --delete`. A convenience that can be added later, but v1 keeps the two verbs composable, so a failed or partial land never deletes a workspace. That depends on the exit codes in D11.1.
+- After `delete` the shell is still in the removed directory (`delete` already warns about this); the next command needs a `cd`.
 
 ### D2. One verb, two strategies (decided)
 
@@ -196,6 +197,38 @@ Consequence to document: when repos depend on each other (for example `api` befo
 
 `land` mutates remotes, and the `merge` strategy writes to a default branch. `--dry-run` runs the checks against the last fetched state and prints for every repo what it would do (`would push to origin/main`, `would open PR`, `PR #12 exists`), without pushing, fetching, or calling `gh pr create`. It is the global flag of [ADR 0021](0021-dry-run.md), which decides how a preview is produced (mutating calls skipped at the git and `gh` boundaries, no fetch, no prompts); `land` supports it from the start.
 
+### D11. `land && delete` must be safe end to end (changes `delete`; three questions open)
+
+D1 promises that `wtg land && wtg delete` covers the whole end of the workflow. This was checked against the current binary (git 2.56, throwaway repositories with a bare `origin`, a main clone, and one workspace). It does not hold yet:
+
+| # | Case | What `delete` does today | Verdict |
+|---|------|--------------------------|---------|
+| 1 | Branch never pushed; plain `delete` | No warning. Worktree removed, branch kept | Data safe, because the branch survives |
+| 2 | Branch never pushed; `delete -D` | No warning. Branch deleted; the commit is only in the reflog | **Data-loss gap** (exists today, independent of `land`) |
+| 3 | PR flow: `push -u`, then `delete` or `delete -d` | No warning. With `-d` the local branch goes, the remote branch stays, and `wtg new` re-attaches it with its commit | Works |
+| 4 | Merge-landing, branch never pushed | No warning, branch kept. `-d` is refused while the main clone's local default branch is stale (D5 fast-forwards it) | Works with D5 |
+| 5 | Branch pushed earlier (`-u`), more commits, then merge-landed | Warns "1 unpushed commit(s)" although the commit is on `origin/main`. `-d` is refused: "not yet merged to `origin/feat`, even though it is merged to HEAD" | **False alarm** that blocks the chain and `-d` |
+| 6 | Same, but the branch was pushed after its last commit | Clean; `-d` deletes | Works |
+| 7 | Prompt declined, or stdin is not a terminal | Prompt printed, nothing deleted, **exit 0** | **A chain continues as if the workspace were gone** |
+| 8 | Worktree left on another branch with unpushed commits (`land` skips it, E3) | No warning. The branch survives in the main clone | Silent; `land` has to report it |
+| 9 | Ignored files in the worktree (for example `.env.local`) | Removed with the worktree, no warning, because `git status` does not list ignored files | Gap that exists today; see Q3 |
+| 10 | Stash in the worktree | Survives: `refs/stash` is shared with the main clone | Works |
+| 11 | Untracked file | Warns and prompts | Works |
+
+The cause of cases 2, 5 and 8 is one check: `delete` counts commits ahead of the branch's *upstream* (`RepoStatus.Ahead`). With no upstream the count is zero, and after a merge-landing the upstream is stale. The right question is whether a commit exists *nowhere else*. `git rev-list --count <ref> --not --remotes` answers it and was measured on the same repositories: 1 for a never-pushed branch, 1 for "pushed earlier plus a newer commit", and 0 once `origin/main` or `origin/<branch>` contains the tip, without a fetch (a push updates the remote-tracking ref itself).
+
+**Required changes** (all in this ADR's scope, because without them D1 is not true):
+
+1. **Exit codes of `land`.** Non-zero if any repo failed, was skipped with `⚠` (wrong branch E3, not a fast-forward E5, `gh` missing E9, PR not created, siblings not linked E20), as `rebase` does for "failed or needing attention" (ADR 0018). `ø nothing to land` is not a failure. This is what makes `&&` stop (case 8).
+2. **`delete` asks "does any commit exist only here?"** It counts commits on no remote ref for the workspace branch and for whatever is checked out in each worktree, replacing the Ahead-versus-upstream count. This fixes cases 2, 5 and 8. The warning text stays ("has N unpushed commit(s)").
+3. **`delete` exits non-zero when it does not delete.** A declined prompt or end-of-input exits non-zero with `aborted: nothing deleted` (case 7), so `land && delete && …` cannot proceed on the assumption that the workspace is gone.
+
+**Decide before implementing** (these change documented behaviour, so they are open):
+
+- **Q1. What `-d` means.** ADR 0009 defines `-d` as `git branch -d` semantics, which judge a branch against its upstream (case 5). The alternative is "delete if no commit exists only on this branch" (the check in change 2), then `git branch -D`. That deletes in cases 3, 5 and 6, still refuses a never-pushed branch, and also resolves the squash-merge limit of D9 for as long as `origin/<branch>` exists. It amends ADR 0009.
+- **Q2. `--yes`.** `AGENTS.md` asks for scriptable commands. A prompt that cannot be answered in a chain is awkward; `delete --yes` would skip it, and without a terminal it would refuse with a hint. The alternative is to keep the prompt and rely on change 3.
+- **Q3. Ignored files** (case 9). Options: do nothing (today), warn with a count (`git status --ignored`), or list them under `--dry-run` only. `always.secrets` copies are recreated from the main clone, so the concern is files the user made.
+
 ## Edge cases
 
 | # | Situation | Handling |
@@ -231,6 +264,8 @@ Consequence to document: when repos depend on each other (for example `api` befo
 - Strategy lookup: a `Runner` method, for example `ConfigGet(repoPath, key string) (value, origin string, found bool, err error)`, wrapping `git config --show-origin --get`. No new section in wtg's `config.toml` and nothing for `wtg config init` to scaffold. The README documents the two git config snippets of D3.
 - Command code: `internal/cmd/land.go` with `LandCommand(runner, ghRunner)` and `RunSpaceLand(...)`, reusing `opResult`, `ui.NewTableWriter`, `resolveSpaceArg`, and the `push` diverged-branch hint. Registered next to `PushCommand`.
 - Tests ship with the implementation (`AGENTS.md`): mock-runner tests for E1–E22 and strategy selection (command line beats repo config beats default; unset; unknown value; origin reported), with real-git cases for a per-clone value and an `includeIf "hasconfig:remote.*.url"` rule, plus real-git scenarios via `internal/git/testhelper` for a fast-forward landing, a rejected non-fast-forward, and a landing followed by `delete -d`. `gh` is faked through the `remote.Runner` interface, including a fake that records the bodies written, to assert that the second pass runs only after all PRs exist.
+- `delete` changes (D11): a `Runner` method such as `CommitsOnNoRemote(repoPath, ref string) (int, error)` (`git rev-list --count <ref> --not --remotes`) used by `RunSpaceDelete` in place of `RepoStatus.Ahead`; a non-zero exit when the prompt is declined; `land` returns an error when any row is `!` or `⚠`. Q1 to Q3 are settled first.
+- Tests for D11 use real repositories (`internal/git/testhelper`, a bare origin) and run `land` followed by `delete` for each case in the table: PR flow, merge-landing with and without an earlier upstream, never-pushed (with `-D`), a worktree on another branch, a declined prompt (exit code), and a stale local default branch.
 - Docs: README section for `wtg land` and the `wtg.landStrategy` git config key, `CHANGELOG.md` entry under *Unreleased → Added*, and the index row in [`DESIGN.md`](../DESIGN.md) (added with this ADR).
 
 ## Without wtg ([ADR 0022](0022-no-tool-dependency.md))
@@ -280,3 +315,4 @@ Consequence to document: when repos depend on each other (for example `api` befo
 | D8 | No cross-repo transaction; dependent repos should use `pr` |
 | D9 | `land` does not clean up branches; squash-merge cleanup is a known gap |
 | D10 | `--dry-run` prints the plan from the last fetched state, without changing or fetching anything (ADR 0021) |
+| D11 | `land && delete` made safe: `land` exits non-zero on any failure or warning; `delete` counts commits on no remote ref and exits non-zero when it does not delete; Q1 to Q3 open |

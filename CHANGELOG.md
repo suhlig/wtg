@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `wtg delete` now infers the workspace from the current directory when `<workspace>` is omitted, like `push`, `rebase`, `exec`, `add` and `remove`; outside any workspace it still asks you to name one
+
 ## [1.7.0] - 2026-10-28
 
 ### Added
