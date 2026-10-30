@@ -63,11 +63,11 @@ func dirListing(t *testing.T, dir string) string {
 // lineDiff returns the lines of after that are not in before.
 func lineDiff(before, after string) []string {
 	seen := map[string]bool{}
-	for _, l := range strings.Split(before, "\n") {
+	for l := range strings.SplitSeq(before, "\n") {
 		seen[l] = true
 	}
 	var added []string
-	for _, l := range strings.Split(after, "\n") {
+	for l := range strings.SplitSeq(after, "\n") {
 		if !seen[l] {
 			added = append(added, l)
 		}

@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"sync"
 )
@@ -135,12 +136,7 @@ func Classify(args []string) bool {
 	switch verb {
 	case "rev-parse", "rev-list", "merge-base", "symbolic-ref":
 		// symbolic-ref without --delete is a read
-		for _, a := range args[1:] {
-			if a == "--delete" {
-				return false
-			}
-		}
-		return true
+		return !slices.Contains(args[1:], "--delete")
 	case "status", "worktree":
 		// "worktree list" is read; "worktree add" / "worktree remove" are mutations
 		if len(args) > 1 && args[1] == "list" {
@@ -161,12 +157,7 @@ func Classify(args []string) bool {
 		return args[1] == "get-url"
 	case "config":
 		// "config --get <key>" is a read; other config forms (--add, --unset, etc.) are mutating
-		for _, a := range args[1:] {
-			if a == "--get" {
-				return true
-			}
-		}
-		return false
+		return slices.Contains(args[1:], "--get")
 	}
 	// Everything else — fetch, push, merge, rebase, branch -d/-D, worktree add,
 	// worktree remove, ls-remote, remote set-head, etc. — is mutating.
