@@ -1,6 +1,6 @@
 # ADR 0022: wtg is never a dependency of collaborators
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-29
 - Author: Steffen Uhlig
 

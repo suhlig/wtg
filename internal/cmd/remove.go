@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/urfave/cli/v3"
 
@@ -135,24 +136,39 @@ func RunSpaceRemove(cfg *config.Config, runner git.Runner, args SpaceRemoveArgs,
 		}
 	}
 
-	// Pre-flight: gather warnings about uncommitted or unpushed work.
+	// Pre-flight: gather warnings about uncommitted or unpushed work in
+	// parallel (independent per-repo git status calls — see ADR 0023 D3).
 	// Symlink entries are skipped — they point to the shared main clone and
 	// their state is not specific to this space.
-	var warnings []string
-	for _, r := range toRemove {
+	type warnResult struct{ msgs []string }
+	warnResults := make([]warnResult, len(toRemove))
+	var wg sync.WaitGroup
+	for i, r := range toRemove {
 		if r.Symlink {
 			continue
 		}
-		st, err := runner.Status(r.WorktreePath)
-		if err != nil {
-			continue // worktree may have been externally deleted; skip
-		}
-		if len(st.Files) > 0 {
-			warnings = append(warnings, fmt.Sprintf("%s: has uncommitted changes", r.Name))
-		}
-		if st.Ahead > 0 {
-			warnings = append(warnings, fmt.Sprintf("%s: has %d unpushed commit(s)", r.Name, st.Ahead))
-		}
+		wg.Add(1)
+		go func(i int, r state.RepoEntry) {
+			defer wg.Done()
+			st, err := runner.Status(r.WorktreePath)
+			if err != nil {
+				return // worktree may have been externally deleted; skip
+			}
+			var msgs []string
+			if len(st.Files) > 0 {
+				msgs = append(msgs, fmt.Sprintf("%s: has uncommitted changes", r.Name))
+			}
+			if st.Ahead > 0 {
+				msgs = append(msgs, fmt.Sprintf("%s: has %d unpushed commit(s)", r.Name, st.Ahead))
+			}
+			warnResults[i] = warnResult{msgs}
+		}(i, r)
+	}
+	wg.Wait()
+
+	var warnings []string
+	for _, wr := range warnResults {
+		warnings = append(warnings, wr.msgs...)
 	}
 
 	needsForce := len(warnings) > 0

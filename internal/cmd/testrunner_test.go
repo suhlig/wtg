@@ -23,6 +23,7 @@ type testRunner struct {
 	fetchFn              func(repoPath string) error
 	fastForwardFn        func(repoPath, branch string) error
 	pushFn               func(repoPath, branch string) error
+	pushToFn             func(repoPath, branch, remoteBranch string) error
 	rebaseFn             func(repoPath, onto string) error
 	rebaseAbortFn        func(repoPath string) error
 	isAncestorFn         func(repoPath, ancestor, descendant string) (bool, error)
@@ -31,6 +32,8 @@ type testRunner struct {
 	remoteURLFn          func(repoPath, remote string) (string, error)
 	remotesListFn        func(repoPath string) ([]string, error)
 	pendingWorkFn        func(repoPath string) (int, int, error)
+	commitsAheadFn       func(repoPath, base, branch string) (int, error)
+	configGetFn          func(repoPath, key string) (string, bool, error)
 }
 
 func (r *testRunner) WorktreeAdd(repoPath, worktreePath, branch, base string, createBranch bool) error {
@@ -124,6 +127,13 @@ func (r *testRunner) Push(repoPath, branch string) error {
 	return r.pushFn(repoPath, branch)
 }
 
+func (r *testRunner) PushTo(repoPath, branch, remoteBranch string) error {
+	if r.pushToFn == nil {
+		panic(fmt.Sprintf("unexpected PushTo(%q, %q, %q)", repoPath, branch, remoteBranch))
+	}
+	return r.pushToFn(repoPath, branch, remoteBranch)
+}
+
 func (r *testRunner) Rebase(repoPath, onto string) error {
 	if r.rebaseFn == nil {
 		panic(fmt.Sprintf("unexpected Rebase(%q, %q)", repoPath, onto))
@@ -178,4 +188,18 @@ func (r *testRunner) PendingWork(repoPath string) (int, int, error) {
 		return 0, 0, nil // default: nothing pending
 	}
 	return r.pendingWorkFn(repoPath)
+}
+
+func (r *testRunner) CommitsAhead(repoPath, base, branch string) (int, error) {
+	if r.commitsAheadFn == nil {
+		panic(fmt.Sprintf("unexpected CommitsAhead(%q, %q, %q)", repoPath, base, branch))
+	}
+	return r.commitsAheadFn(repoPath, base, branch)
+}
+
+func (r *testRunner) ConfigGet(repoPath, key string) (string, bool, error) {
+	if r.configGetFn == nil {
+		return "", false, nil // default: key not set
+	}
+	return r.configGetFn(repoPath, key)
 }

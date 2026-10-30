@@ -9,6 +9,7 @@
 - Each command implementation includes its unit tests in the same session/PR
 - Ambiguous repo names → error with suggestions, not interactive prompt (keep scriptable)
 - Update `CHANGELOG.md` as you add features: user-facing changes go under `## [Unreleased]` (Added/Changed/Fixed/Removed per Keep a Changelog). Skip dependency bumps, CI, and pure refactors.
+- Collaborators never need wtg: see [ADR 0022](docs/adr/0022-no-tool-dependency.md). Nothing committed, pushed, or shared may require wtg to be installed or understood. Per-repo settings use `wtg.*` git config, not tracked files.
 
 ## Releasing
 

@@ -78,6 +78,9 @@ type Runner interface {
 	Fetch(repoPath string) error
 	FastForward(repoPath, branch string) error
 	Push(repoPath, branch string) error
+	// PushTo pushes branch to remoteBranch on origin as a fast-forward refspec
+	// (no force). Used by `wtg land` merge strategy.
+	PushTo(repoPath, branch, remoteBranch string) error
 	// Rebase runs "git rebase --autostash <onto>". Failures are wrapped with
 	// ErrRebaseConflict, ErrAutostashConflict or ErrUntrackedBlocked when
 	// they match; use errors.Is.
@@ -90,6 +93,12 @@ type Runner interface {
 	InProgress(repoPath string) (string, error)
 	// ShortRev resolves rev to an abbreviated commit hash.
 	ShortRev(repoPath, rev string) (string, error)
+	// CommitsAhead counts commits reachable from branch but not from base.
+	// Used by `wtg land` to decide whether a repo has work to publish.
+	CommitsAhead(repoPath, base, branch string) (int, error)
+	// ConfigGet reads a git config key from repoPath. found is false when
+	// the key is absent (exit 1); other errors are real errors.
+	ConfigGet(repoPath, key string) (value string, found bool, err error)
 
 	// Info
 	RemoteURL(repoPath, remote string) (string, error)

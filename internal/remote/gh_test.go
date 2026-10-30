@@ -47,21 +47,21 @@ exit "${GH_MUTATE_EXIT:-0}"
 
 func TestSystemRunnerAvailable(t *testing.T) {
 	installFakeGH(t)
-	if err := (SystemRunner{}).Available(); err != nil {
+	if err := NewSystemRunner(nil).Available(); err != nil {
 		t.Errorf("Available: %v", err)
 	}
 }
 
 func TestSystemRunnerAvailableMissing(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
-	if err := (SystemRunner{}).Available(); err == nil {
+	if err := NewSystemRunner(nil).Available(); err == nil {
 		t.Error("Available should fail when gh is not on PATH")
 	}
 }
 
 func TestSystemRunnerAuthStatus(t *testing.T) {
 	calls := installFakeGH(t)
-	if err := (SystemRunner{}).AuthStatus(context.Background(), GitHubHost); err != nil {
+	if err := NewSystemRunner(nil).AuthStatus(context.Background(), GitHubHost); err != nil {
 		t.Fatalf("AuthStatus: %v", err)
 	}
 	assertCall(t, calls(), "HOST=github.com auth status --hostname github.com")
@@ -70,7 +70,7 @@ func TestSystemRunnerAuthStatus(t *testing.T) {
 func TestSystemRunnerAuthStatusUnauthenticated(t *testing.T) {
 	installFakeGH(t)
 	t.Setenv("GH_AUTH_EXIT", "1")
-	err := (SystemRunner{}).AuthStatus(context.Background(), GitHubHost)
+	err := NewSystemRunner(nil).AuthStatus(context.Background(), GitHubHost)
 	if err == nil || !strings.Contains(err.Error(), "not authenticated") {
 		t.Errorf("expected authentication error, got: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestSystemRunnerIsArchived(t *testing.T) {
 	calls := installFakeGH(t)
 	t.Setenv("GH_VIEW_JSON", `{"isArchived": true}`)
 
-	got, err := (SystemRunner{}).IsArchived(context.Background(), GitHubHost, "owner/foo")
+	got, err := NewSystemRunner(nil).IsArchived(context.Background(), GitHubHost, "owner/foo")
 	if err != nil {
 		t.Fatalf("IsArchived: %v", err)
 	}
@@ -92,10 +92,10 @@ func TestSystemRunnerIsArchived(t *testing.T) {
 
 func TestSystemRunnerArchiveAndUnarchive(t *testing.T) {
 	calls := installFakeGH(t)
-	if err := (SystemRunner{}).Archive(context.Background(), GitHubHost, "owner/foo"); err != nil {
+	if err := NewSystemRunner(nil).Archive(context.Background(), GitHubHost, "owner/foo"); err != nil {
 		t.Fatalf("Archive: %v", err)
 	}
-	if err := (SystemRunner{}).Unarchive(context.Background(), GitHubHost, "owner/foo"); err != nil {
+	if err := NewSystemRunner(nil).Unarchive(context.Background(), GitHubHost, "owner/foo"); err != nil {
 		t.Fatalf("Unarchive: %v", err)
 	}
 	got := calls()
@@ -106,7 +106,7 @@ func TestSystemRunnerArchiveAndUnarchive(t *testing.T) {
 func TestSystemRunnerArchiveFailure(t *testing.T) {
 	installFakeGH(t)
 	t.Setenv("GH_MUTATE_EXIT", "1")
-	if err := (SystemRunner{}).Archive(context.Background(), GitHubHost, "owner/foo"); err == nil {
+	if err := NewSystemRunner(nil).Archive(context.Background(), GitHubHost, "owner/foo"); err == nil {
 		t.Error("Archive should surface a gh failure")
 	}
 }

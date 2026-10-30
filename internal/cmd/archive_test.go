@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -417,6 +418,11 @@ type fakeGH struct {
 	authHost       string
 	archiveCalls   []string
 	unarchiveCalls []string
+	// PR fields
+	existingPRs map[string]remote.PR // "ownerRepo/head" -> existing PR
+	createPRErr error
+	prBodies    map[string]string // "ownerRepo/number" -> body
+	setPRBodyErr error
 }
 
 func (f *fakeGH) Available() error { return f.availableErr }
@@ -441,6 +447,37 @@ func (f *fakeGH) Archive(_ context.Context, _, ownerRepo string) error {
 func (f *fakeGH) Unarchive(_ context.Context, _, ownerRepo string) error {
 	f.unarchiveCalls = append(f.unarchiveCalls, ownerRepo)
 	return f.unarchiveErr[ownerRepo]
+}
+
+func (f *fakeGH) FindPR(_ context.Context, _, ownerRepo, head string) (remote.PR, bool, error) {
+	key := ownerRepo + "/" + head
+	if pr, ok := f.existingPRs[key]; ok {
+		return pr, true, nil
+	}
+	return remote.PR{}, false, nil
+}
+
+func (f *fakeGH) CreatePR(_ context.Context, _, ownerRepo, head, _ string, _ bool) (remote.PR, error) {
+	if f.createPRErr != nil {
+		return remote.PR{}, f.createPRErr
+	}
+	return remote.PR{Number: 1, URL: "https://github.com/" + ownerRepo + "/pull/1"}, nil
+}
+
+func (f *fakeGH) PRBody(_ context.Context, _, ownerRepo string, number int) (string, error) {
+	key := fmt.Sprintf("%s/%d", ownerRepo, number)
+	return f.prBodies[key], nil
+}
+
+func (f *fakeGH) SetPRBody(_ context.Context, _, ownerRepo string, number int, body string) error {
+	if f.setPRBodyErr != nil {
+		return f.setPRBodyErr
+	}
+	if f.prBodies == nil {
+		f.prBodies = make(map[string]string)
+	}
+	f.prBodies[fmt.Sprintf("%s/%d", ownerRepo, number)] = body
+	return nil
 }
 
 func TestRunRepoArchive_RemoteArchivesUpstream(t *testing.T) {

@@ -170,7 +170,7 @@ func RunRepoArchive(cfg *config.Config, runner git.Runner, args RepoArchiveArgs,
 	if args.Remote {
 		gh := args.GH
 		if gh == nil {
-			gh = remote.SystemRunner{}
+			gh = remote.NewSystemRunner(nil)
 		}
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, remoteTimeout)

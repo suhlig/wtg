@@ -1,6 +1,6 @@
 # ADR 0021: Previewing a run with `--dry-run`
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-29
 - Author: Steffen Uhlig
 

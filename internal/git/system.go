@@ -9,13 +9,23 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/suhlig/wtg/internal/trace"
 )
 
 // SystemRunner is the production Runner implementation that shells out to system git.
-type SystemRunner struct{}
+type SystemRunner struct {
+	rec *trace.Recorder
+}
 
-// New returns a SystemRunner.
-func New() *SystemRunner { return &SystemRunner{} }
+// New returns a SystemRunner. rec may be nil (no recording, no dry-run).
+func New(rec ...*trace.Recorder) *SystemRunner {
+	var r *trace.Recorder
+	if len(rec) > 0 {
+		r = rec[0]
+	}
+	return &SystemRunner{rec: r}
+}
 
 // runError wraps a failed git command with its exit code and stderr output.
 type runError struct {
@@ -33,8 +43,15 @@ func (e *runError) Error() string {
 }
 
 // run executes git -C repoPath <args> and returns trimmed stdout.
-// Any non-zero exit is returned as a *runError.
+// Any non-zero exit is returned as a *runError. Mutating calls are recorded
+// in the Recorder when one is present (see internal/trace). In dry-run mode,
+// mutating calls are recorded as skipped and return success without executing.
 func (r *SystemRunner) run(repoPath string, args ...string) (string, error) {
+	isMutating := !trace.Classify(args)
+	if r.rec != nil && r.rec.DryRun() && isMutating {
+		r.rec.Record(repoPath, trace.FormatGitLine(repoPath, args), -1, true)
+		return "", nil
+	}
 	cmd := exec.Command("git", append([]string{"-C", repoPath}, args...)...) // #nosec G204 -- git with caller-controlled args
 	// Never let git (or the SSH subprocess it spawns) block on a terminal
 	// prompt. GIT_TERMINAL_PROMPT=0 suppresses HTTPS credential prompts;
@@ -52,7 +69,14 @@ func (r *SystemRunner) run(repoPath string, args ...string) (string, error) {
 		if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
 			code = exitErr.ExitCode()
 		}
-		return "", &runError{args: args, exitCode: code, stderr: stderr.String()}
+		re := &runError{args: args, exitCode: code, stderr: stderr.String()}
+		if r.rec != nil && isMutating {
+			r.rec.Record(repoPath, trace.FormatGitLine(repoPath, args), code, false)
+		}
+		return "", re
+	}
+	if r.rec != nil && isMutating {
+		r.rec.Record(repoPath, trace.FormatGitLine(repoPath, args), 0, false)
 	}
 	return strings.TrimRight(string(out), "\n"), nil
 }
@@ -259,6 +283,38 @@ func (r *SystemRunner) FastForward(repoPath, branch string) error {
 func (r *SystemRunner) Push(repoPath, branch string) error {
 	_, err := r.run(repoPath, "push", "--set-upstream", "origin", branch)
 	return err
+}
+
+// PushTo pushes branch to remoteBranch on origin as a fast-forward refspec.
+func (r *SystemRunner) PushTo(repoPath, branch, remoteBranch string) error {
+	_, err := r.run(repoPath, "push", "origin", branch+":"+remoteBranch)
+	return err
+}
+
+// CommitsAhead counts commits reachable from branch but not from base.
+func (r *SystemRunner) CommitsAhead(repoPath, base, branch string) (int, error) {
+	out, err := r.run(repoPath, "rev-list", "--count", base+".."+branch)
+	if err != nil {
+		return 0, err
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(out))
+	if err != nil {
+		return 0, fmt.Errorf("parse rev-list count %q: %w", out, err)
+	}
+	return n, nil
+}
+
+// ConfigGet reads a git config key from repoPath. found is false when the key
+// is absent (git exits 1); other errors are surfaced.
+func (r *SystemRunner) ConfigGet(repoPath, key string) (string, bool, error) {
+	out, err := r.run(repoPath, "config", "--get", key)
+	if err != nil {
+		if exitCode(err) == 1 {
+			return "", false, nil // key not set
+		}
+		return "", false, err
+	}
+	return out, true, nil
 }
 
 // Rebase runs "git rebase --autostash onto". It classifies failures instead of

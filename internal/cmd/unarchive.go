@@ -133,7 +133,7 @@ func RunRepoUnarchive(cfg *config.Config, args RepoUnarchiveArgs, out io.Writer)
 	if args.Remote {
 		gh := args.GH
 		if gh == nil {
-			gh = remote.SystemRunner{}
+			gh = remote.NewSystemRunner(nil)
 		}
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, remoteTimeout)

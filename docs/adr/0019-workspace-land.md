@@ -1,6 +1,6 @@
 # ADR 0019: Landing a workspace with `wtg land`
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-29
 - Author: Steffen Uhlig
 

@@ -1,6 +1,6 @@
 # ADR 0020: Reporting what a run did with `--summary`
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-29
 - Author: Steffen Uhlig
 

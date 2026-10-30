@@ -1,6 +1,6 @@
 # ADR 0023: Parallelism policy — run independent work concurrently
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-01
 - Author: Steffen Uhlig
 
