@@ -87,6 +87,10 @@ func resolveSpaceArg(arg string, omitted bool) (string, error) {
 // otherwise the workspace is inferred from the current working directory and
 // all arguments are treated as repo names. Returns an error when no repos are
 // provided after resolution, or when CWD inference fails.
+//
+// A repo argument of "." is expanded to the absolute path of the current
+// working directory, allowing callers to write `wtg add <space> .` from inside
+// a repository tree.
 func resolveSpaceAndRepos(args []string) (spaceName string, repos []string, err error) {
 	if len(args) == 0 {
 		return "", nil, fmt.Errorf("no repos specified")
@@ -97,7 +101,7 @@ func resolveSpaceAndRepos(args []string) (spaceName string, repos []string, err 
 		if len(args) < 2 {
 			return "", nil, fmt.Errorf("no repos specified")
 		}
-		return args[0], args[1:], nil
+		return args[0], expandDots(args[1:]), nil
 	}
 
 	// First arg is not a known space — infer workspace from CWD.
@@ -105,7 +109,23 @@ func resolveSpaceAndRepos(args []string) (spaceName string, repos []string, err 
 	if err != nil {
 		return "", nil, err
 	}
-	return name, args, nil
+	return name, expandDots(args), nil
+}
+
+// expandDots replaces any "." element in repos with the absolute path of the
+// current working directory. Other elements are returned unchanged.
+func expandDots(repos []string) []string {
+	out := make([]string, len(repos))
+	for i, r := range repos {
+		if r == "." {
+			if cwd, err := os.Getwd(); err == nil {
+				out[i] = cwd
+				continue
+			}
+		}
+		out[i] = r
+	}
+	return out
 }
 
 // resolveExecArgs separates the optional workspace name from the command

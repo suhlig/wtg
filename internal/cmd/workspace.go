@@ -47,6 +47,10 @@ func targetsFromState(sp *state.Space) []*repoTarget {
 }
 
 // buildTargets resolves the set of repos to include in a space.
+//
+// Each element of names may be a short name (matched via repoInSet) or an
+// absolute path that was expanded from "." by resolveSpaceAndRepos; absolute
+// paths are looked up directly in allPaths.
 func buildTargets(roots []string, spacePath string, allPaths, names []string) ([]*repoTarget, error) {
 	if len(names) == 0 {
 		targets := make([]*repoTarget, 0, len(allPaths))
@@ -63,13 +67,31 @@ func buildTargets(roots []string, spacePath string, allPaths, names []string) ([
 
 	allNames := make([]string, 0, len(allPaths))
 	byName := make(map[string]string, len(allPaths))
+	byPath := make(map[string]string, len(allPaths)) // abs path → canonical name
 	for _, p := range allPaths {
 		name := repoName(roots, p)
 		allNames = append(allNames, name)
 		byName[name] = p
+		byPath[p] = name
 	}
 	targets := make([]*repoTarget, 0, len(names))
 	for _, input := range names {
+		// If input is an absolute path (expanded from "."), resolve by path.
+		if filepath.IsAbs(input) {
+			canonical, ok := byPath[input]
+			if !ok {
+				if len(roots) == 1 {
+					return nil, fmt.Errorf("repo at %q not found under %s", input, roots[0])
+				}
+				return nil, fmt.Errorf("repo at %q not found under any discovery root dir", input)
+			}
+			targets = append(targets, &repoTarget{
+				name:         canonical,
+				repoPath:     input,
+				worktreePath: filepath.Join(spacePath, filepath.FromSlash(canonical)),
+			})
+			continue
+		}
 		canonical, ok, err := repoInSet(allNames, input)
 		if err != nil {
 			return nil, err

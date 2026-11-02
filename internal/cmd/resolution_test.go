@@ -191,3 +191,74 @@ func TestRemoveEmptyParents_StopsAtNonEmptySibling(t *testing.T) {
 		t.Errorf("gone should be pruned: %v", err)
 	}
 }
+
+// --- expandDots ---
+
+func TestExpandDots_ReplacesDotsWithCWD(t *testing.T) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+	got := expandDots([]string{"api", ".", "svc"})
+	if got[0] != "api" {
+		t.Errorf("got[0] = %q, want api", got[0])
+	}
+	if got[1] != cwd {
+		t.Errorf("got[1] = %q, want CWD %q", got[1], cwd)
+	}
+	if got[2] != "svc" {
+		t.Errorf("got[2] = %q, want svc", got[2])
+	}
+}
+
+func TestExpandDots_LeavesNonDotUnchanged(t *testing.T) {
+	got := expandDots([]string{"api", "svc"})
+	if got[0] != "api" || got[1] != "svc" {
+		t.Errorf("expandDots unexpectedly modified non-dot args: %v", got)
+	}
+}
+
+// --- buildTargets with absolute path ---
+
+func TestBuildTargets_AbsolutePathResolvesToCanonicalName(t *testing.T) {
+	root := t.TempDir()
+	repoPath := filepath.Join(root, "gist.github.com", "suhlig", "suhlig-coding-conventions")
+	if err := os.MkdirAll(repoPath, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	spacePath := t.TempDir()
+	allPaths := []string{repoPath}
+
+	targets, err := buildTargets([]string{root}, spacePath, allPaths, []string{repoPath})
+	if err != nil {
+		t.Fatalf("buildTargets: %v", err)
+	}
+	if len(targets) != 1 {
+		t.Fatalf("expected 1 target, got %d", len(targets))
+	}
+	if targets[0].name != "gist.github.com/suhlig/suhlig-coding-conventions" {
+		t.Errorf("name = %q, want gist.github.com/suhlig/suhlig-coding-conventions", targets[0].name)
+	}
+	if targets[0].repoPath != repoPath {
+		t.Errorf("repoPath = %q, want %q", targets[0].repoPath, repoPath)
+	}
+	wantWorktree := filepath.Join(spacePath, "gist.github.com", "suhlig", "suhlig-coding-conventions")
+	if targets[0].worktreePath != wantWorktree {
+		t.Errorf("worktreePath = %q, want %q", targets[0].worktreePath, wantWorktree)
+	}
+}
+
+func TestBuildTargets_AbsolutePathNotInDiscoveryReturnsError(t *testing.T) {
+	root := t.TempDir()
+	spacePath := t.TempDir()
+	absPath := filepath.Join(root, "no", "such", "repo")
+	allPaths := []string{filepath.Join(root, "org", "other")}
+
+	_, err := buildTargets([]string{root}, spacePath, allPaths, []string{absPath})
+	if err == nil {
+		t.Fatal("expected error for unknown abs path")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("error should mention 'not found': %v", err)
+	}
+}
