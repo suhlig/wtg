@@ -31,4 +31,5 @@ Each decision below has its own record in [`adr/`](adr/), carrying the original 
 | [0021](adr/0021-dry-run.md) | `--dry-run` previews a run by skipping mutations at the git, `gh`, and filesystem boundaries |
 | [0022](adr/0022-no-tool-dependency.md) | Collaborators never need wtg: shared artefacts stay plain, wtg-only data stays user-local |
 | [0023](adr/0023-parallelism-policy.md) | Independent per-repo work runs in parallel; sequential only for real dependencies |
+| [0024](adr/0024-read-only-workspace-members.md) | Read-only workspace members: pinned detached worktrees in `go.work`, never branched; drift check in `wtg status` |
 
