@@ -10,6 +10,7 @@
 - Ambiguous repo names → error with suggestions, not interactive prompt (keep scriptable)
 - Update `CHANGELOG.md` as you add features: user-facing changes go under `## [Unreleased]` (Added/Changed/Fixed/Removed per Keep a Changelog). Skip dependency bumps, CI, and pure refactors.
 - Collaborators never need wtg: see [ADR 0022](docs/adr/0022-no-tool-dependency.md). Nothing committed, pushed, or shared may require wtg to be installed or understood. Per-repo settings use `wtg.*` git config, not tracked files.
+- This is a public project. Docs, ADRs, tests, examples, commit messages and changelog entries must not contain anything from a private or employer context: internal hostnames, org, repo, product or team names, real workspace names, or identifiers taken from private repos (commit hashes, pseudo-versions, tokens). When a real situation motivates a design, describe it with neutral placeholders (`example.com/org/lib`, `config-lib`, `my-feature`). History is public too; a leak means rewriting it, so catch it before committing.
 
 ## Releasing
 
