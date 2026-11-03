@@ -7,12 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-11-03
+
 ### Added
 
 - `wtg land [<workspace>] [--strategy merge|pr] [--draft] [--no-link]` — publish every repo's branch: fast-forward the remote default branch (`merge`) or push and open a pull request (`pr`), with the choice read from `git config wtg.landStrategy`; PRs of one workspace link to each other in a marked block of their description, and the command exits non-zero when any repo needs attention (ADR 0019)
 - `--summary` (global) — after the run, print the mutating git and `gh` commands and filesystem effects, grouped by repo, to stderr (ADR 0020)
 - `--dry-run` (global) — print the plan without changing anything; supported by every command, never fetches, prompts or runs hooks (ADR 0021)
 - `wtg delete --yes` — answer the confirmation prompt with yes
+- `wtg add` accepts `.` as a repo argument, meaning the repo containing the current directory
 
 ### Changed
 
@@ -20,7 +23,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `wtg delete` exits non-zero when it does not delete (declined prompt, or no terminal without `--yes`) and keeps a repo whose `always.secrets` copy was changed (ADR 0019 D11)
 - `wtg --dry-run repo sync` and `wtg --dry-run rebase` say "as of the last fetch", because a dry run never fetches
 - `.golangci.yml` now forbids direct filesystem mutation and process creation outside the `trace` package and the git/`gh` boundaries (ADR 0020 D7)
-
 - `wtg delete` now infers the workspace from the current directory when `<workspace>` is omitted, like `push`, `rebase`, `exec`, `add` and `remove`; outside any workspace it still asks you to name one
 
 ## [1.7.0] - 2026-10-28
@@ -139,7 +141,8 @@ Initial public release.
 - XDG Base Directory-compliant config (`$XDG_CONFIG_HOME/wtg/config.yaml`) and state (`$XDG_DATA_HOME/wtg/spaces/`)
 - `--config` flag and `WTG_CONFIG` environment variable for config file override
 
-[Unreleased]: https://github.com/suhlig/wtg/compare/v1.7.0...HEAD
+[Unreleased]: https://github.com/suhlig/wtg/compare/v1.8.0...HEAD
+[1.8.0]: https://github.com/suhlig/wtg/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/suhlig/wtg/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/suhlig/wtg/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/suhlig/wtg/compare/v1.4.0...v1.5.0
