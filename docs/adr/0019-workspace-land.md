@@ -34,13 +34,13 @@ Provide one command that, for every repo in the workspace that has work to land,
 ## Intent
 
 ```sh
-wtg land [<workspace>] [--strategy pr|merge] [--draft] [--no-link] [--dry-run]
+wtg land [<workspace>] [--strategy pr|merge] [--draft] [--no-link] [--delete] [--delete-remote-branch] [--dry-run]
 ```
 
 - The workspace is inferred from the current directory, as in `push` and `rebase`. A `.` argument names the workspace containing the current directory ([ADR 0025](0025-dot-repo-arguments.md)).
 - When the run produces two or more pull requests, each one is linked to its siblings (D7). `--no-link` turns that off.
 - Per-repo work runs in parallel and is reported per repo in a table, like `wtg push`. The exit code is non-zero if any repo failed or was left needing attention (D11.1), so that `wtg land && wtg delete` stops.
-- `land` never deletes anything. The usual sequence is `wtg rebase` (if needed), `wtg land`, then `wtg delete`.
+- `land` never deletes anything unless asked: `--delete` removes the workspace after a run with nothing left needing attention (D13), and `--delete-remote-branch` removes `origin/<branch>` after a merge-landing (D13). The usual sequence stays `wtg rebase` (if needed), `wtg land`, then `wtg delete`.
 
 ## Decisions
 
@@ -51,7 +51,7 @@ wtg land [<workspace>] [--strategy pr|merge] [--draft] [--no-link] [--dry-run]
 - After `land`, nothing local has been removed, so a mistake costs nothing.
 - `delete` is the "I am done here" signal. That only holds if `delete` recognises a landed workspace as safe, and if a chain stops when `land` did not finish or `delete` did not delete. The current `delete` does neither reliably; D11 lists what was measured and what has to change.
 - The branch survives `delete` (no `-d`) for as long as the PR is open. When review feedback arrives, `wtg new <workspace> <repos…>` re-attaches it.
-- Rejected: `land --delete`. A convenience that can be added later, but v1 keeps the two verbs composable, so a failed or partial land never deletes a workspace. That depends on the exit codes in D11.1.
+- Rejected for v1, added later in D13: `land --delete`. v1 kept the two verbs composable, so a failed or partial land never deletes a workspace. That depended on the exit codes in D11.1; with those in place, `--delete` deletes only after a run with no attention items.
 - After `delete` the shell is still in the removed directory (`delete` already warns about this); the next command needs a `cd`.
 
 ### D2. One verb, two strategies (decided)
@@ -114,7 +114,7 @@ Other rules:
 
 ### D4. Which repos are landed (decided)
 
-After fetching `origin`, a repo is landed only if its workspace branch has commits that `origin/<default>` does not (`git rev-list --count origin/<default>..<branch> > 0`). The default branch is resolved per repo with `Runner.DefaultBranch`, as in `rebase` (ADR 0018 D1).
+After fetching `origin`, a repo is landed only if its workspace branch has commits that `origin/<base>` does not (`git rev-list --count origin/<base>..<branch> > 0`). The base is the branch recorded for the repo when the workspace was created (`--base origin/<branch>` on `new` or `add`, [ADR 0018](0018-workspace-rebase.md) D1), else the default branch resolved per repo with `Runner.DefaultBranch`, as in `rebase`.
 
 - A repo with no commits of its own reports `ø nothing to land`. That is the "repos that have commits since main" selection.
 - Uncommitted changes are not part of the branch. They produce a warning (`⚠ uncommitted changes are not landed`), not a failure, because landing commits is valid while other edits are in flight. `wtg delete` still prompts for them later.
@@ -122,7 +122,7 @@ After fetching `origin`, a repo is landed only if its workspace branch has commi
 
 ### D5. `merge` strategy: push the branch tip to the default branch (decided)
 
-wtg runs `git push origin <branch>:<default>` from the worktree. The remote accepts it only as a fast-forward, so no merge commit is ever created and no history is rewritten.
+wtg runs `git push origin <branch>:<base>` from the worktree. The remote accepts it only as a fast-forward, so no merge commit is ever created and no history is rewritten. With `--delete-remote-branch`, `origin/<branch>` is deleted once the merge is done (D13).
 
 - This does not touch the main clone's working tree. A plain `git merge --ff-only` there would need the default branch checked out and clean, and would fail on a dirty main clone for reasons unrelated to the landing. ADR 0010 promises the main clones are not modified except by `repo sync`; this keeps that promise.
 - If the remote rejects it as non-fast-forward, the row says `! not a fast-forward — run wtg rebase, then retry`. Branch protection rules that reject the push are reported with git's message plus a hint to use the `pr` strategy for this repo.
@@ -135,7 +135,7 @@ For each repo to land:
 
 1. Push the branch with `--set-upstream` (the existing `Runner.Push`). A diverged branch gets the same `--force-with-lease` reminder as `wtg push` (ADR 0018 D5). `land` never forces.
 2. Look for an existing open PR with this head branch (`gh pr list --head <branch> --json number,url`). If found, report its URL and create nothing (its sibling block is still refreshed, D7). This makes `land` idempotent and safe to re-run.
-3. Otherwise create it: `gh pr create --base <default> --head <branch> --fill`, plus `--draft` if requested. `--fill` takes the title and body from the commits, so wtg invents no text.
+3. Otherwise create it: `gh pr create --base <base> --head <branch> --fill`, plus `--draft` if requested. `--fill` takes the title and body from the commits, so wtg invents no text.
 
 Details:
 
@@ -191,7 +191,7 @@ Consequence to document: when repos depend on each other (for example `api` befo
 
 ### D9. Branch cleanup is not part of `land` (decided)
 
-`land` leaves branches alone, local and remote. Known limit that this ADR records but does not solve: after a PR is merged by GitHub with *squash* or *rebase*, the feature branch is not an ancestor of the default branch, so `wtg delete -d` refuses it (`BranchMerged` is an ancestry check). The user then needs `-D`. A reliable fix needs the PR state (follow-up).
+`land` leaves branches alone, local and remote, unless `--delete-remote-branch` asks for the latter (D13). The limit this ADR originally recorded — after a PR is merged by GitHub with *squash* or *rebase*, the feature branch is not an ancestor of the base branch, so `wtg delete -d` refused it — is solved in D12.
 
 ### D10. `--dry-run` prints the plan (decided)
 
@@ -241,6 +241,45 @@ The cause of cases 2, 5 and 8 is one check: `delete` counts commits ahead of the
 - The user resolves it with ordinary tools: `diff` the two files, copy the worktree file over the source (or discard it), run `wtg delete` again. Nothing here needs wtg ([ADR 0022](0022-no-tool-dependency.md)): the files are left where they are.
 - Rationale for failing instead of warning: the data is not recoverable from git (ignored, so not in the reflog), a prompt cannot be answered in a chain, and the user explicitly asked for a hard stop on exactly this case.
 
+### D12. `delete -d` sees a merged pull request (decided)
+
+D9 left one case open, and it is the common one now that `pr` is the default strategy: GitHub's *squash* and *rebase* merges put the work into the base branch without making the feature branch an ancestor of it, so every commit of a fully merged branch is still "on no remote" (D11, change 2) and `delete -d` refuses the branch.
+
+The missing fact is not in git; it is in the forge. `delete -d` therefore asks `gh` about the branch before refusing it:
+
+1. Only when `-d` would refuse — that is, only with `--delete-branch`, not `--force-delete-branch` (which deletes regardless) and not for a plain `delete` (which keeps branches).
+2. Only when `CommitsOnNoRemote` found commits, so a branch that is already safe costs no `gh` call.
+3. `gh pr list --repo <owner/repo> --head <branch> --state all --json number,state,headRefOid`, the same information as `gh pr view --json state`, but an empty list means "no PR" instead of an error whose text would have to be parsed.
+4. The branch is deleted (with `git branch -D`, as Q1 already decided) only when the state is `MERGED` **and** its `headRefOid` is the local branch tip. The row then says `worktree removed, branch deleted (PR #12 merged)`. `CLOSED` or `OPEN` change nothing: only a merge puts the work upstream.
+5. A merged PR whose head is behind the branch tip unlocks nothing. That is a commit made after the merge, and it exists nowhere else; the branch is kept with the usual `N commit(s) exist on no remote`.
+
+Details:
+
+- **The same code path serves `wtg remove -d`.** Both commands share `deleteOne`; a repo whose PR was merged is as safe to remove as it is to delete.
+- **Fail-safe by construction.** `gh` missing, not authenticated for the host, a non-GitHub remote, an unresolvable tip, or any error means "no merged PR", so the branch is kept with the message it had before. The lookup can only ever *unlock* a deletion the user asked for with `-d`; it never makes a branch go that would otherwise stay, and the tip comparison is what keeps commits made after the merge.
+- **No new dependency.** `gh` is consulted, never required: when it is absent, `-D` still deletes the branch, and nothing about the workspace needs wtg ([ADR 0022](0022-no-tool-dependency.md)).
+- **`--dry-run` is safe.** The lookup is read-only, and the plan says `would remove worktree and delete branch (PR #12 merged)`.
+- **A merged PR wins over a newer closed one.** `gh pr list` returns the newest first; a closed attempt to re-open the work does not hide the merge, because the merge is what matters.
+- **Remote branch untouched.** This decides the *local* branch only; `origin/<branch>` is left alone, exactly as D9 says.
+- Rejected: recording PR numbers in the space state. The state is deleted with the workspace, and the PR can be found again through `gh` (D6 step 2), so a recorded number only goes stale.
+- Rejected: trusting `git branch -d`. It judges against the upstream, which is absent for a never-pushed branch and stale after a merge-landing.
+
+### D13. `land --delete` and `--delete-remote-branch` (decided)
+
+Two optional deletions, each separate from landing itself (D1):
+
+- **`--delete`** runs `wtg delete` on the same workspace, but only after a run in which no repo produced a `!` or a `⚠`. It is not a saga and adds no atomicity (D8): the landing stands, and `delete` runs as the second command it is, with its own checks. Uncommitted changes, commits on no remote, and changed `always.secrets` copies prompt or refuse exactly as they do on their own, so `--delete` answers nothing on the user's behalf. Branches are kept (`-d` is not implied), so a branch that is still open in a PR outlives the workspace as D1 promises.
+- **`--delete-remote-branch`** deletes `origin/<branch>` after a successful merge-landing (`git push origin --delete <branch>`), when `origin/<branch>` exists. A branch that was never pushed is a no-op, not an error: the merge did not need it.
+
+Details:
+
+- **`pr` is unaffected.** A pull request needs its head branch, so the flag is ignored for every repo that lands with `pr`; a workspace that mixes strategies (E15) deletes only where it merged.
+- **A failed deletion is reported.** The row says `⚠ landed (merge), origin/<branch> not deleted: …` and the exit code is non-zero, because the user asked for it. The merge is not rolled back (D8).
+- **`--dry-run` plans both.** `would push feat to origin/main and delete origin/feat`, and `land --delete` runs delete's own dry-run, which removes nothing.
+- **Chained by hand instead.** `wtg land --delete --delete-remote-branch` is exactly `wtg land && wtg delete` with the remote branch removed after a merge.
+- Rejected: deleting `origin/<branch>` after *every* merge-landing. It is a second remote mutation, and a branch another person still needs is not obviously implied by "land".
+- Rejected: `land --delete -d`. Two independent choices would tie branch deletion to a convenience flag; `wtg delete -d` stays explicit and keeps D12's safety check.
+
 ## Edge cases
 
 | # | Situation | Handling |
@@ -257,7 +296,7 @@ The cause of cases 2, 5 and 8 is one check: `delete` counts commits ahead of the
 | E10 | `pr`: remote is not GitHub | `! pr strategy needs a GitHub remote`; branch is already pushed |
 | E11 | Branch already pushed and rebased since | Same diverged-branch reminder as `wtg push`; `land` never forces |
 | E12 | Fetch fails or no remote | `! fetch failed: …` / `ø`, as in `rebase` E8, E9 |
-| E13 | Branch was already merged (squash) upstream | Not detected in v1; it shows as commits to land. A PR would be empty or conflicting. Follow-up. |
+| E13 | Branch was already merged (squash) upstream | Shown as commits to land, because there is no ancestry to detect; a PR would be empty or conflicting. `delete -d` recognises the merged PR (D12), `land` itself still does not |
 | E14 | `wtg.landStrategy` has a value other than `pr` or `merge` | Error naming the file it came from (`--show-origin`), before any git or `gh` call |
 | E15 | Workspace mixes `merge` and `pr` repos | Each repo uses its own strategy; the table shows which |
 | E16 | Re-running `land` after a partial failure | Idempotent: landed repos report `up to date` or the existing PR; failed repos are retried |
@@ -267,6 +306,14 @@ The cause of cases 2, 5 and 8 is one check: `delete` counts commits ahead of the
 | E20 | Linking one PR fails | `⚠ PR created, siblings not linked: …`; other PRs are still linked; exit non-zero; no rollback (D7) |
 | E21 | `--no-link`, or `--dry-run` | `--no-link`: no body is read or written. `--dry-run`: bodies are not written, and the plan says `would link N sibling PRs` (ADR 0021 D3 supplies placeholder PR numbers) |
 | E22 | A `pr` repo failed before getting a PR | The block lists only the PRs that exist. A re-run links the rest, and replaces the block (E19) |
+| E23 | `delete -d` on a branch whose PR was merged (squash or rebase) | Branch deleted; the row names the PR, `(PR #12 merged)` (D12) |
+| E24 | `delete -d`, but `gh` is missing, unauthenticated, or the lookup fails | Branch kept, exactly as before D12: the lookup never loosens a check that could not be made |
+| E25 | `delete -d`, and the PR is `CLOSED` rather than `MERGED` | Branch kept; only a merge counts as landed (D12) |
+| E26 | `land --delete`, and a repo needs attention | The workspace is not deleted; `land`'s non-zero exit is returned (D13) |
+| E27 | `land --delete-remote-branch`, and the branch was never pushed | Nothing to delete; the row stays `landed (merge)` (D13) |
+| E28 | `land --delete-remote-branch`, and the deletion is rejected | `⚠ landed (merge), origin/<branch> not deleted: …`; exit non-zero, merge kept (D13) |
+| E29 | The repo has a recorded base branch | Commits are counted against `origin/<base>`, the merge lands into `<base>`, and the PR's base is `<base>` (D4, [ADR 0018](0018-workspace-rebase.md) D1) |
+| E30 | `delete -d`, the PR is merged, but the branch has a commit made after the merge | Branch kept: the merged PR's `headRefOid` is not the branch tip, so that commit exists nowhere else (D12) |
 
 ## Implementation notes (implemented)
 
@@ -279,6 +326,14 @@ The cause of cases 2, 5 and 8 is one check: `delete` counts commits ahead of the
 - `delete` changes (D11): a `Runner` method such as `CommitsOnNoRemote(repoPath, ref string) (int, error)` (`git rev-list --count <ref> --not --remotes`) used by `RunSpaceDelete` in place of `RepoStatus.Ahead`; a non-zero exit when the prompt is declined; `delete --yes` and the refusal without a terminal; a pre-flight secrets comparison (reusing the path validation and root check of `secretCopySteps`) that moves a repo from the removal loop to a `kept` result and rewrites the space state to the kept repos; `delete -d` using the same count for the branch decision; `land` returns an error when any row is `!` or `⚠`. ADR 0009 gets an amendment note when this is implemented.
 - Tests for D11 use real repositories (`internal/git/testhelper`, a bare origin) and run `land` followed by `delete` for each case in the table: PR flow, merge-landing with and without an earlier upstream, never-pushed (with `-D`), a worktree on another branch, a declined prompt (exit code), no terminal without `--yes`, a stale local default branch, and secrets: unchanged copy (deleted), edited copy (kept, exit non-zero, other repos deleted, state lists only the kept repo, second run succeeds after the copy was reconciled), source missing, copy missing, and a symlinked repo.
 - Docs: README section for `wtg land` and the `wtg.landStrategy` git config key, `CHANGELOG.md` entry under *Unreleased → Added*, and the index row in [`DESIGN.md`](../DESIGN.md) (added with this ADR).
+
+Implemented later, from this record's follow-ups:
+
+- `git.Runner.PushDeleteRemote` (`git push origin --delete <branch>`) and `remote.Runner.FindPRState` (`gh pr list --head <branch> --state all`).
+- `RunSpaceDelete` and `RunSpaceRemove` take the `gh` runner and a context, look for a merged PR in the parallel pre-flight (only for `-d`), and pass the result to `deleteOne` as the PR reference to report (D12).
+- `state.RepoEntry.Base` is written by `recordBaseBranches` in `internal/cmd/workspace.go` from `new`/`add --base origin/<branch>` and read by `rebase` and `land` (D4, ADR 0018 D1).
+- `land --delete` calls `RunSpaceDelete` after a run with no attention items; `land --delete-remote-branch` is handled in `landMerge` (D13).
+- Tests: `delete_test.go` (merged PR, merged PR with a newer local commit, closed PR, no PR, lookup failure, `-D` not consulting `gh`), `land_test.go` (recorded base for `merge` and `pr`, `--delete-remote-branch` including a never-pushed branch, a failed deletion and the dry-run wording, and `--delete` staying put after a failed land), `rebase_test.go` (recorded base, `--onto` precedence), `new_test.go`/`add_test.go` (recording, and a tag or unknown branch not recorded), `remote/gh_test.go` and `git/system_test.go`. Real-git tests in `footprint_test.go` cover a landing into a recorded base and `land --delete`/`--delete-remote-branch` end to end.
 
 ## Without wtg ([ADR 0022](0022-no-tool-dependency.md))
 
@@ -294,14 +349,15 @@ The cause of cases 2, 5 and 8 is one check: `delete` counts commits ahead of the
 - Reviewers of any one PR see the rest of the feature from there, which is the main value of landing a workspace instead of N unrelated repos.
 - wtg now writes into text that humans also edit. The markers, the replace-only-between-markers rule, and the "write only if different" check (D7) keep that contained.
 - No atomicity across repos (D8). Dependent repos must use PRs.
-- The squash-merge branch-cleanup gap (D9) becomes more visible, because PR-based landing is now the default route.
+- The squash-merge branch-cleanup gap (D9) is closed by D12 wherever `gh` is available; without it, `delete -D` remains the way out.
+- `land` can now end the whole lifecycle in one invocation (`--delete`, `--delete-remote-branch`), but still only on request: the composable two-command form stays the default.
 
 ## Alternatives considered
 
 - **Document a `wtg exec` recipe only.** Rejected: it cannot select repos with commits, find an existing PR, or report per repo.
 - **Make PR handling a separate tool (`gh` only).** Rejected: opening N PRs for one feature and keeping them consistent is exactly the multi-repo chore wtg exists for. The boundary in D7 keeps this from growing into a forge client.
 - **`git merge --ff-only` in the main clone.** Rejected in D5.
-- **`land --delete` / auto-delete after landing.** Rejected in D1.
+- **`land --delete` / auto-delete after landing.** Rejected for v1 in D1, and added later as an opt-in that runs only after a run with nothing left needing attention (D13).
 - **Prompt before merging into a default branch.** Rejected in D3: it breaks scripting, and git config plus `--dry-run` give the same protection.
 - **Infer the strategy from the remote or org, with no recorded choice.** Rejected in D3.
 - **A `[land]` section in wtg's own config, or a tracked per-repo file.** Rejected in D3: git config is local by construction and already has per-repo and per-remote layering.
@@ -309,9 +365,7 @@ The cause of cases 2, 5 and 8 is one check: `delete` counts commits ahead of the
 
 ## Follow-ups
 
-- Use PR state (`gh pr view --json state`) so `wtg delete -d` and a possible `wtg repo prune` can clean up branches of squash- or rebase-merged PRs (D9, E13).
-- Optional `land --delete`, and optional deletion of the remote branch after a merge-landing.
-- Per-repo recorded base branch (ADR 0018 D1) would let `land` target a non-default base.
+None. All three items this record listed are implemented: PR state for branch cleanup (D12), `land --delete` with `--delete-remote-branch` (D13), and a per-repo base branch ([ADR 0018](0018-workspace-rebase.md) D1, used in D4–D6 here).
 
 ## Decisions summary
 
@@ -320,11 +374,13 @@ The cause of cases 2, 5 and 8 is one check: `delete` counts commits ahead of the
 | D1 | `land` publishes; `delete` releases the workspace. Neither implies the other |
 | D2 | One verb `wtg land` with strategies `merge` and `pr` |
 | D3 | Strategy from git config `wtg.landStrategy` (per clone or via `includeIf hasconfig:remote.*.url`); default `pr`; `--strategy` overrides; no wtg config section, no tracked files, no prompts |
-| D4 | Land only repos whose branch has commits beyond `origin/<default>`; uncommitted changes warn |
-| D5 | `merge` = `git push origin <branch>:<default>` (fast-forward only), then best-effort fast-forward of the main clone |
-| D6 | `pr` = push, find existing PR, else `gh pr create --fill`; idempotent; `GH_HOST` pinned |
+| D4 | Land only repos whose branch has commits beyond `origin/<base>`, where the base is the recorded one ([ADR 0018](0018-workspace-rebase.md) D1) or the repo's default; uncommitted changes warn |
+| D5 | `merge` = `git push origin <branch>:<base>` (fast-forward only), then best-effort fast-forward of the main clone |
+| D6 | `pr` = push, find existing PR, else `gh pr create --fill` against `<base>`; idempotent; `GH_HOST` pinned |
 | D7 | wtg opens PRs and links siblings to each other via a marked, idempotent block in each body (second pass, `--no-link` to skip); no review, merge, or CI tracking |
 | D8 | No cross-repo transaction; dependent repos should use `pr` |
-| D9 | `land` does not clean up branches; squash-merge cleanup is a known gap |
+| D9 | `land` does not clean up branches unless `--delete-remote-branch` asks for one after a merge |
 | D10 | `--dry-run` prints the plan from the last fetched state, without changing or fetching anything (ADR 0021) |
 | D11 | `land && delete` made safe: `land` exits non-zero on any failure or warning; `delete` counts commits on no remote ref, `-d` means "no commit only here" (amends ADR 0009), `--yes` skips the prompt, it exits non-zero when it does not delete, and it keeps (and fails for) any repo whose `always.secrets` copy differs from its source |
+| D12 | `delete -d` deletes a branch whose PR is `MERGED` even when its commits are on no remote (squash and rebase merges); `gh` is consulted only when `-d` would otherwise refuse, and every failure keeps the branch |
+| D13 | `land --delete` runs `wtg delete` after a run with no attention items (branches kept), and `--delete-remote-branch` removes `origin/<branch>` after a merge-landing |

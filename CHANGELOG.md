@@ -9,11 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `wtg land --delete` — run `wtg delete` on the workspace once every repo landed without needing attention; branches are kept, and delete's own checks (uncommitted changes, commits on no remote, changed `always.secrets` copies) still apply
+- `wtg land --delete-remote-branch` — delete `origin/<branch>` after a merge-landing, where the commits are on the base branch already; ignored for `pr` repos, and a no-op for a branch that was never pushed
+- `wtg add --base <commit-ish>` — set the start point of a new branch, and record `origin/<branch>` as that repo's base branch for `rebase` and `land`
 - `wtg add --read-only [--ref <ref>]` — add a repo as a member you consume rather than change: a detached worktree at a pinned ref, listed in `go.work` when it has a `go.mod`, with no feature branch. Without `--ref` the ref is the version the workspace's other members' `go.mod` files select (`GOWORK=off go list -m`, falling back to `origin/<default branch>`); a tag, commit or local branch pins, `origin/<branch>` is followed by `wtg rebase`. `wtg add <repo>` on a read-only member promotes it to a normal worktree (ADR 0024)
 - `wtg status` compares, for every pair of `go.work` members, the version a consumer requires with what is checked out, and warns when they differ; modules a consumer `replace`s and versions that cannot be resolved locally are skipped, and the check never fails the command (ADR 0024 D6)
 
 ### Changed
 
+- `wtg rebase` and `wtg land` target a repo's recorded base branch instead of its default branch when one exists; `wtg new --base origin/<branch>` (and the new `wtg add --base`) records it, while a tag, commit or local branch stays a plain start point (ADR 0018 D1, ADR 0019 D4)
+- `wtg delete -d` and `wtg remove -d` delete the branch of a `MERGED` pull request whose head is the branch tip: a squash or rebase merge leaves no ancestry, so git alone would keep the branch forever. `gh` is consulted only when `-d` would otherwise refuse, a commit made after the merge keeps the branch, and any failure keeps it as before (ADR 0019 D12)
 - `wtg rebase` advances a read-only member that follows `origin/<branch>`, reports a pinned one as `pinned at <ref>`, and skips a modified one instead of warning about a detached HEAD
 - `wtg push` and `wtg land` skip read-only members, `wtg exec` includes them, and `wtg remove`/`wtg delete` remove their worktree without looking up or deleting a branch
 - `.` is accepted wherever a repo or workspace is named — `wtg new`, `add`, `remove`, the `wtg repo` commands and the workspace commands — and resolves to the canonical short name of the repo containing the current directory, before name matching; `wtg new .` and `wtg repo unarchive .` are rejected because neither can mean what `.` says (ADR 0025)

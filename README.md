@@ -111,7 +111,10 @@ its worktree when present (see [docs/always.md](docs/always.md)).
 ```sh
 wtg new my-feature api payments frontend
 wtg new my-feature api --branch yourname/main  # check out an existing branch
+wtg new my-feature api --base origin/develop   # branch from develop, and stay on it
 ```
+
+`--base <commit-ish>` cuts a new branch from something other than `HEAD`. When it names a remote-tracking branch (`--base origin/develop`), that branch is also recorded as the repo's base: later `wtg rebase` and `wtg land` target it instead of the repo's default branch. A tag, a commit or a local branch is only a start point and records nothing.
 
 Branch behaviour per repo:
 
@@ -139,6 +142,8 @@ wtg delete                       # workspace inferred from CWD
 stops: a declined prompt prints `aborted: nothing deleted`, and without a
 terminal and without `--yes` it refuses instead of reading an answer from a pipe.
 
+`-d` also recognises a merged pull request. A squash or rebase merge puts the work into the base branch without making the feature branch an ancestor of it, so git alone would keep the branch forever. When `gh` is available, `delete -d` (and `remove -d`) asks GitHub and deletes the branch of a `MERGED` pull request, reporting `(PR #12 merged)` — but only when the PR's head commit is the branch tip, so a commit made after the merge keeps the branch. If `gh` is missing, not authenticated, or the remote is not GitHub, the branch is kept exactly as before.
+
 A repo whose `always.secrets` copy differs from the main clone, or whose source
 no longer exists, is **kept** (with its branch), the other repos are deleted as
 usual, and `delete` exits non-zero. Copy the change back (or discard it) and run
@@ -162,6 +167,8 @@ wtg add --read-only config-lib                # what the workspace's consumers r
 wtg add --read-only --ref v2.0.0 config-lib   # pin a tag
 wtg add --read-only --ref origin/main lib     # follow a branch
 ```
+
+`--base <commit-ish>` sets the start point of a new branch, and records `origin/<branch>` as that repo's base exactly as `wtg new --base` does. Use it to give one repo of a workspace a base other than its default branch.
 
 ### `wtg remove [<workspace>] <repo>...`
 
@@ -244,15 +251,9 @@ If a push is rejected because the branch has diverged from its upstream
 (typically after `wtg rebase`), the output says so and shows the
 `git push --force-with-lease` command. wtg never force-pushes.
 
-### `wtg land [<workspace>] [--strategy merge|pr] [--draft] [--no-link]`
+### `wtg land [<workspace>] [--strategy merge|pr] [--draft] [--no-link] [--delete] [--delete-remote-branch]`
 
-Publish every repo's branch that has commits beyond `origin/<default>`, in
-parallel. With the `pr` strategy (the default) the branch is pushed and a pull
-request is opened (an existing one is reused); with `merge` the remote default
-branch is fast-forwarded to the branch. `land` never forces and never deletes
-anything, so `wtg land && wtg delete` is the end of the workflow: `land` exits
-non-zero if any repo failed or needs attention (wrong branch, not a
-fast-forward, `gh` missing, siblings not linked).
+Publish every repo's branch that has commits beyond `origin/<base>`, in parallel, where the base is the branch recorded at `wtg new`/`wtg add` time or the repo's default branch. With the `pr` strategy (the default) the branch is pushed and a pull request is opened against the base (an existing one is reused); with `merge` the remote base branch is fast-forwarded to the branch. `land` never forces and never deletes unless asked, so `wtg land && wtg delete` is the end of the workflow: `land` exits non-zero if any repo failed or needs attention (wrong branch, not a fast-forward, `gh` missing, siblings not linked).
 
 The strategy is a per-repo choice kept in git config, not in a tracked file:
 
@@ -271,13 +272,11 @@ pull request description gets a marked block that links the other PRs of the
 workspace; `--no-link` suppresses it. `--dry-run` shows the plan, including
 `would link N sibling PRs`.
 
+`--delete` runs `wtg delete` on the workspace once every repo landed without needing attention; branches are kept, and delete's own checks still apply, so a worktree with unlanded changes still prompts (or refuses in a script). `--delete-remote-branch` deletes `origin/<branch>` after a merge-landing, where the commits are on the base branch already; a branch that was never pushed is a no-op, and `pr` repos keep their head branch.
+
 ### `wtg rebase [<workspace>] [--onto <branch>] [--progress]`
 
-Fetch `origin` and rebase the workspace's branch onto `origin/<default branch>`
-in every repo's worktree, in parallel, with `--autostash` so uncommitted changes
-come along. The default branch is resolved per repo; `--onto` names one branch
-for all repos. When run from inside a workspace directory, the workspace
-argument can be omitted.
+Fetch `origin` and rebase the workspace's branch onto `origin/<base branch>` in every repo's worktree, in parallel, with `--autostash` so uncommitted changes come along. The base is the branch recorded when the workspace was created (`wtg new`/`wtg add --base origin/<branch>`), else the repo's default branch; `--onto` names one branch for all repos. When run from inside a workspace directory, the workspace argument can be omitted.
 
 ```sh
 wtg rebase my-feature

@@ -40,7 +40,9 @@ wtg does not record which branch a workspace branch was based on (git does not s
 - The fetch makes `origin/<default>` current. The main clone's local default branch is never touched, which keeps the ADR 0010 promise. No prior `repo sync` is needed, and a stale local `main` cannot cause a stale rebase.
 - Rejected: rebase onto the local default branch. It silently depends on `repo sync` having been run.
 
-**Non-default bases (decided).** v1 supports the default branch only, plus `--onto <branch>` to override it with one branch name for all repos (`origin/<branch>` is used). A repo where that ref does not exist fails individually. Recording a per-repo base in the state file (`RepoEntry.Base`, written by `new`/`add`) is a possible follow-up. Rejected: heuristic detection from the nearest merge-base, because it can silently pick the wrong branch.
+**Non-default bases (decided).** The base is resolved per repo, in this order: `--onto <branch>`, which names one branch for all repos (`origin/<branch>` is used); the branch recorded in the state file (`RepoEntry.Base`); the repo's default branch. A repo where the ref does not exist fails individually.
+
+Recording is explicit and additive. `wtg new --base <commit-ish>` and `wtg add --base <commit-ish>` still accept any start point, but when the value is a remote-tracking branch of origin (`origin/develop`), `develop` is recorded as the repo's base, because the branch you cut from is the branch you rebase onto. A tag, a commit or a local branch is a start point only and records nothing; a repo that does not have `origin/<branch>` keeps the default. `wtg land` resolves the base the same way, for both the merge target and the PR base ([ADR 0019](0019-workspace-land.md) D4). Rejected: heuristic detection from the nearest merge-base, because it can silently pick the wrong branch. Rejected: a separate `--base-branch` flag beside `--base`, which would ask the same question twice.
 
 ### D2. Conflicts: abort automatically (decided)
 
@@ -135,6 +137,7 @@ All repos run at once, as `push` does. Workspaces have a handful of repos, and t
 - Command code: `internal/cmd/rebase.go` with `RebaseCommand(runner)` and `RunSpaceRebase(...)`, reusing `opResult`, `ui.NewTableWriter`, and the shared progress rendering. Registered next to `PushCommand`.
 - Tests ship with the implementation (AGENTS.md): unit tests with the mock runner for E1–E11, plus real-git scenarios using `internal/git/testhelper` for a clean rebase, a clean rebase of a dirty tree, a conflict (aborted, changes restored), and a stash-apply conflict. Also a `push` test for the divergence reminder.
 - Docs: README section for `wtg rebase`, `CHANGELOG.md` entry under *Unreleased → Added* (and *Changed* for the `push` reminder), and the index row in [`DESIGN.md`](../DESIGN.md) (already added).
+- Recorded base (implemented later, from D1): `state.RepoEntry.Base`, written by `recordBaseBranches` from `new`/`add --base origin/<branch>` and read here before `DefaultBranch`.
 
 ## Consequences
 
@@ -142,7 +145,7 @@ All repos run at once, as `push` does. Workspaces have a handful of repos, and t
 - A failed or conflicting repo never leaves a half-rebased worktree, and no other repo is affected.
 - The main clones remain untouched, consistent with ADR 0010.
 - A rebased, already-pushed branch needs a force push, which wtg does not yet offer; `wtg push` at least explains the situation and the exact command (D5).
-- The default-branch assumption (D1) is a known limitation for repos that branch off something else, until a recorded base exists.
+- The default-branch assumption (D1) is gone: a branch cut from `origin/develop` records `develop`, so later `rebase` and `land` runs target it. Workspaces created before this change keep the default base until a repo is re-added with `--base`.
 - A stash-apply conflict leaves conflict markers in a worktree (with the changes also kept in the stash). This is the one case where a worktree is not restored automatically.
 
 ## Alternatives considered
@@ -160,7 +163,7 @@ All repos run at once, as `push` does. Workspaces have a handful of repos, and t
 
 | ID | Decision |
 |----|----------|
-| D1 | Default branch per repo, plus `--onto`; per-repo recorded base later |
+| D1 | Base is `--onto`, else the recorded per-repo base (`new`/`add --base origin/<branch>`), else the default branch |
 | D2 | Auto-abort on conflict, restore uncommitted changes, print retry command |
 | D3 | No cross-repo rollback; report the old tip, undo with `git reset --keep` |
 | D4 | `--progress` drives wtg's bar only; not forwarded to git |
