@@ -9,7 +9,9 @@ import (
 	"sync"
 
 	"github.com/urfave/cli/v3"
+	"golang.org/x/term"
 
+	"github.com/suhlig/wtg/internal/config"
 	"github.com/suhlig/wtg/internal/git"
 	"github.com/suhlig/wtg/internal/remote"
 	"github.com/suhlig/wtg/internal/state"
@@ -19,14 +21,16 @@ import (
 
 // LandCommand returns the `wtg land` command.
 // See docs/adr/0019-workspace-land.md.
-func LandCommand(runner git.Runner, gh remote.Runner) *cli.Command {
+func LandCommand(runner git.Runner, gh remote.Runner, fsys ...trace.FS) *cli.Command {
 	return &cli.Command{
 		Name:      "land",
 		Usage:     "publish each repo's branch as a merge or pull request",
 		ArgsUsage: "[<workspace>]",
-		Description: `For every repo in the workspace that has commits beyond origin/<default>,
-either fast-forwards the remote default branch (strategy "merge") or
-pushes the branch and creates a pull request (strategy "pr").
+		Description: `For every repo in the workspace that has commits beyond origin/<base>,
+either fast-forwards the remote base branch (strategy "merge") or
+pushes the branch and creates a pull request (strategy "pr"). The base is the
+branch recorded at new/add time (--base origin/<branch>), else the repo's
+default branch.
 
 Strategy is read from git config wtg.landStrategy (per-clone or via an
 includeIf rule in ~/.gitconfig). The command-line flag overrides it.
@@ -34,6 +38,10 @@ When no setting is found, "pr" is used.
 
 After all PRs are created, each one is updated with a sibling block
 listing the other PRs in the workspace (use --no-link to suppress).
+
+--delete runs wtg delete on the workspace when nothing needs attention,
+leaving every branch in place. --delete-remote-branch removes origin/<branch>
+after a merge-landing, where the commits are on the base branch already.
 
 The workspace argument is optional when run from inside a workspace.`,
 		ShellComplete: completeSpaces,
@@ -50,28 +58,49 @@ The workspace argument is optional when run from inside a workspace.`,
 				Name:  "no-link",
 				Usage: "skip linking sibling pull requests",
 			},
+			&cli.BoolFlag{
+				Name:  "delete",
+				Usage: "delete the workspace once every repo landed (branches are kept)",
+			},
+			&cli.BoolFlag{
+				Name:  "delete-remote-branch",
+				Usage: "after a merge-landing, delete origin/<branch> (merge strategy only)",
+			},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			spaceName, err := resolveSpaceArg(cmd.Args().First(), cmd.Args().Len() == 0)
 			if err != nil {
 				return err
 			}
-			return RunSpaceLand(ctx, runner, gh, SpaceLandArgs{
-				Name:     spaceName,
-				Strategy: cmd.String("strategy"),
-				Draft:    cmd.Bool("draft"),
-				NoLink:   cmd.Bool("no-link"),
+			err = RunSpaceLand(ctx, runner, gh, SpaceLandArgs{
+				Name:               spaceName,
+				Strategy:           cmd.String("strategy"),
+				Draft:              cmd.Bool("draft"),
+				NoLink:             cmd.Bool("no-link"),
+				DeleteRemoteBranch: cmd.Bool("delete-remote-branch"),
 			}, os.Stdout)
+			if err != nil || !cmd.Bool("delete") {
+				return err
+			}
+			cfg, err := config.Load(cmd.Root().String("config"))
+			if err != nil {
+				return err
+			}
+			return RunSpaceDelete(ctx, cfg, runner, gh, SpaceDeleteArgs{
+				Name:       spaceName,
+				NoTerminal: !term.IsTerminal(int(os.Stdin.Fd())),
+			}, os.Stdin, os.Stdout, fsys...)
 		},
 	}
 }
 
 // SpaceLandArgs holds parsed arguments for RunSpaceLand.
 type SpaceLandArgs struct {
-	Name     string
-	Strategy string // "merge", "pr", or "" (read from git config)
-	Draft    bool
-	NoLink   bool
+	Name               string
+	Strategy           string // "merge", "pr", or "" (read from git config)
+	Draft              bool
+	NoLink             bool
+	DeleteRemoteBranch bool // --delete-remote-branch: remove origin/<branch> after a merge
 }
 
 // landResult is the outcome of landing one repo.
@@ -232,12 +261,16 @@ func landOne(ctx context.Context, runner git.Runner, gh remote.Runner, sp *state
 		_ = st // the warning is appended to the result below
 	}
 
-	// Determine default branch.
-	defaultBranch, err := runner.DefaultBranch(r.WorktreePath)
-	if err != nil {
-		return fail("cannot determine default branch: %v", err)
+	// Determine the base branch: the branch recorded at new/add time, else the
+	// repo's default branch (ADR 0018 D1, ADR 0019 D4).
+	baseBranch := r.Base
+	if baseBranch == "" {
+		baseBranch, err = runner.DefaultBranch(r.WorktreePath)
+		if err != nil {
+			return fail("cannot determine default branch: %v", err)
+		}
 	}
-	base := "origin/" + defaultBranch
+	base := "origin/" + baseBranch
 
 	// Count commits to land.
 	ahead, err := runner.CommitsAhead(r.WorktreePath, base, sp.Branch)
@@ -257,21 +290,24 @@ func landOne(ctx context.Context, runner git.Runner, gh remote.Runner, sp *state
 
 	switch strategy {
 	case "merge":
-		return landMerge(runner, r, sp.Branch, defaultBranch, uncommittedWarn)
+		return landMerge(runner, r, sp.Branch, baseBranch, uncommittedWarn, args.DeleteRemoteBranch)
 	case "pr":
-		return landPR(ctx, runner, gh, r, sp.Branch, defaultBranch, args.Draft, uncommittedWarn)
+		return landPR(ctx, runner, gh, r, sp.Branch, baseBranch, args.Draft, uncommittedWarn)
 	default:
 		return fail("unknown strategy %q", strategy)
 	}
 }
 
-// landMerge performs the "merge" strategy: fast-forward the remote default branch.
-func landMerge(runner git.Runner, r state.RepoEntry, branch, defaultBranch, uncommittedWarn string) landResult {
+// landMerge performs the "merge" strategy: fast-forward the remote base branch.
+func landMerge(runner git.Runner, r state.RepoEntry, branch, baseBranch, uncommittedWarn string, deleteRemote bool) landResult {
 	fail := func(format string, a ...any) landResult {
 		return landResult{opResult: opResult{r.Name, ui.SymFail, fmt.Sprintf(format, a...)}}
 	}
+	warn := func(format string, a ...any) landResult {
+		return landResult{opResult: opResult{r.Name, ui.SymWarn, fmt.Sprintf(format, a...)}}
+	}
 
-	if err := runner.PushTo(r.WorktreePath, branch, defaultBranch); err != nil {
+	if err := runner.PushTo(r.WorktreePath, branch, baseBranch); err != nil {
 		msg := err.Error()
 		if strings.Contains(msg, "non-fast-forward") || strings.Contains(msg, "rejected") {
 			return fail("not a fast-forward — run `wtg rebase`, then retry")
@@ -279,20 +315,38 @@ func landMerge(runner git.Runner, r state.RepoEntry, branch, defaultBranch, unco
 		return fail("push failed: %v", msg)
 	}
 
-	// Best-effort fast-forward of the main clone's local default branch.
+	// Best-effort fast-forward of the main clone's local base branch.
 	// Failure here does not fail the land — `wtg repo sync` handles it.
-	_ = runner.FastForward(r.RepoPath, defaultBranch)
+	_ = runner.FastForward(r.RepoPath, baseBranch)
 
 	if trace.IsDry(runner) {
-		msg := fmt.Sprintf("would push %s to origin/%s%s", branch, defaultBranch, uncommittedWarn)
-		return landResult{opResult: opResult{r.Name, ui.SymPlan, msg}}
+		msg := fmt.Sprintf("would push %s to origin/%s", branch, baseBranch)
+		if deleteRemote {
+			msg += fmt.Sprintf(" and delete origin/%s", branch)
+		}
+		return landResult{opResult: opResult{r.Name, ui.SymPlan, msg + uncommittedWarn}}
 	}
+
 	msg := "landed (merge)" + uncommittedWarn
+	if deleteRemote {
+		// The commits are on the base branch now, so origin/<branch> is
+		// redundant; it may also never have been pushed.
+		exists, err := runner.RemoteBranchExists(r.WorktreePath, branch)
+		switch {
+		case err != nil:
+			return warn("landed (merge), origin/%s not deleted: %v", branch, err)
+		case exists:
+			if err := runner.PushDeleteRemote(r.WorktreePath, branch); err != nil {
+				return warn("landed (merge), origin/%s not deleted: %v", branch, err)
+			}
+			msg = fmt.Sprintf("landed (merge), origin/%s deleted%s", branch, uncommittedWarn)
+		}
+	}
 	return landResult{opResult: opResult{r.Name, ui.SymOK, msg}}
 }
 
 // landPR performs the "pr" strategy: push and find-or-create a PR.
-func landPR(ctx context.Context, runner git.Runner, gh remote.Runner, r state.RepoEntry, branch, defaultBranch string, draft bool, uncommittedWarn string) landResult {
+func landPR(ctx context.Context, runner git.Runner, gh remote.Runner, r state.RepoEntry, branch, baseBranch string, draft bool, uncommittedWarn string) landResult {
 	fail := func(format string, a ...any) landResult {
 		return landResult{opResult: opResult{r.Name, ui.SymFail, fmt.Sprintf(format, a...)}}
 	}
@@ -333,7 +387,7 @@ func landPR(ctx context.Context, runner git.Runner, gh remote.Runner, r state.Re
 	}
 
 	// Create the PR.
-	pr, err := gh.CreatePR(ctx, host, ownerRepo, branch, defaultBranch, draft)
+	pr, err := gh.CreatePR(ctx, host, ownerRepo, branch, baseBranch, draft)
 	if err != nil {
 		return warn(remote.PR{}, "pushed, PR not created: %v", err)
 	}

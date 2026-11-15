@@ -242,3 +242,90 @@ func TestDelete_NeverPushedBranch_IsProtected(t *testing.T) {
 		t.Errorf("expected the reason in the output:\n%s", out.String())
 	}
 }
+
+// TestLand_RecordedBaseBranch checks the per-repo base end to end: a workspace
+// cut from origin/develop lands into develop, not into the default branch
+// (ADR 0018 D1, ADR 0019 D4).
+func TestLand_RecordedBaseBranch(t *testing.T) {
+	isolateState(t)
+	local, origin := testhelper.InitWithRemote(t)
+	local.GitCmd("checkout", "-b", "develop")
+	local.Commit("develop work")
+	local.GitCmd("push", "-u", "origin", "develop")
+	local.GitCmd("checkout", "main")
+
+	cfg := &config.Config{
+		Discovery: config.DiscoveryConfig{RootDir: filepath.Dir(local.Path), MaxDepth: 1},
+		Spaces:    config.SpacesConfig{RootDir: t.TempDir()},
+	}
+	name := filepath.Base(local.Path)
+	var out bytes.Buffer
+	if err := RunSpaceNew(cfg, git.New(), SpaceNewArgs{Name: "feat", Repos: []string{name}, Base: "origin/develop"}, &out); err != nil {
+		t.Fatalf("RunSpaceNew: %v\n%s", err, out.String())
+	}
+
+	sp, err := state.Load("feat")
+	if err != nil {
+		t.Fatalf("state.Load: %v", err)
+	}
+	if len(sp.Repos) != 1 || sp.Repos[0].Base != "develop" {
+		t.Fatalf("expected base develop in state, got %+v", sp.Repos)
+	}
+
+	wt := testhelper.RepoAt(t, filepath.Join(cfg.Spaces.RootDir, "feat", name))
+	wt.Commit("work")
+	head := gitOut(t, wt.Path, "rev-parse", "HEAD")
+
+	if err := RunSpaceLand(t.Context(), git.New(), nil, SpaceLandArgs{Name: "feat", Strategy: "merge", NoLink: true}, &out); err != nil {
+		t.Fatalf("land: %v\n%s", err, out.String())
+	}
+	if got := gitOut(t, origin.Path, "rev-parse", "develop"); got != head {
+		t.Errorf("origin/develop is at %s, want the workspace tip %s", got, head)
+	}
+	if got := gitOut(t, origin.Path, "rev-parse", "main"); got == head {
+		t.Error("the default branch must not be the landing target when a base is recorded")
+	}
+}
+
+// TestLand_DeleteRemoteBranch checks that a merge-landing can remove the remote
+// branch that is no longer needed (ADR 0019 D13).
+func TestLand_DeleteRemoteBranch(t *testing.T) {
+	local, _, wt := realSpace(t)
+	local.GitCmd("config", "--local", "wtg.landStrategy", "merge")
+	w := testhelper.RepoAt(t, wt)
+	w.Commit("first")
+	w.GitCmd("push", "-u", "origin", "feat")
+
+	var out bytes.Buffer
+	err := RunSpaceLand(t.Context(), git.New(), nil, SpaceLandArgs{Name: "feat", NoLink: true, DeleteRemoteBranch: true}, &out)
+	if err != nil {
+		t.Fatalf("land: %v\n%s", err, out.String())
+	}
+	if branches := gitOut(t, wt, "branch", "--list", "--remotes", "*feat"); branches != "" {
+		t.Errorf("origin/feat should be gone, got %q", branches)
+	}
+	if !strings.Contains(out.String(), "deleted") {
+		t.Errorf("the row should say the remote branch is gone:\n%s", out.String())
+	}
+}
+
+// TestLandCommand_DeletesTheWorkspace checks `land --delete` end to end: the
+// workspace goes away once nothing needs attention (ADR 0019 D13).
+func TestLandCommand_DeletesTheWorkspace(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir()) // LandCommand loads the config itself
+	local, _, wt := realSpace(t)
+	local.GitCmd("config", "--local", "wtg.landStrategy", "merge")
+	w := testhelper.RepoAt(t, wt)
+	w.Commit("only here")
+	w.GitCmd("push", "-u", "origin", "feat")
+
+	if err := LandCommand(git.New(), nil).Run(t.Context(), []string{"land", "feat", "--delete", "--no-link"}); err != nil {
+		t.Fatalf("land --delete: %v", err)
+	}
+	if _, err := state.Load("feat"); err == nil {
+		t.Error("the workspace should be gone after land --delete")
+	}
+	if _, err := os.Stat(filepath.Dir(wt)); !os.IsNotExist(err) {
+		t.Errorf("expected the worktree to be removed, got %v", err)
+	}
+}

@@ -27,6 +27,7 @@ type testRunner struct {
 	fastForwardFn         func(repoPath, branch string) error
 	pushFn                func(repoPath, branch string) error
 	pushToFn              func(repoPath, branch, remoteBranch string) error
+	pushDeleteRemoteFn    func(repoPath, branch string) error
 	rebaseFn              func(repoPath, onto string) error
 	rebaseAbortFn         func(repoPath string) error
 	isAncestorFn          func(repoPath, ancestor, descendant string) (bool, error)
@@ -160,6 +161,13 @@ func (r *testRunner) PushTo(repoPath, branch, remoteBranch string) error {
 		panic(fmt.Sprintf("unexpected PushTo(%q, %q, %q)", repoPath, branch, remoteBranch))
 	}
 	return r.pushToFn(repoPath, branch, remoteBranch)
+}
+
+func (r *testRunner) PushDeleteRemote(repoPath, branch string) error {
+	if r.pushDeleteRemoteFn == nil {
+		panic(fmt.Sprintf("unexpected PushDeleteRemote(%q, %q)", repoPath, branch))
+	}
+	return r.pushDeleteRemoteFn(repoPath, branch)
 }
 
 func (r *testRunner) Rebase(repoPath, onto string) error {

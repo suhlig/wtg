@@ -122,7 +122,7 @@ func main() {
 			cmd.ExecCommand(fs),
 			cmd.PushCommand(gitRunner),
 			cmd.RebaseCommand(gitRunner),
-			cmd.LandCommand(gitRunner, ghRunner),
+			cmd.LandCommand(gitRunner, ghRunner, fs),
 			cmd.PathCommand(),
 		},
 	}

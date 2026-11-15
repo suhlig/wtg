@@ -311,6 +311,13 @@ func (r *SystemRunner) PushTo(repoPath, branch, remoteBranch string) error {
 	return err
 }
 
+// PushDeleteRemote deletes branch on origin. Removing a remote-tracking ref is
+// a push, so it is recorded and skipped under --dry-run like any other push.
+func (r *SystemRunner) PushDeleteRemote(repoPath, branch string) error {
+	_, err := r.run(repoPath, "push", "origin", "--delete", branch)
+	return err
+}
+
 // CommitsAhead counts commits reachable from branch but not from base.
 func (r *SystemRunner) CommitsAhead(repoPath, base, branch string) (int, error) {
 	out, err := r.run(repoPath, "rev-list", "--count", base+".."+branch)

@@ -91,6 +91,10 @@ type Runner interface {
 	// PushTo pushes branch to remoteBranch on origin as a fast-forward refspec
 	// (no force). Used by `wtg land` merge strategy.
 	PushTo(repoPath, branch, remoteBranch string) error
+	// PushDeleteRemote deletes branch on origin (git push origin --delete). It
+	// is how `wtg land --delete-remote-branch` removes a branch whose commits
+	// are already on the base branch (docs/adr/0019-workspace-land.md D13).
+	PushDeleteRemote(repoPath, branch string) error
 	// Rebase runs "git rebase --autostash <onto>". Failures are wrapped with
 	// ErrRebaseConflict, ErrAutostashConflict or ErrUntrackedBlocked when
 	// they match; use errors.Is.

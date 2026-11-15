@@ -641,6 +641,26 @@ func TestCommitsOnNoRemote(t *testing.T) {
 	}
 }
 
+// --- PushDeleteRemote ---
+
+func TestPushDeleteRemote(t *testing.T) {
+	t.Parallel()
+	local, _ := testhelper.InitWithRemote(t)
+	r := runner()
+
+	local.GitCmd("checkout", "-b", "feat")
+	local.Commit("one")
+	local.GitCmd("push", "-u", "origin", "feat")
+	if err := r.PushDeleteRemote(local.Path, "feat"); err != nil {
+		t.Fatalf("PushDeleteRemote: %v", err)
+	}
+	// A successful push updates this clone's remote-tracking ref, so the ref
+	// surviving here would mean the delete never reached the remote.
+	if exists, err := r.RemoteBranchExists(local.Path, "feat"); err != nil || exists {
+		t.Errorf("origin/feat still exists after PushDeleteRemote (err %v)", err)
+	}
+}
+
 // --- detached worktrees (ADR 0024) ---
 
 func TestWorktreeAddDetached_AtTag(t *testing.T) {
