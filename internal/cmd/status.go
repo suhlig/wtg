@@ -30,7 +30,9 @@ then per-repo status for every workspace. The workspace containing the current
 directory is shown first.
 
 Pass one or more workspace names to show those workspaces explicitly.
-Use --long (-l) to expand each dirty repo with its individual file changes.`,
+Use --long (-l) to expand each dirty repo with its individual file changes.
+A workspace argument of "." means the workspace containing the current
+directory.`,
 		ShellComplete: completeSpaces,
 		Flags: []cli.Flag{
 			&cli.BoolFlag{

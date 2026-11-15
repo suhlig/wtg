@@ -118,6 +118,10 @@ func (r *SystemRunner) WorktreeAddDetached(repoPath, worktreePath, ref string) e
 	return err
 }
 
+func (r *SystemRunner) Toplevel(dir string) (string, error) {
+	return r.run(dir, "rev-parse", "--show-toplevel")
+}
+
 func (r *SystemRunner) CheckoutDetached(worktreePath, ref string) error {
 	_, err := r.run(worktreePath, "checkout", "--detach", ref)
 	return err

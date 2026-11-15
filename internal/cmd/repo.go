@@ -79,7 +79,8 @@ discovery.root_dir.`,
 				Description: `Shows branch, dirty status, and ahead/behind counts for each discovered
 repo clone. Without arguments, all repos are shown. Pass repo names to
 filter the output. Use --long (-l) to also show each repo's remote URL
-and local path.`,
+and local path. A repo argument of "." means the repo containing the
+current directory.`,
 				ShellComplete: completeRepos,
 				Flags: []cli.Flag{
 					&cli.BoolFlag{
@@ -101,7 +102,8 @@ and local path.`,
 				Usage:     "fetch from origin for all repos (no fast-forward)",
 				ArgsUsage: "[<repo>...]",
 				Description: `Downloads new commits from origin for each repo without updating any
-local branches (equivalent to git fetch origin). Runs in parallel.`,
+local branches (equivalent to git fetch origin). Runs in parallel.
+A repo argument of "." means the repo containing the current directory.`,
 				ShellComplete: completeRepos,
 				Action: func(ctx context.Context, cmd *cli.Command) error {
 					cfg, err := config.Load(cmd.String("config"))
@@ -118,7 +120,8 @@ local branches (equivalent to git fetch origin). Runs in parallel.`,
 				Description: `Fetches origin and fast-forwards each repo's default branch (main, master,
 etc.) if it has no uncommitted changes. Repos with uncommitted changes or a
 diverged branch are skipped with a warning. Runs in parallel.
-Use --progress to watch per-repo progress; ~ means a fetch is in flight.`,
+Use --progress to watch per-repo progress; ~ means a fetch is in flight.
+A repo argument of "." means the repo containing the current directory.`,
 				ShellComplete: completeRepos,
 				Flags: []cli.Flag{
 					&cli.BoolFlag{
@@ -221,7 +224,7 @@ func isGitRepo(path string) bool {
 // is empty, all discovered repos are fetched. Otherwise args are short names
 // (relative to a discovery root dir) to fetch.
 func RunFetch(cfg *config.Config, runner git.Runner, args []string, out io.Writer) error {
-	paths, err := resolveRepoPaths(cfg, args)
+	paths, err := resolveRepoPaths(cfg, runner, args)
 	if err != nil {
 		return err
 	}
@@ -266,7 +269,7 @@ func RunFetch(cfg *config.Config, runner git.Runner, args []string, out io.Write
 // replaced in-place with the result symbol (✓ ↑ ⚠ !) as soon as that repo
 // finishes, by reprinting the whole line from column 0 with \r.
 func RunSync(cfg *config.Config, runner git.Runner, args []string, progress bool, out io.Writer) error {
-	paths, err := resolveRepoPaths(cfg, args)
+	paths, err := resolveRepoPaths(cfg, runner, args)
 	if err != nil {
 		return err
 	}
@@ -451,8 +454,10 @@ func syncOne(repoPath string, runner git.Runner) (string, string) {
 // otherwise it resolves each named arg against the discovered repos using the
 // same matching as the workspace commands — exact short name, unique basename,
 // or unique partial segment match (see repoInSet) — so nested repos can be
-// addressed by their short name here too. Ambiguous or unknown names error.
-func resolveRepoPaths(cfg *config.Config, args []string) ([]string, error) {
+// addressed by their short name here too. A "." argument first resolves to the
+// short name of the repo containing the current directory (ADR 0025). An
+// unknown or ambiguous name errors.
+func resolveRepoPaths(cfg *config.Config, runner git.Runner, args []string) ([]string, error) {
 	roots := cfg.DiscoveryRootDirs()
 	allPaths, err := discoverAllRepoPaths(roots, cfg.Discovery.MaxDepth)
 	if err != nil {
@@ -461,6 +466,11 @@ func resolveRepoPaths(cfg *config.Config, args []string) ([]string, error) {
 	if len(args) == 0 {
 		sort.Strings(allPaths)
 		return allPaths, nil
+	}
+
+	args, err = resolveRepoArgs(runner, cfg, args)
+	if err != nil {
+		return nil, err
 	}
 
 	allNames := make([]string, 0, len(allPaths))
@@ -492,7 +502,7 @@ func resolveRepoPaths(cfg *config.Config, args []string) ([]string, error) {
 // and ahead/behind counts relative to origin. When long is true, the remote
 // URL and absolute path are appended in a muted style.
 func RunRepoStatus(cfg *config.Config, runner git.Runner, args []string, long bool, out io.Writer) error {
-	paths, err := resolveRepoPaths(cfg, args)
+	paths, err := resolveRepoPaths(cfg, runner, args)
 	if err != nil {
 		return err
 	}

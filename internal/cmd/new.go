@@ -32,6 +32,9 @@ any of the included repos have a go.mod.
 
 At least one repo must be specified. If the branch already exists in a repo
 it is checked out as-is — no reset or rebase is performed.
+If the branch already exists in a repo it is checked out as-is — no reset or rebase is performed.
+
+A repo argument of "." means the repo containing the current directory.
 
 Any always.repos are symlinked into the workspace, any always.files are copied
 into its root, always.secrets are seeded into each worktree when present in
@@ -54,6 +57,9 @@ the source repo, and any always.run hook fires once the workspace is created.`,
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			if cmd.Args().Len() == 0 {
 				return fmt.Errorf("missing required argument: <workspace>")
+			}
+			if err := rejectDotAsWorkspace(cmd.Args().First()); err != nil {
+				return err
 			}
 			if cmd.Args().Len() < 2 {
 				return fmt.Errorf("at least one repo is required; use 'wtg repo status' to see available repos")
@@ -116,7 +122,14 @@ func RunSpaceNew(cfg *config.Config, runner git.Runner, args SpaceNewArgs, out i
 	}
 	sort.Strings(allPaths)
 
-	targets, err := buildTargets(roots, spacePath, allPaths, args.Repos)
+	// "." means the repo containing the current directory; resolve it to a
+	// short name before any name matching (ADR 0025 D4).
+	repos, err := resolveRepoArgs(runner, cfg, args.Repos)
+	if err != nil {
+		return err
+	}
+
+	targets, err := buildTargets(roots, spacePath, allPaths, repos)
 	if err != nil {
 		return err
 	}
@@ -128,7 +141,7 @@ func RunSpaceNew(cfg *config.Config, runner git.Runner, args SpaceNewArgs, out i
 		return err
 	}
 
-	symlinkTargets, err := resolveAlwaysRepos(cfg, roots, spacePath, allPaths, args.Repos)
+	symlinkTargets, err := resolveAlwaysRepos(cfg, roots, spacePath, allPaths, repos)
 	if err != nil {
 		return err
 	}

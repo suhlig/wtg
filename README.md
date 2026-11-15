@@ -98,6 +98,8 @@ wtg delete my-feature --delete-branch
 
 ## Workspace commands
 
+`.` names the repo or workspace you are in. Every command that takes a repo or a workspace argument accepts it: `wtg new other-space .` adds the repo behind the current directory, `wtg remove .` removes it from the current workspace, and `wtg status .` shows the workspace containing it. It works from a subdirectory and from a linked worktree, and it is resolved before name matching, so it never becomes an ambiguous short name. In `add` and `remove`, `.` always means a repo, never the workspace.
+
 ### `wtg new <workspace> <repo>...`
 
 Create a workspace. At least one repo must be specified. For each repo, `wtg`
@@ -150,6 +152,7 @@ Add repos to an existing workspace. Creates worktrees on the workspace's branch 
 ```sh
 wtg add my-feature infra logging
 wtg add infra logging             # workspace inferred from CWD
+wtg add .                         # the repo behind the current directory
 ```
 
 With `--read-only`, the repo is added as a member you *consume* rather than change: a detached worktree at a pinned ref, listed in `go.work` if it has a `go.mod`, with no feature branch of its own. See [Read-only members](#read-only-members).

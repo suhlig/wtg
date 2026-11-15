@@ -24,7 +24,12 @@ wcd shell helper, which uses it to cd into a workspace by name.`,
 			if cmd.Args().Len() == 0 {
 				return fmt.Errorf("missing required argument: <workspace>")
 			}
-			sp, err := state.Load(cmd.Args().First())
+			// "." means the workspace containing the current directory.
+			name, err := resolveSpaceArg(cmd.Args().First(), false)
+			if err != nil {
+				return err
+			}
+			sp, err := state.Load(name)
 			if err != nil {
 				return err
 			}

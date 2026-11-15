@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 
@@ -92,6 +93,11 @@ func RunRepoUnarchive(cfg *config.Config, args RepoUnarchiveArgs, out io.Writer,
 	}
 	if len(args.Repos) == 0 {
 		return errors.New("at least one repo is required")
+	}
+	// An archived clone is not in discovery, so "." has no meaning here; say so
+	// rather than letting it fail name matching (ADR 0025 D1).
+	if slices.Contains(args.Repos, dotArg) {
+		return fmt.Errorf("%q cannot address an archived repo: it means the repo containing the current directory, which is not archived; name the repo explicitly", dotArg)
 	}
 
 	archiveRoot, err := resolveArchiveRoot(cfg, args.ArchiveDir)

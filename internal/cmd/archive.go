@@ -35,6 +35,7 @@ func ArchiveCommand(runner git.Runner, fsys ...trace.FS) *cli.Command {
 		Description: `Moves each named main repo clone out of the discovery area into
 archive.root_dir, keeping the clone intact, and records where it came from.
 Nothing is deleted, and without --remote no remote is touched.
+A repo argument of "." means the repo containing the current directory.
 
 Refuses if a clone has uncommitted changes, commits not on any remote, or
 stashes unless --force is given. A clone with live (or stale) worktrees, one
@@ -119,6 +120,12 @@ func RunRepoArchive(cfg *config.Config, runner git.Runner, args RepoArchiveArgs,
 		return errors.New("at least one repo is required")
 	}
 
+	// "." means the repo containing the current directory (ADR 0025).
+	repos, err := resolveRepoArgs(runner, cfg, args.Repos)
+	if err != nil {
+		return err
+	}
+
 	archiveRoot, err := resolveArchiveRoot(cfg, args.ArchiveDir)
 	if err != nil {
 		return err
@@ -139,7 +146,7 @@ func RunRepoArchive(cfg *config.Config, runner git.Runner, args RepoArchiveArgs,
 		byName[n] = p
 	}
 
-	targets, err := resolveArchiveTargets(runner, roots, names, byName, archiveRoot, args.Repos)
+	targets, err := resolveArchiveTargets(runner, roots, names, byName, archiveRoot, repos)
 	if err != nil {
 		return err
 	}

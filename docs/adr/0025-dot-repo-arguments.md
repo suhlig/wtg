@@ -105,4 +105,16 @@ A canonical short name already contains slashes (`github.com/example/api`), so t
 
 ## Implementation status
 
-`wtg add` accepts `.` today by expanding it to an absolute path in `expandDots` (`internal/cmd/exec.go`) and matching that path in `buildTargets` (`internal/cmd/workspace.go`). That is the behaviour this ADR replaces. `new`, `remove`, and the `repo` commands do not support `.` yet; `remove` expands the argument but cannot match it. No implementation is included in this decision.
+Implemented. `internal/cmd/dot.go` holds the resolution: `resolveRepoArgs` replaces every `.` with a canonical short name before any name matching, `currentRepoName` asks git for the worktree root (`Runner.Toplevel`) and maps a linked worktree to its main clone through `WorktreeList`, and `samePath` compares physical paths with `os.SameFile`.
+
+- Repo positions: `new`, `add`, `remove`, and `repo status`/`fetch`/`sync`/`archive` (which resolve through `resolveRepoPaths`).
+- Workspace positions: `path`, `status`, `delete`, `push`, `land`, `rebase` and `exec` via `resolveSpaceArg`/`resolveExecArgs`.
+- Rejections: `wtg new .` (`rejectDotAsWorkspace`) and `wtg repo unarchive .`.
+- `expandDots`, and the absolute-path branch in `buildTargets` that served it, are gone: no caller produces a path any more.
+
+Tests cover the repo root, a subdirectory, a linked worktree, a symlinked discovery root, a repo outside every root, `always.repos` (a repo named by `.` becomes a worktree, not a symlink), `new .`, `remove .`, and the workspace-position commands, including the rejections.
+
+## Follow-ups
+
+- Path-like arguments (`./api`, `../api`, absolute paths) remain unsupported and are still treated as names (D8). Supporting them needs a marker or its own decision, because a canonical short name already contains slashes.
+- Shell completion does not offer `.` yet; `completeRepos`/`completeSpaceThenRepos` list names only.

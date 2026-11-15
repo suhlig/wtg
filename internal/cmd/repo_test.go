@@ -188,7 +188,7 @@ func TestRepoName_RepoAtRoot_UsesRootBaseName(t *testing.T) {
 func TestResolveRepoPaths_ExactPath_SingleRoot(t *testing.T) {
 	root := t.TempDir()
 	makeRepo(t, root, "api")
-	paths, err := resolveRepoPaths(discoverCfg(root, 2), []string{"api"})
+	paths, err := resolveRepoPaths(discoverCfg(root, 2), nil, []string{"api"})
 	if err != nil {
 		t.Fatalf("resolveRepoPaths: %v", err)
 	}
@@ -202,7 +202,7 @@ func TestResolveRepoPaths_ExactPath_MultipleRoots(t *testing.T) {
 	root2 := t.TempDir()
 	makeRepo(t, root2, "frontend")
 	cfg := &config.Config{Discovery: config.DiscoveryConfig{RootDirs: []string{root1, root2}, MaxDepth: 2}}
-	paths, err := resolveRepoPaths(cfg, []string{"frontend"})
+	paths, err := resolveRepoPaths(cfg, nil, []string{"frontend"})
 	if err != nil {
 		t.Fatalf("resolveRepoPaths: %v", err)
 	}
@@ -215,7 +215,7 @@ func TestResolveRepoPaths_Basename(t *testing.T) {
 	// A nested repo can be addressed by its unique basename.
 	root := t.TempDir()
 	makeRepo(t, root, "org/api")
-	paths, err := resolveRepoPaths(discoverCfg(root, 2), []string{"api"})
+	paths, err := resolveRepoPaths(discoverCfg(root, 2), nil, []string{"api"})
 	if err != nil {
 		t.Fatalf("resolveRepoPaths: %v", err)
 	}
@@ -228,7 +228,7 @@ func TestResolveRepoPaths_PartialMatch(t *testing.T) {
 	// A unique partial segment match resolves the repo, as in wtg add/new.
 	root := t.TempDir()
 	makeRepo(t, root, "github.com/uhlig-it/infrastructure")
-	paths, err := resolveRepoPaths(discoverCfg(root, 3), []string{"infra"})
+	paths, err := resolveRepoPaths(discoverCfg(root, 3), nil, []string{"infra"})
 	if err != nil {
 		t.Fatalf("resolveRepoPaths: %v", err)
 	}
@@ -241,7 +241,7 @@ func TestResolveRepoPaths_AmbiguousPartial_Errors(t *testing.T) {
 	root := t.TempDir()
 	makeRepo(t, root, "github.com/org/infrastructure")
 	makeRepo(t, root, "github.com/org/infra-tools")
-	_, err := resolveRepoPaths(discoverCfg(root, 3), []string{"infra"})
+	_, err := resolveRepoPaths(discoverCfg(root, 3), nil, []string{"infra"})
 	if err == nil || !strings.Contains(err.Error(), "ambiguous") {
 		t.Fatalf("expected ambiguous error, got %v", err)
 	}
@@ -249,7 +249,7 @@ func TestResolveRepoPaths_AmbiguousPartial_Errors(t *testing.T) {
 
 func TestResolveRepoPaths_NotFound_SingleRoot(t *testing.T) {
 	root := t.TempDir()
-	_, err := resolveRepoPaths(discoverCfg(root, 2), []string{"nope"})
+	_, err := resolveRepoPaths(discoverCfg(root, 2), nil, []string{"nope"})
 	if err == nil || !strings.Contains(err.Error(), "not found under") {
 		t.Fatalf("expected 'not found under' error, got %v", err)
 	}
@@ -259,7 +259,7 @@ func TestResolveRepoPaths_NotFound_MultipleRoots(t *testing.T) {
 	root1 := t.TempDir()
 	root2 := t.TempDir()
 	cfg := &config.Config{Discovery: config.DiscoveryConfig{RootDirs: []string{root1, root2}, MaxDepth: 2}}
-	_, err := resolveRepoPaths(cfg, []string{"nope"})
+	_, err := resolveRepoPaths(cfg, nil, []string{"nope"})
 	if err == nil || !strings.Contains(err.Error(), "not found under any discovery root dir") {
 		t.Fatalf("expected 'not found under any discovery root dir' error, got %v", err)
 	}

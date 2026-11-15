@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `wtg rebase` advances a read-only member that follows `origin/<branch>`, reports a pinned one as `pinned at <ref>`, and skips a modified one instead of warning about a detached HEAD
 - `wtg push` and `wtg land` skip read-only members, `wtg exec` includes them, and `wtg remove`/`wtg delete` remove their worktree without looking up or deleting a branch
+- `.` is accepted wherever a repo or workspace is named — `wtg new`, `add`, `remove`, the `wtg repo` commands and the workspace commands — and resolves to the canonical short name of the repo containing the current directory, before name matching; `wtg new .` and `wtg repo unarchive .` are rejected because neither can mean what `.` says (ADR 0025)
+- `wtg remove .` and `wtg repo status .` (and `fetch`, `sync`, `archive`) now work from a subdirectory and from a member worktree; previously `.` expanded to an absolute path that `remove` and `always.repos` could not match
 
 ## [1.8.0] - 2026-11-03
 

@@ -12,6 +12,8 @@ import (
 	"github.com/urfave/cli/v3"
 	"golang.org/x/term"
 
+	"github.com/suhlig/wtg/internal/config"
+	"github.com/suhlig/wtg/internal/git"
 	"github.com/suhlig/wtg/internal/state"
 	"github.com/suhlig/wtg/internal/trace"
 	"github.com/suhlig/wtg/internal/ui"
@@ -63,11 +65,11 @@ workspace name from the command:
 }
 
 // resolveSpaceArg returns a workspace name for commands that take an optional
-// single workspace argument. When omitted (empty=="") it infers the workspace
-// from the current working directory. Returns an error when the CWD is not
-// inside any known workspace.
+// single workspace argument. When omitted, or when arg is ".", it infers the
+// workspace from the current working directory. Returns an error when the CWD is
+// not inside any known workspace.
 func resolveSpaceArg(arg string, omitted bool) (string, error) {
-	if !omitted {
+	if !omitted && !isDotArg(arg) {
 		return arg, nil
 	}
 	spaces, err := state.List()
@@ -88,20 +90,26 @@ func resolveSpaceArg(arg string, omitted bool) (string, error) {
 // all arguments are treated as repo names. Returns an error when no repos are
 // provided after resolution, or when CWD inference fails.
 //
-// A repo argument of "." is expanded to the absolute path of the current
-// working directory, allowing callers to write `wtg add <space> .` from inside
-// a repository tree.
-func resolveSpaceAndRepos(args []string) (spaceName string, repos []string, err error) {
+// A repo argument of "." is replaced with the canonical short name of the repo
+// containing the current directory (ADR 0025). In this position "." always
+// denotes a repo, never the workspace: the first positional "." means the
+// current workspace would make `wtg remove .` from a member worktree mean
+// "remove nothing" (ADR 0025 D7).
+func resolveSpaceAndRepos(runner git.Runner, cfg *config.Config, args []string) (spaceName string, repos []string, err error) {
 	if len(args) == 0 {
 		return "", nil, fmt.Errorf("no repos specified")
 	}
 
-	// Try treating the first argument as an explicit workspace name.
-	if _, loadErr := state.Load(args[0]); loadErr == nil {
-		if len(args) < 2 {
-			return "", nil, fmt.Errorf("no repos specified")
+	// Try treating the first argument as an explicit workspace name. "." never
+	// names a workspace, so it skips this stage.
+	if !isDotArg(args[0]) {
+		if _, loadErr := state.Load(args[0]); loadErr == nil {
+			if len(args) < 2 {
+				return "", nil, fmt.Errorf("no repos specified")
+			}
+			repos, err := resolveRepoArgs(runner, cfg, args[1:])
+			return args[0], repos, err
 		}
-		return args[0], expandDots(args[1:]), nil
 	}
 
 	// First arg is not a known space — infer workspace from CWD.
@@ -109,23 +117,8 @@ func resolveSpaceAndRepos(args []string) (spaceName string, repos []string, err 
 	if err != nil {
 		return "", nil, err
 	}
-	return name, expandDots(args), nil
-}
-
-// expandDots replaces any "." element in repos with the absolute path of the
-// current working directory. Other elements are returned unchanged.
-func expandDots(repos []string) []string {
-	out := make([]string, len(repos))
-	for i, r := range repos {
-		if r == "." {
-			if cwd, err := os.Getwd(); err == nil {
-				out[i] = cwd
-				continue
-			}
-		}
-		out[i] = r
-	}
-	return out
+	repos, err = resolveRepoArgs(runner, cfg, args)
+	return name, repos, err
 }
 
 // resolveExecArgs separates the optional workspace name from the command
@@ -135,6 +128,19 @@ func expandDots(repos []string) []string {
 func resolveExecArgs(args []string) (spaceName string, execArgs []string, err error) {
 	if len(args) == 0 {
 		return "", nil, fmt.Errorf("usage: wtg exec [<workspace>] -- <cmd> [<args>...]")
+	}
+
+	// An explicit "." names the workspace containing the current directory, so
+	// `wtg exec . -- <cmd>` is the explicit form of `wtg exec -- <cmd>`.
+	if isDotArg(args[0]) {
+		if len(args) < 2 {
+			return "", nil, fmt.Errorf("usage: wtg exec [<workspace>] -- <cmd> [<args>...]")
+		}
+		name, err := resolveSpaceArg("", true)
+		if err != nil {
+			return "", nil, err
+		}
+		return name, args[1:], nil
 	}
 
 	// Try treating the first argument as an explicit workspace name.

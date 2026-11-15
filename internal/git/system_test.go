@@ -777,3 +777,29 @@ func TestShowFile_ReadsAtRev(t *testing.T) {
 		t.Errorf("ShowFile content = %q", data)
 	}
 }
+
+func TestToplevel_FromSubdirectory(t *testing.T) {
+	t.Parallel()
+	repo := testhelper.Init(t)
+	sub := filepath.Join(repo.Path, "nested", "deeper")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	got, err := runner().Toplevel(sub)
+	if err != nil {
+		t.Fatalf("Toplevel: %v", err)
+	}
+	want, _ := filepath.EvalSymlinks(repo.Path)
+	gotResolved, _ := filepath.EvalSymlinks(got)
+	if gotResolved != want {
+		t.Errorf("Toplevel = %q, want %q", gotResolved, want)
+	}
+}
+
+func TestToplevel_NotARepositoryFails(t *testing.T) {
+	t.Parallel()
+	if _, err := runner().Toplevel(t.TempDir()); err == nil {
+		t.Fatal("expected an error outside a repository")
+	}
+}

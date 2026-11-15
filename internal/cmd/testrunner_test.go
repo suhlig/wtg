@@ -15,6 +15,7 @@ type testRunner struct {
 	worktreeRemoveFn      func(repoPath, worktreePath string, force bool) error
 	worktreeListFn        func(repoPath string) ([]git.WorktreeInfo, error)
 	worktreeRepairFn      func(repoPath string, paths ...string) error
+	toplevelFn            func(dir string) (string, error)
 	checkoutDetachedFn    func(worktreePath, ref string) error
 	branchExistsFn        func(repoPath, branch string) (bool, error)
 	remoteBranchExistsFn  func(repoPath, branch string) (bool, error)
@@ -61,6 +62,13 @@ func (r *testRunner) WorktreeAddDetached(repoPath, worktreePath, ref string) err
 		panic(fmt.Sprintf("unexpected WorktreeAddDetached(%q, %q, %q)", repoPath, worktreePath, ref))
 	}
 	return r.worktreeAddDetachedFn(repoPath, worktreePath, ref)
+}
+
+func (r *testRunner) Toplevel(dir string) (string, error) {
+	if r.toplevelFn == nil {
+		panic(fmt.Sprintf("unexpected Toplevel(%q)", dir))
+	}
+	return r.toplevelFn(dir)
 }
 
 func (r *testRunner) CheckoutDetached(worktreePath, ref string) error {

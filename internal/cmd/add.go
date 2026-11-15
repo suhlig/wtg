@@ -42,6 +42,8 @@ members' go.mod files select, else origin/<default branch>. A plain
 wtg add without --read-only on a read-only member promotes it to an ordinary
 worktree.
 
+A repo argument of "." means the repo containing the current directory.
+
 The workspace argument is optional when the current directory is inside a
 known workspace — it will be inferred automatically.`,
 		ShellComplete: completeSpaceThenRepos,
@@ -66,7 +68,7 @@ known workspace — it will be inferred automatically.`,
 			if err != nil {
 				return err
 			}
-			spaceName, repos, err := resolveSpaceAndRepos(cmd.Args().Slice())
+			spaceName, repos, err := resolveSpaceAndRepos(runner, cfg, cmd.Args().Slice())
 			if err != nil {
 				return err
 			}

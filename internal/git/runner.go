@@ -59,6 +59,10 @@ type Runner interface {
 	WorktreeRemove(repoPath, worktreePath string, force bool) error
 	WorktreeList(repoPath string) ([]WorktreeInfo, error)
 	WorktreeRepair(repoPath string, paths ...string) error // ErrRepairUnsupported on git < 2.29
+	// Toplevel returns the absolute path of the worktree root containing dir
+	// (git rev-parse --show-toplevel). It is how "." finds the repo the current
+	// directory is in (ADR 0025 D2).
+	Toplevel(dir string) (string, error)
 	// CheckoutDetached detaches the worktree's HEAD at ref, leaving any branch
 	// it was on untouched. Used to advance a read-only member (ADR 0024 D4).
 	CheckoutDetached(worktreePath, ref string) error

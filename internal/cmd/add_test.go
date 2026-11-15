@@ -599,7 +599,7 @@ func TestResolveSpaceAndRepos_ExplicitWorkspace(t *testing.T) {
 	isolateState(t)
 	makeSpace(t, "feat", "geoff/feat", t.TempDir(), []string{"api"}, "/repos")
 
-	spaceName, repos, err := resolveSpaceAndRepos([]string{"feat", "svc", "web"})
+	spaceName, repos, err := resolveSpaceAndRepos(nil, nil, []string{"feat", "svc", "web"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -618,7 +618,7 @@ func TestResolveSpaceAndRepos_InferFromCWD(t *testing.T) {
 
 	t.Chdir(spacePath)
 
-	spaceName, repos, err := resolveSpaceAndRepos([]string{"svc"})
+	spaceName, repos, err := resolveSpaceAndRepos(nil, nil, []string{"svc"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -633,7 +633,7 @@ func TestResolveSpaceAndRepos_InferFromCWD(t *testing.T) {
 func TestResolveSpaceAndRepos_InferFromCWD_NotInAnySpace(t *testing.T) {
 	isolateState(t)
 
-	_, _, err := resolveSpaceAndRepos([]string{"svc"})
+	_, _, err := resolveSpaceAndRepos(nil, nil, []string{"svc"})
 	if err == nil {
 		t.Fatal("expected error when CWD is not inside any workspace")
 	}
@@ -643,7 +643,7 @@ func TestResolveSpaceAndRepos_ExplicitWorkspaceNoRepos(t *testing.T) {
 	isolateState(t)
 	makeSpace(t, "feat", "geoff/feat", t.TempDir(), []string{"api"}, "/repos")
 
-	_, _, err := resolveSpaceAndRepos([]string{"feat"})
+	_, _, err := resolveSpaceAndRepos(nil, nil, []string{"feat"})
 	if err == nil {
 		t.Fatal("expected error when workspace given but no repos follow")
 	}
@@ -652,7 +652,7 @@ func TestResolveSpaceAndRepos_ExplicitWorkspaceNoRepos(t *testing.T) {
 func TestResolveSpaceAndRepos_NoArgs(t *testing.T) {
 	isolateState(t)
 
-	_, _, err := resolveSpaceAndRepos([]string{})
+	_, _, err := resolveSpaceAndRepos(nil, nil, []string{})
 	if err == nil {
 		t.Fatal("expected error for empty args")
 	}

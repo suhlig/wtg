@@ -34,6 +34,8 @@ By default, branches are left untouched — use --delete-branch (-d) or
 Prompts for confirmation if any repo has uncommitted changes or unpushed
 commits. To remove all repos at once, use wtg delete instead.
 
+A repo argument of "." means the repo containing the current directory.
+
 The workspace argument is optional when the current directory is inside a
 known workspace — it will be inferred automatically.`,
 		ShellComplete: completeSpaceMembers,
@@ -57,7 +59,7 @@ known workspace — it will be inferred automatically.`,
 			if err != nil {
 				return err
 			}
-			spaceName, repos, err := resolveSpaceAndRepos(cmd.Args().Slice())
+			spaceName, repos, err := resolveSpaceAndRepos(runner, cfg, cmd.Args().Slice())
 			if err != nil {
 				return err
 			}
