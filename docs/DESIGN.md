@@ -34,3 +34,26 @@ Each decision below has its own record in [`adr/`](adr/), carrying the original 
 | [0024](adr/0024-read-only-workspace-members.md) | Read-only workspace members: pinned detached worktrees in `go.work`, never branched; drift check in `wtg status` |
 | [0025](adr/0025-dot-repo-arguments.md) | `.` names the repo or workspace containing the current directory, resolved to a canonical short name before name matching |
 
+## Open work
+
+Work a decision deliberately left out, collected in one place instead of buried in the records. Each item links to the ADR that explains it; **the ADR is authoritative** — when an item is picked up, reshaped, or dropped, change the record first, then this list. This mirrors the `## Follow-ups` sections: ADR 0013's two follow-ups (v2 and v3) are done, and no other record has one.
+
+### [ADR 0019](adr/0019-workspace-land.md) — `wtg land`
+
+- Use PR state (`gh pr view --json state`) so `wtg delete -d` and a possible `wtg repo prune` can delete the branches of squash- or rebase-merged PRs, which `BranchMerged` cannot see (D9, E13).
+- Optional `land --delete`, and optional deletion of the remote branch after a merge-landing.
+- A per-repo recorded base branch ([ADR 0018](adr/0018-workspace-rebase.md) D1) would let `land` target a base other than the default branch.
+
+### [ADR 0024](adr/0024-read-only-workspace-members.md) — read-only workspace members
+
+- `wtg new --read-only <repo>`, repeatable, so a mixed workspace is created in one step instead of `new` followed by `add --read-only`.
+- Preserve non-`use` directives (`replace`, `toolchain`, comments) when regenerating `go.work`, by editing the parsed file (`modfile.ParseWork`) rather than rewriting it; useful with or without this ADR.
+- An `adopt` path for detached worktrees that were created before read-only members existed (E11); today it is `wtg remove` followed by `wtg add --read-only`, which loses nothing because the worktree is clean.
+- Re-evaluate `go.work` membership on promotion: it is decided from the pinned checkout, before the branch checkout exists, so a branch that adds or drops a `go.mod` relative to the pin needs a manual `go work use`/`go work edit` (or a `remove` + `add` cycle).
+- Teach the drift check the selected version rather than the literal `require`, while staying offline. Minimum version selection can pick a newer version than a consumer's own `go.mod` states, which today's check under-reports; running `go list -m` in `wtg status` would fix that at the cost of a network round-trip per consumer, which E9 rules out.
+
+### [ADR 0025](adr/0025-dot-repo-arguments.md) — `.` arguments
+
+- Path-like arguments (`./api`, `../api`, absolute paths) stay unsupported and are treated as names; supporting them needs a marker or its own decision, because a canonical short name already contains slashes (D8).
+- Offer `.` in shell completion; `completeRepos` and `completeSpaceThenRepos` list names only.
+
