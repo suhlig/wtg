@@ -53,9 +53,15 @@ var (
 type Runner interface {
 	// Worktrees
 	WorktreeAdd(repoPath, worktreePath, branch, base string, createBranch bool) error
+	// WorktreeAddDetached creates a linked worktree with a detached HEAD at
+	// ref, which is how a read-only member is checked out (ADR 0024 D1).
+	WorktreeAddDetached(repoPath, worktreePath, ref string) error
 	WorktreeRemove(repoPath, worktreePath string, force bool) error
 	WorktreeList(repoPath string) ([]WorktreeInfo, error)
 	WorktreeRepair(repoPath string, paths ...string) error // ErrRepairUnsupported on git < 2.29
+	// CheckoutDetached detaches the worktree's HEAD at ref, leaving any branch
+	// it was on untouched. Used to advance a read-only member (ADR 0024 D4).
+	CheckoutDetached(worktreePath, ref string) error
 
 	// Branches
 	BranchExists(repoPath, branch string) (bool, error)
@@ -93,6 +99,16 @@ type Runner interface {
 	InProgress(repoPath string) (string, error)
 	// ShortRev resolves rev to an abbreviated commit hash.
 	ShortRev(repoPath, rev string) (string, error)
+	// ResolveRef resolves ref (a tag, commit, local branch, or origin/<branch>)
+	// to a full commit hash. It fails when ref does not resolve.
+	ResolveRef(repoPath, ref string) (string, error)
+	// RevListCount counts the commits reachable from a but not from b (aOnly)
+	// and those reachable from b but not from a (bOnly):
+	// git rev-list --left-right --count a...b. Used for the drift check
+	// (ADR 0024 D6).
+	RevListCount(repoPath, a, b string) (aOnly, bOnly int, err error)
+	// ShowFile returns the content of path at rev (git show <rev>:<path>).
+	ShowFile(repoPath, rev, path string) ([]byte, error)
 	// CommitsAhead counts commits reachable from branch but not from base.
 	// Used by `wtg land` to decide whether a repo has work to publish.
 	CommitsAhead(repoPath, base, branch string) (int, error)

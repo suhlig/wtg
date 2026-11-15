@@ -35,7 +35,11 @@ affected. Nothing is ever pushed.
 
 The workspace argument is optional when the current directory is inside a
 known workspace — it will be inferred automatically.
-Use --progress to watch per-repo progress; ~ means a repo is busy.`,
+Use --progress to watch per-repo progress; ~ means a repo is busy.
+Pass "." to name the workspace containing the current directory.
+
+A read-only member is not rebased: one that follows origin/<branch> is
+advanced, a pinned one is left alone, and a modified one is skipped.`,
 		ShellComplete: completeSpaces,
 		Flags: []cli.Flag{
 			&cli.StringFlag{
@@ -162,6 +166,12 @@ func RunSpaceRebase(runner git.Runner, spaceName, onto string, progress bool, ou
 			if r.Symlink {
 				results[i] = rebaseResult{opResult: opResult{r.Name, ui.SymWarn, "skipped — symlink (always.repos)"}}
 				update(i, results[i].renderSym())
+				return
+			}
+			if r.ReadOnly {
+				res := rebaseReadOnly(runner, r, func(from, to rebasePhase) { setPhase(i, from, to) })
+				results[i] = res
+				update(i, res.renderSym())
 				return
 			}
 			res, omitted := rebaseOne(runner, sp.Branch, onto, r, func(from, to rebasePhase) { setPhase(i, from, to) })
@@ -322,6 +332,88 @@ func rebaseOne(runner git.Runner, branch, onto string, r state.RepoEntry, phase 
 	default:
 		return fail("%v", err), false
 	}
+}
+
+// rebaseReadOnly handles a read-only member (ADR 0024 D4). A member that
+// follows origin/<branch> is moved forward after the fetch; one pinned to a tag,
+// commit or local branch is left alone; a modified one is reported and never
+// touched, because a read-only member must stay clean.
+func rebaseReadOnly(runner git.Runner, r state.RepoEntry, phase func(from, to rebasePhase)) rebaseResult {
+	fail := func(format string, a ...any) rebaseResult {
+		return rebaseResult{opResult: opResult{r.Name, ui.SymFail, fmt.Sprintf(format, a...)}}
+	}
+	skip := func(format string, a ...any) rebaseResult {
+		return rebaseResult{
+			opResult:  opResult{r.Name, ui.SymWarn, "skipped — " + fmt.Sprintf(format, a...)},
+			attention: true,
+		}
+	}
+
+	// A member that follows a remote branch needs the fetch; a pinned one does
+	// not, so an offline run still reports where it sits.
+	if isFollowingRef(r.Ref) {
+		if none, _ := hasNoRemotes(r.WorktreePath, runner); !none {
+			phase(0, phaseFetching)
+			if err := runner.Fetch(r.WorktreePath); err != nil {
+				phase(phaseFetching, 0)
+				return fail("fetch failed: %v", err) // E5: this repo only
+			}
+			phase(phaseFetching, phaseRebasing)
+			defer phase(phaseRebasing, 0)
+		}
+	}
+
+	st, err := runner.Status(r.WorktreePath)
+	if err != nil {
+		return fail("error: %v", err)
+	}
+	if len(st.Files) > 0 {
+		return skip("modified; a read-only member must stay clean (wtg add promotes it)")
+	}
+	op, err := runner.InProgress(r.WorktreePath)
+	if err != nil {
+		return fail("error: %v", err)
+	}
+	if op != "" {
+		return skip("%s in progress", op) // E7
+	}
+
+	if !isFollowingRef(r.Ref) {
+		label := r.Ref
+		if label == "" {
+			label = "a detached HEAD"
+		}
+		return rebaseResult{opResult: opResult{r.Name, ui.SymOK, "pinned at " + label}}
+	}
+
+	target, err := runner.ResolveRef(r.WorktreePath, r.Ref)
+	if err != nil {
+		return fail("cannot resolve %s: %v", r.Ref, err)
+	}
+	current, err := runner.ResolveRef(r.WorktreePath, "HEAD")
+	if err != nil {
+		return fail("error: %v", err)
+	}
+	if target == current {
+		msg := "up to date"
+		if trace.IsDry(runner) {
+			msg += " (as of the last fetch)"
+		}
+		return rebaseResult{opResult: opResult{r.Name, ui.SymOK, msg}}
+	}
+
+	old, err := runner.ShortRev(r.WorktreePath, "HEAD")
+	if err != nil {
+		return fail("error: %v", err)
+	}
+	// E6: a force-pushed upstream is fine — nothing of ours is replayed.
+	if err := runner.CheckoutDetached(r.WorktreePath, target); err != nil {
+		return fail("checkout failed: %v", err)
+	}
+	if trace.IsDry(runner) {
+		return rebaseResult{opResult: opResult{r.Name, ui.SymPlan, fmt.Sprintf("would advance to %s (as of the last fetch)", r.Ref)}}
+	}
+	return rebaseResult{opResult: opResult{r.Name, ui.SymUp, fmt.Sprintf("advanced (was %s)", old)}}
 }
 
 // hasUnmerged reports whether any file is in an unmerged (conflicted) state.

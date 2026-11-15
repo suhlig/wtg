@@ -159,12 +159,16 @@ func printSpaceDetail(runner git.Runner, sp *state.Space, detailed bool, out io.
 	var buf bytes.Buffer
 	tbl := ui.NewTableWriter(&buf)
 	for _, rs := range results {
-		if rs.entry.Symlink {
+		switch {
+		case rs.entry.Symlink:
 			tbl.Row(
 				"  "+rs.entry.Name,
 				ui.Muted.Render(rs.entry.RepoPath),
 				ui.Muted.Render(ui.SymLink+" symlink"),
 			)
+			continue
+		case rs.entry.ReadOnly:
+			tbl.Row(append([]string{"  " + rs.entry.Name}, readOnlyStatusCols(rs.entry, rs.st, rs.err)...)...)
 			continue
 		}
 		tbl.Row(append([]string{"  " + rs.entry.Name}, worktreeStatusCols(rs.st, rs.err, sp.Branch)...)...)
@@ -172,8 +176,10 @@ func printSpaceDetail(runner git.Runner, sp *state.Space, detailed bool, out io.
 	tbl.Flush()
 
 	if !detailed {
-		_, err := io.Copy(out, &buf)
-		return err
+		if _, err := io.Copy(out, &buf); err != nil {
+			return err
+		}
+		return printSpaceDrift(runner, sp, out)
 	}
 
 	lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
@@ -205,7 +211,42 @@ func printSpaceDetail(runner git.Runner, sp *state.Space, detailed bool, out io.
 			}
 		}
 	}
+	return printSpaceDrift(runner, sp, out)
+}
+
+// printSpaceDrift prints the go.work drift lines for one space, if any
+// (ADR 0024 D6). Drift is information: it never fails the command.
+func printSpaceDrift(runner git.Runner, sp *state.Space, out io.Writer) error {
+	lines := renderDrift(driftFindings(runner, sp.Repos))
+	if len(lines) == 0 {
+		return nil
+	}
+	for _, line := range lines {
+		if _, err := fmt.Fprintln(out, line); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+// readOnlyStatusCols returns the columns for a read-only member: the ref it is
+// pinned to or follows instead of a branch, then the working-tree state
+// (ADR 0024 D7). A modified worktree is flagged, because a read-only member is
+// expected to stay clean.
+func readOnlyStatusCols(e state.RepoEntry, st git.RepoStatus, err error) []string {
+	if err != nil {
+		return []string{readOnlyRefCol(e), ui.Fail.Render(ui.SymFail + " " + err.Error())}
+	}
+	return []string{readOnlyRefCol(e), statusCol(st.Files)}
+}
+
+// readOnlyRefCol renders the ref a read-only member is pinned to or follows.
+func readOnlyRefCol(e state.RepoEntry) string {
+	ref := e.Ref
+	if ref == "" {
+		ref = "detached HEAD"
+	}
+	return ui.Muted.Render(ui.SymReadOnly + " read-only @ " + ref)
 }
 
 // worktreeStatusCols returns the branch, status, and ahead/behind columns for

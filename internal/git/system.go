@@ -110,6 +110,19 @@ func (r *SystemRunner) WorktreeAdd(repoPath, worktreePath, branch, base string, 
 	return err
 }
 
+// WorktreeAddDetached creates a worktree whose HEAD is detached at ref. Git
+// refuses to check out a branch that another worktree already has, which is why
+// a read-only member is detached (ADR 0024 D1).
+func (r *SystemRunner) WorktreeAddDetached(repoPath, worktreePath, ref string) error {
+	_, err := r.run(repoPath, "worktree", "add", "--detach", worktreePath, ref)
+	return err
+}
+
+func (r *SystemRunner) CheckoutDetached(worktreePath, ref string) error {
+	_, err := r.run(worktreePath, "checkout", "--detach", ref)
+	return err
+}
+
 func (r *SystemRunner) WorktreeRemove(repoPath, worktreePath string, force bool) error {
 	args := []string{"worktree", "remove"}
 	if force {
@@ -417,6 +430,43 @@ func (r *SystemRunner) InProgress(repoPath string) (string, error) {
 
 func (r *SystemRunner) ShortRev(repoPath, rev string) (string, error) {
 	return r.run(repoPath, "rev-parse", "--short", rev)
+}
+
+// ResolveRef resolves ref to a full commit hash. "--quiet" makes git exit 1
+// without noise for a ref that does not exist.
+func (r *SystemRunner) ResolveRef(repoPath, ref string) (string, error) {
+	return r.run(repoPath, "rev-parse", "--verify", "--quiet", ref+"^{commit}")
+}
+
+// RevListCount runs "git rev-list --left-right --count a...b" and returns the
+// two counts: commits reachable from a but not b, then the reverse.
+func (r *SystemRunner) RevListCount(repoPath, a, b string) (aOnly, bOnly int, err error) {
+	out, err := r.run(repoPath, "rev-list", "--left-right", "--count", a+"..."+b)
+	if err != nil {
+		return 0, 0, err
+	}
+	fields := strings.Fields(out)
+	if len(fields) != 2 {
+		return 0, 0, fmt.Errorf("unexpected rev-list output %q", out)
+	}
+	aOnly, err = strconv.Atoi(fields[0])
+	if err != nil {
+		return 0, 0, fmt.Errorf("parse rev-list count %q: %w", fields[0], err)
+	}
+	bOnly, err = strconv.Atoi(fields[1])
+	if err != nil {
+		return 0, 0, fmt.Errorf("parse rev-list count %q: %w", fields[1], err)
+	}
+	return aOnly, bOnly, nil
+}
+
+// ShowFile returns the content of path as of rev, e.g. "origin/main:go.mod".
+func (r *SystemRunner) ShowFile(repoPath, rev, path string) ([]byte, error) {
+	out, err := r.run(repoPath, "show", rev+":"+path)
+	if err != nil {
+		return nil, err
+	}
+	return []byte(out), nil
 }
 
 // --- Info ---

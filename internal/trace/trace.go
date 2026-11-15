@@ -134,7 +134,10 @@ func Classify(args []string) bool {
 	}
 	verb := args[0]
 	switch verb {
-	case "rev-parse", "rev-list", "merge-base", "symbolic-ref":
+	case "rev-parse", "rev-list", "merge-base", "show":
+		// all reads
+		return true
+	case "symbolic-ref":
 		// symbolic-ref without --delete is a read
 		return !slices.Contains(args[1:], "--delete")
 	case "status", "worktree":

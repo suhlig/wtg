@@ -111,11 +111,16 @@ func RunSpaceLand(ctx context.Context, runner git.Runner, gh remote.Runner, args
 
 	tbl := ui.NewTableWriter(out)
 	var attention []string
-	for _, res := range results {
+	for i, res := range results {
 		if res.name == "" {
 			continue
 		}
 		tbl.Row(res.name, res.render())
+		// A read-only member is skipped on purpose, not because it needs
+		// attention, so it does not fail the command (ADR 0024 D7).
+		if sp.Repos[i].ReadOnly {
+			continue
+		}
 		if res.sym == ui.SymFail || res.sym == ui.SymWarn {
 			attention = append(attention, res.name)
 		}
@@ -140,7 +145,7 @@ func RunSpaceLand(ctx context.Context, runner git.Runner, gh remote.Runner, args
 func landPreflightGH(ctx context.Context, runner git.Runner, gh remote.Runner, sp *state.Space, strategyOverride string) error {
 	var needsPR bool
 	for _, r := range sp.Repos {
-		if r.Symlink {
+		if r.Symlink || r.ReadOnly {
 			continue
 		}
 		s := resolveStrategy(runner, r.RepoPath, strategyOverride)
@@ -158,7 +163,7 @@ func landPreflightGH(ctx context.Context, runner git.Runner, gh remote.Runner, s
 	// Collect distinct GitHub hosts from remote URLs.
 	hosts := make(map[string]bool)
 	for _, r := range sp.Repos {
-		if r.Symlink {
+		if r.Symlink || r.ReadOnly {
 			continue
 		}
 		s := resolveStrategy(runner, r.RepoPath, strategyOverride)
@@ -205,6 +210,9 @@ func landOne(ctx context.Context, runner git.Runner, gh remote.Runner, sp *state
 
 	if r.Symlink {
 		return warn("skipped — symlink (always.repos)")
+	}
+	if r.ReadOnly {
+		return warn(readOnlySkipMsg)
 	}
 
 	// Check worktree is on the expected branch.

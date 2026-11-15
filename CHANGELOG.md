@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `wtg add --read-only [--ref <ref>]` — add a repo as a member you consume rather than change: a detached worktree at a pinned ref, listed in `go.work` when it has a `go.mod`, with no feature branch. Without `--ref` the ref is the version the workspace's other members' `go.mod` files select (`GOWORK=off go list -m`, falling back to `origin/<default branch>`); a tag, commit or local branch pins, `origin/<branch>` is followed by `wtg rebase`. `wtg add <repo>` on a read-only member promotes it to a normal worktree (ADR 0024)
+- `wtg status` compares, for every pair of `go.work` members, the version a consumer requires with what is checked out, and warns when they differ; modules a consumer `replace`s and versions that cannot be resolved locally are skipped, and the check never fails the command (ADR 0024 D6)
+
+### Changed
+
+- `wtg rebase` advances a read-only member that follows `origin/<branch>`, reports a pinned one as `pinned at <ref>`, and skips a modified one instead of warning about a detached HEAD
+- `wtg push` and `wtg land` skip read-only members, `wtg exec` includes them, and `wtg remove`/`wtg delete` remove their worktree without looking up or deleting a branch
+
 ## [1.8.0] - 2026-11-03
 
 ### Added

@@ -10,31 +10,36 @@ import (
 // Only set the function fields your test actually needs; unset fields panic
 // with a descriptive message if called unexpectedly.
 type testRunner struct {
-	worktreeAddFn        func(repoPath, worktreePath, branch, base string, createBranch bool) error
-	worktreeRemoveFn     func(repoPath, worktreePath string, force bool) error
-	worktreeListFn       func(repoPath string) ([]git.WorktreeInfo, error)
-	worktreeRepairFn     func(repoPath string, paths ...string) error
-	branchExistsFn       func(repoPath, branch string) (bool, error)
-	remoteBranchExistsFn func(repoPath, branch string) (bool, error)
-	branchDeleteFn       func(repoPath, branch string, force bool) error
-	branchMergedFn       func(repoPath, branch string) (bool, error)
-	statusFn             func(repoPath string) (git.RepoStatus, error)
-	defaultBranchFn      func(repoPath string) (string, error)
-	fetchFn              func(repoPath string) error
-	fastForwardFn        func(repoPath, branch string) error
-	pushFn               func(repoPath, branch string) error
-	pushToFn             func(repoPath, branch, remoteBranch string) error
-	rebaseFn             func(repoPath, onto string) error
-	rebaseAbortFn        func(repoPath string) error
-	isAncestorFn         func(repoPath, ancestor, descendant string) (bool, error)
-	inProgressFn         func(repoPath string) (string, error)
-	shortRevFn           func(repoPath, rev string) (string, error)
-	remoteURLFn          func(repoPath, remote string) (string, error)
-	remotesListFn        func(repoPath string) ([]string, error)
-	pendingWorkFn        func(repoPath string) (int, int, error)
-	commitsAheadFn       func(repoPath, base, branch string) (int, error)
-	commitsOnNoRemoteFn  func(repoPath, ref string) (int, error)
-	configGetFn          func(repoPath, key string) (string, bool, error)
+	worktreeAddFn         func(repoPath, worktreePath, branch, base string, createBranch bool) error
+	worktreeAddDetachedFn func(repoPath, worktreePath, ref string) error
+	worktreeRemoveFn      func(repoPath, worktreePath string, force bool) error
+	worktreeListFn        func(repoPath string) ([]git.WorktreeInfo, error)
+	worktreeRepairFn      func(repoPath string, paths ...string) error
+	checkoutDetachedFn    func(worktreePath, ref string) error
+	branchExistsFn        func(repoPath, branch string) (bool, error)
+	remoteBranchExistsFn  func(repoPath, branch string) (bool, error)
+	branchDeleteFn        func(repoPath, branch string, force bool) error
+	branchMergedFn        func(repoPath, branch string) (bool, error)
+	statusFn              func(repoPath string) (git.RepoStatus, error)
+	defaultBranchFn       func(repoPath string) (string, error)
+	fetchFn               func(repoPath string) error
+	fastForwardFn         func(repoPath, branch string) error
+	pushFn                func(repoPath, branch string) error
+	pushToFn              func(repoPath, branch, remoteBranch string) error
+	rebaseFn              func(repoPath, onto string) error
+	rebaseAbortFn         func(repoPath string) error
+	isAncestorFn          func(repoPath, ancestor, descendant string) (bool, error)
+	inProgressFn          func(repoPath string) (string, error)
+	shortRevFn            func(repoPath, rev string) (string, error)
+	resolveRefFn          func(repoPath, ref string) (string, error)
+	revListCountFn        func(repoPath, a, b string) (int, int, error)
+	showFileFn            func(repoPath, rev, path string) ([]byte, error)
+	remoteURLFn           func(repoPath, remote string) (string, error)
+	remotesListFn         func(repoPath string) ([]string, error)
+	pendingWorkFn         func(repoPath string) (int, int, error)
+	commitsAheadFn        func(repoPath, base, branch string) (int, error)
+	commitsOnNoRemoteFn   func(repoPath, ref string) (int, error)
+	configGetFn           func(repoPath, key string) (string, bool, error)
 }
 
 func (r *testRunner) WorktreeAdd(repoPath, worktreePath, branch, base string, createBranch bool) error {
@@ -49,6 +54,20 @@ func (r *testRunner) WorktreeRemove(repoPath, worktreePath string, force bool) e
 		panic(fmt.Sprintf("unexpected WorktreeRemove(%q, %q, %v)", repoPath, worktreePath, force))
 	}
 	return r.worktreeRemoveFn(repoPath, worktreePath, force)
+}
+
+func (r *testRunner) WorktreeAddDetached(repoPath, worktreePath, ref string) error {
+	if r.worktreeAddDetachedFn == nil {
+		panic(fmt.Sprintf("unexpected WorktreeAddDetached(%q, %q, %q)", repoPath, worktreePath, ref))
+	}
+	return r.worktreeAddDetachedFn(repoPath, worktreePath, ref)
+}
+
+func (r *testRunner) CheckoutDetached(worktreePath, ref string) error {
+	if r.checkoutDetachedFn == nil {
+		panic(fmt.Sprintf("unexpected CheckoutDetached(%q, %q)", worktreePath, ref))
+	}
+	return r.checkoutDetachedFn(worktreePath, ref)
 }
 
 func (r *testRunner) WorktreeList(repoPath string) ([]git.WorktreeInfo, error) {
@@ -168,6 +187,27 @@ func (r *testRunner) ShortRev(repoPath, rev string) (string, error) {
 		return "a1b2c3d", nil
 	}
 	return r.shortRevFn(repoPath, rev)
+}
+
+func (r *testRunner) ResolveRef(repoPath, ref string) (string, error) {
+	if r.resolveRefFn == nil {
+		return "", fmt.Errorf("unexpected ResolveRef(%q, %q)", repoPath, ref)
+	}
+	return r.resolveRefFn(repoPath, ref)
+}
+
+func (r *testRunner) RevListCount(repoPath, a, b string) (int, int, error) {
+	if r.revListCountFn == nil {
+		panic(fmt.Sprintf("unexpected RevListCount(%q, %q, %q)", repoPath, a, b))
+	}
+	return r.revListCountFn(repoPath, a, b)
+}
+
+func (r *testRunner) ShowFile(repoPath, rev, path string) ([]byte, error) {
+	if r.showFileFn == nil {
+		return nil, fmt.Errorf("unexpected ShowFile(%q, %q, %q)", repoPath, rev, path)
+	}
+	return r.showFileFn(repoPath, rev, path)
 }
 
 func (r *testRunner) RemoteURL(repoPath, remote string) (string, error) {

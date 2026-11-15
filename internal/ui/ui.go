@@ -12,14 +12,15 @@ import (
 
 // Symbols used in status output.
 const (
-	SymOK      = "✓"
-	SymWarn    = "⚠"
-	SymFail    = "!"
-	SymUp      = "↑"
-	SymLink    = "→"
-	SymPlan    = "→" // a step that would run under --dry-run
-	SymBusy    = "~" // in-progress indicator for the progress bar
-	SymSkipped = "ø" // slot exists but was structurally skipped (e.g. no remote)
+	SymOK       = "✓"
+	SymWarn     = "⚠"
+	SymFail     = "!"
+	SymUp       = "↑"
+	SymLink     = "→"
+	SymPlan     = "→" // a step that would run under --dry-run
+	SymBusy     = "~" // in-progress indicator for the progress bar
+	SymSkipped  = "ø" // slot exists but was structurally skipped (e.g. no remote)
+	SymReadOnly = "◇" // a read-only member pinned to a ref (ADR 0024)
 )
 
 // Styles.

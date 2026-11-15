@@ -30,6 +30,14 @@ type RepoEntry struct {
 	RepoPath     string `yaml:"repo_path"`         // absolute path to the main clone
 	WorktreePath string `yaml:"worktree_path"`     // absolute path to the linked worktree or symlink
 	Symlink      bool   `yaml:"symlink,omitempty"` // true if this entry is a symlink to the main clone
+
+	// ReadOnly marks a member that is consumed, not changed: a detached
+	// worktree at Ref with no workspace branch (ADR 0024).
+	ReadOnly bool `yaml:"read_only,omitempty"`
+	// Ref records the ref the user pinned or follows for a read-only member,
+	// as given (a tag, commit, local branch, or origin/<branch>). Empty for
+	// every other kind of entry.
+	Ref string `yaml:"ref,omitempty"`
 }
 
 // DataRoot returns the wtg data directory, following the XDG Base Directory

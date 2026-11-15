@@ -229,23 +229,29 @@ There is no spec to wait for: the behaviour above is the documented behaviour of
 
 ## Implementation plan
 
-Not yet implemented; accepting this ADR records the decision, not the feature.
+Implemented, as two independently shippable steps. The first is useful on its own.
 
-Two independently shippable steps. The first is useful on its own.
-
-1. **Drift check (D6).** `internal/cmd/status.go` plus a small `internal/gomod` package:
+1. **Drift check (D6).** `internal/cmd/status.go` and `internal/cmd/drift.go` plus a small `internal/gomod` package:
    - `RequiredVersion(dir, module) (version string, replaced bool, err error)`: the `go list -m` call of D8 (with `GOWORK=off`, `-mod=readonly`).
    - `ModulePath(goModBytes)`: `modfile.ModulePath`.
+   - `Requirements(goModBytes)`: the offline require list D6 compares against.
    - `RefForVersion(version)`: pseudo-version → commit, else tag.
 
-   New `Runner` methods: `RevListCount(path, a, b)` and `ResolveRef(path, ref)`. No state change, no new flags.
+   New `Runner` methods: `RevListCount(path, a, b)`, `ResolveRef(path, ref)` and `ShowFile(path, rev, name)`. No state change, no new flags.
 2. **Read-only members (D1–D5, D7).**
-   - `state.RepoEntry`: `ReadOnly bool` (`read_only,omitempty`) and `Ref string` (`ref,omitempty`). The same two fields must flow through `repoTarget` and `targetsFromState`, or `rebase`, `status`, `delete`, and `remove` cannot see a read-only member.
+   - `state.RepoEntry`: `ReadOnly bool` (`read_only,omitempty`) and `Ref string` (`ref,omitempty`). The same two fields flow through `repoTarget` and `targetsFromState`.
    - `Runner`: `WorktreeAddDetached(repoPath, worktreePath, ref)` and `CheckoutDetached(worktreePath, ref)`.
-   - `internal/cmd/add.go`: `--read-only` and `--ref`, and the promotion branch next to the existing symlink upgrade. `internal/cmd/rebase.go`: replace the E7 skip for read-only members by D4. `push.go` and `land.go`: add `ReadOnly` next to the `Symlink` skips. `status.go`: render the new kind. `delete.go` and `workspace.go` (`deleteOne`): skip the branch logic for read-only entries (D7).
-   - `detectGoMods` needs no change: it excludes `t.symlink` only.
-3. Tests with the implementation (AGENTS.md): unit tests with the mock runner for E1–E18, and real-git scenarios via `internal/git/testhelper`: add pinned, add following, advance after an upstream commit, promote, refuse promotion when modified, remove of a modified read-only member prompts, `delete -D` leaving a same-named branch in a read-only member's repo untouched, and the drift cases (behind, ahead, replaced, unresolvable). `gomod` needs a test that runs the real `go` on a tiny fixture module (a consumer requiring a `/v2` module and a pseudo-version, with a `vendor/` directory) and asserts the fixture's `go.sum` is unchanged afterwards; skip when `go` is absent.
-4. Docs: README section for `--read-only`, a note in [`docs/always.md`](../always.md) on how this differs from `always.repos`, a `CHANGELOG.md` entry under *Unreleased → Added*, and the index row in [`DESIGN.md`](../DESIGN.md) (already added).
+   - `internal/cmd/add.go`, `readonly.go`: `--read-only` and `--ref`, ref derivation (D8), the promotion branch next to the symlink upgrade, and the detached-worktree saga step with its undo. `internal/cmd/rebase.go`: replaced the E7 skip for read-only members by D4. `push.go` and `land.go`: `ReadOnly` next to the `Symlink` skips. `status.go`: renders the new kind. `delete.go` and `workspace.go` (`deleteOne`): skip the branch logic for read-only entries (D7).
+3. Tests with the implementation (AGENTS.md): unit tests with the mock runner for E1–E18, real-git tests for the new `Runner` methods, and the drift cases (behind, ahead, replaced, unresolvable, pseudo-version). `gomod` has a test that runs the real `go` on a tiny fixture module and asserts `go.mod` and `go.sum` are unchanged afterwards; it skips when `go` is absent.
+4. Docs: README section for `--read-only`, a note in [`docs/always.md`](../always.md) on how this differs from `always.repos`, a `CHANGELOG.md` entry under *Unreleased → Added*, and the index row in [`DESIGN.md`](../DESIGN.md).
+
+### Implementation notes
+
+Three places where the code differs from the text above, each deliberately:
+
+- **D6 does not use `RequiredVersion`.** The drift check must work without the network or a populated module cache (E9), and `go list -m` needs both, so `status` parses the consumer's `go.mod` with `modfile` (`gomod.Requirements`) and resolves with git. Both paths share `ModulePath` and `RefForVersion`, so they cannot disagree about how a version becomes a ref; they can disagree about which version is selected when minimum version selection picks something other than the literal `require` (see Follow-ups).
+- **`detectGoMods` prefers an existing worktree to the main clone.** A read-only pin may predate its `go.mod`, or be a commit where the module was dropped, while the main clone says otherwise — `go.work` must follow the checkout. Repos whose worktree does not exist yet (during `new`, and for repos being added) still fall back to the main clone.
+- **`land` does not count a read-only skip as attention.** It reports `⚠ skipped — read-only member` but leaves the exit code alone, because a member that is skipped on purpose would otherwise make `wtg land` fail on every run — the un-actionable warning this ADR set out to remove. Symlink skips keep their existing behaviour.
 
 ## Without wtg ([ADR 0022](0022-no-tool-dependency.md))
 
@@ -279,6 +285,8 @@ Two independently shippable steps. The first is useful on its own.
 - `wtg new --read-only <repo>` (repeatable), so a mixed workspace can be created in one step.
 - Preserve non-`use` directives (`replace`, `toolchain`, comments) when regenerating `go.work`, by editing the parsed file (`modfile.ParseWork`) instead of rewriting it. This is useful with or without this ADR.
 - An `adopt` path for existing detached members (E11).
+- Re-evaluate `go.work` membership on promotion: the decision is made, from the pinned checkout, before the branch checkout exists, so a branch that adds or drops a `go.mod` relative to the pin needs a manual `go work use`/`go work edit` (or a `wtg remove` + `wtg add` cycle) until then.
+- Teach the drift check the selected version rather than the literal `require` when that can be done offline. Today a consumer whose minimum version selection picks a newer version than its own `go.mod` states can be under-reported; the alternative — running `go list -m` in `wtg status` — trades that for a possible network round-trip per consumer, which E9 rules out.
 
 ## Decisions summary
 

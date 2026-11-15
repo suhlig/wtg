@@ -32,6 +32,7 @@ func DeleteCommand(runner git.Runner, fsys ...trace.FS) *cli.Command {
 		Description: `Removes all worktrees in the workspace. By default, branches are left
 untouched — use --delete-branch (-d) to delete merged branches or
 --force-delete-branch (-D) to force-delete regardless of merge state.
+A read-only member has no branch of its own, so -d and -D do not apply to it.
 
 Prompts for confirmation if any repo has uncommitted changes or commits that
 exist on no remote. Pass --yes to answer the prompt in scripts; without --yes
@@ -47,7 +48,8 @@ The workspace root directory is removed if it is empty after worktrees are
 cleaned up.
 
 The workspace argument is optional when the current directory is inside a
-known workspace — it will be inferred automatically.`,
+known workspace — it will be inferred automatically. Pass "." to name the
+workspace containing the current directory.`,
 		ShellComplete: completeSpaces,
 		Flags: []cli.Flag{
 			&cli.BoolFlag{
@@ -260,7 +262,14 @@ func RunSpaceDelete(cfg *config.Config, runner git.Runner, args SpaceDeleteArgs,
 // branch and for whatever else is checked out in the worktree (ADR 0019 D11,
 // change 2). Unlike "ahead of upstream", this is zero once a commit is on any
 // remote, and non-zero for a branch that was never pushed.
+//
+// A read-only member has no branch of ours: refs/heads/<space branch> does not
+// exist there, and its detached HEAD is a commit that lives elsewhere. The check
+// is therefore skipped, not merely allowed to report zero (ADR 0024 D7).
 func unpushedWarnings(runner git.Runner, r state.RepoEntry, spaceBranch, checkedOut string) []string {
+	if r.ReadOnly {
+		return nil
+	}
 	var msgs []string
 	if n, err := runner.CommitsOnNoRemote(r.WorktreePath, "refs/heads/"+spaceBranch); err == nil && n > 0 {
 		msgs = append(msgs, fmt.Sprintf("%s: has %d unpushed commit(s)", r.Name, n))

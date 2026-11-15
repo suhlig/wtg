@@ -30,6 +30,13 @@ type repoTarget struct {
 	createBranch bool   // whether to create a new branch (set during pre-flight)
 	remoteBase   string // set when branch exists only on remote; used as start point for WorktreeAdd
 	symlink      bool   // true if this entry should be a symlink to the main clone, not a worktree
+
+	// Read-only members (ADR 0024): a detached worktree at detachAt, recorded
+	// in state as read_only with the user's intent ref.
+	readOnly bool
+	ref      string // the ref as the user gave it, or origin/<default branch>
+	detachAt string // the commit ref resolved to, used for the detached checkout
+	hasGoMod bool   // whether the pinned commit has a go.mod (read-only members only)
 }
 
 // targetsFromState converts existing state repo entries back into repoTargets.
@@ -41,6 +48,8 @@ func targetsFromState(sp *state.Space) []*repoTarget {
 			repoPath:     r.RepoPath,
 			worktreePath: r.WorktreePath,
 			symlink:      r.Symlink,
+			readOnly:     r.ReadOnly,
+			ref:          r.Ref,
 		}
 	}
 	return targets
@@ -276,16 +285,25 @@ func classifyBranchTargets(runner git.Runner, targets []*repoTarget, branch stri
 	return nil
 }
 
-// detectGoMods reports which targets have a go.mod in their main clone.
+// detectGoMods reports which targets have a go.mod in their checkout.
 // Symlink targets are excluded: they point to the shared main clone and are
 // not feature-branch worktrees, so including them in go.work would be incorrect.
+//
+// An existing worktree is checked in preference to the main clone, so a
+// read-only member pinned to a commit that predates its go.mod is not listed in
+// go.work, and a branch that dropped a go.mod is not kept (ADR 0024 D7). Repos
+// whose worktree does not exist yet fall back to the main clone.
 func detectGoMods(targets []*repoTarget) (hasGoMod []bool, anyGoMod bool) {
 	hasGoMod = make([]bool, len(targets))
 	for i, t := range targets {
 		if t.symlink {
 			continue
 		}
-		if _, err := os.Stat(filepath.Join(t.repoPath, "go.mod")); err == nil {
+		dir := t.repoPath
+		if _, err := os.Stat(t.worktreePath); err == nil {
+			dir = t.worktreePath
+		}
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
 			hasGoMod[i] = true
 			anyGoMod = true
 		}
@@ -512,6 +530,8 @@ func buildSpaceState(name, spacePath, branch string, goWorkspace bool, targets [
 			RepoPath:     t.repoPath,
 			WorktreePath: t.worktreePath,
 			Symlink:      t.symlink,
+			ReadOnly:     t.readOnly,
+			Ref:          t.ref,
 		})
 	}
 	return sp
@@ -520,6 +540,10 @@ func buildSpaceState(name, spacePath, branch string, goWorkspace bool, targets [
 // deleteOne removes the worktree (or symlink) for one repo and optionally
 // deletes its branch. Symlink entries are unlinked directly; branch deletion
 // flags are ignored for them since symlinks have no branch context in the space.
+// Read-only entries are detached worktrees with no workspace branch, so they are
+// removed and reported right after the detach, exactly like symlink entries
+// (ADR 0024 D7): looking up refs/heads/<space branch> would either warn falsely
+// or, worse, delete a same-named branch the user did not ask to delete.
 // force causes WorktreeRemove to bypass git's dirty-check (used when the user
 // has already confirmed they want to proceed despite uncommitted changes).
 func deleteOne(runner git.Runner, r state.RepoEntry, branch string, deleteBranch, forceBranch, force bool, fsys ...trace.FS) (sym, msg string) {
@@ -544,7 +568,7 @@ func deleteOne(runner git.Runner, r state.RepoEntry, branch string, deleteBranch
 	if err := runner.WorktreeRemove(r.RepoPath, r.WorktreePath, force); err != nil {
 		return ui.SymFail, fmt.Sprintf("remove worktree: %v", err)
 	}
-	if !deleteBranch && !forceBranch {
+	if r.ReadOnly || (!deleteBranch && !forceBranch) {
 		return done("worktree removed", "would remove worktree")
 	}
 	// -d means "no commit exists only on this branch" (ADR 0019 D11, Q1). git

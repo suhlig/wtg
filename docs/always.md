@@ -52,9 +52,23 @@ have two ways to get a real worktree for it:
 - Upgrade it later with `wtg add my-feature shared-tooling` — this replaces the
   symlink with a worktree on the space's branch.
 
-`wtg remove` does the inverse: removing a repo that is in `always.repos` restores
-the symlink rather than dropping the repo from the space. Removing a repo that is
-*currently a symlink* leaves it out (you have opted it out for that space).
+`wtg remove` does the inverse: removing a repo that is in `always.repos` restores the symlink rather than dropping the repo from the space. Removing a repo that is *currently a symlink* leaves it out (you have opted it out for that space).
+
+### How this differs from a read-only member
+
+`always.repos` and `wtg add --read-only` both avoid a feature branch, but they answer different questions:
+
+| | `always.repos` symlink | `--read-only` member |
+|---|---|---|
+| What is there | the main clone itself | a detached worktree of its own |
+| Version | whatever the main clone has today | the ref you pinned or follow |
+| In `go.work` | no | yes |
+| Shared across spaces | yes, one working copy | no, one checkout per space |
+| `wtg repo sync` / your edits | change every space at once | change this space only |
+
+Use `always.repos` for something every space should simply have — tooling, schemas, notes. Use `--read-only` for a dependency the build reads, because only a member in `go.work` takes part in the build, and only a worktree can be pinned (see [ADR 0024](adr/0024-read-only-workspace-members.md)).
+
+A repo can move between the two: `wtg add --read-only <repo>` replaces the symlink of an `always.repos` entry with a pinned worktree, and `wtg remove` puts the symlink back if the repo is still configured in `always.repos`.
 
 ## `always.files`
 

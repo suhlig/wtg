@@ -26,7 +26,8 @@ func PushCommand(runner git.Runner) *cli.Command {
 parallel. Repos that fail are reported individually; others are not affected.
 
 The workspace argument is optional when the current directory is inside a
-known workspace — it will be inferred automatically.`,
+known workspace — it will be inferred automatically. Pass "." to name the
+workspace containing the current directory.`,
 		ShellComplete: completeSpaces,
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			spaceName, err := resolveSpaceArg(cmd.Args().First(), cmd.Args().Len() == 0)
@@ -71,6 +72,10 @@ func RunSpacePush(runner git.Runner, spaceName string, out io.Writer) error {
 	for i, r := range sp.Repos {
 		if r.Symlink {
 			results[i] = opResult{r.Name, ui.SymWarn, "skipped — symlink (always.repos)"}
+			continue
+		}
+		if r.ReadOnly {
+			results[i] = opResult{r.Name, ui.SymWarn, readOnlySkipMsg}
 			continue
 		}
 		g.Go(func() error {

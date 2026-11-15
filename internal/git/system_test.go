@@ -640,3 +640,140 @@ func TestCommitsOnNoRemote(t *testing.T) {
 		t.Fatalf("merge-landed: got %d; want 0", n)
 	}
 }
+
+// --- detached worktrees (ADR 0024) ---
+
+func TestWorktreeAddDetached_AtTag(t *testing.T) {
+	t.Parallel()
+	repo := testhelper.Init(t)
+	r := runner()
+	repo.Commit("second")
+	repo.GitCmd("tag", "-a", "v1.0.0", "-m", "v1.0.0")
+
+	wtPath := filepath.Join(t.TempDir(), "wt")
+	if err := r.WorktreeAddDetached(repo.Path, wtPath, "v1.0.0"); err != nil {
+		t.Fatalf("WorktreeAddDetached: %v", err)
+	}
+
+	st, err := r.Status(wtPath)
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	if st.Branch != "" {
+		t.Errorf("branch = %q, want a detached HEAD", st.Branch)
+	}
+	tagCommit, err := r.ResolveRef(repo.Path, "v1.0.0")
+	if err != nil {
+		t.Fatalf("ResolveRef tag: %v", err)
+	}
+	head, err := r.ResolveRef(wtPath, "HEAD")
+	if err != nil {
+		t.Fatalf("ResolveRef HEAD: %v", err)
+	}
+	if head != tagCommit {
+		t.Errorf("HEAD = %s, want %s", head, tagCommit)
+	}
+}
+
+func TestWorktreeAddDetached_BranchCheckedOutElsewhere(t *testing.T) {
+	t.Parallel()
+	repo := testhelper.Init(t)
+	r := runner()
+
+	// main is checked out in the main worktree; a detached worktree at its tip
+	// must still work (that is why read-only members are detached).
+	wtPath := filepath.Join(t.TempDir(), "wt")
+	if err := r.WorktreeAddDetached(repo.Path, wtPath, "main"); err != nil {
+		t.Fatalf("WorktreeAddDetached: %v", err)
+	}
+	if st, err := r.Status(wtPath); err != nil || st.Branch != "" {
+		t.Fatalf("Status = %+v, %v; want a detached HEAD", st, err)
+	}
+}
+
+func TestCheckoutDetached_Advances(t *testing.T) {
+	t.Parallel()
+	repo := testhelper.Init(t)
+	r := runner()
+	old, err := r.ResolveRef(repo.Path, "HEAD")
+	if err != nil {
+		t.Fatalf("ResolveRef: %v", err)
+	}
+	repo.Commit("second")
+
+	wtPath := filepath.Join(t.TempDir(), "wt")
+	if err := r.WorktreeAddDetached(repo.Path, wtPath, old); err != nil {
+		t.Fatalf("WorktreeAddDetached: %v", err)
+	}
+	tip, err := r.ResolveRef(repo.Path, "HEAD")
+	if err != nil {
+		t.Fatalf("ResolveRef: %v", err)
+	}
+	if err := r.CheckoutDetached(wtPath, tip); err != nil {
+		t.Fatalf("CheckoutDetached: %v", err)
+	}
+	got, err := r.ResolveRef(wtPath, "HEAD")
+	if err != nil {
+		t.Fatalf("ResolveRef: %v", err)
+	}
+	if got != tip {
+		t.Errorf("HEAD = %s, want %s", got, tip)
+	}
+}
+
+func TestResolveRef_UnknownRefFails(t *testing.T) {
+	t.Parallel()
+	repo := testhelper.Init(t)
+	if _, err := runner().ResolveRef(repo.Path, "no-such-ref"); err == nil {
+		t.Fatal("expected an error for a ref that does not exist")
+	}
+}
+
+func TestRevListCount_Behind(t *testing.T) {
+	t.Parallel()
+	repo := testhelper.Init(t)
+	r := runner()
+	base, err := r.ResolveRef(repo.Path, "HEAD")
+	if err != nil {
+		t.Fatalf("ResolveRef: %v", err)
+	}
+	repo.Commit("second")
+	repo.Commit("third")
+
+	aOnly, bOnly, err := r.RevListCount(repo.Path, base, "HEAD")
+	if err != nil {
+		t.Fatalf("RevListCount: %v", err)
+	}
+	if aOnly != 0 || bOnly != 2 {
+		t.Errorf("counts = (%d, %d), want (0, 2)", aOnly, bOnly)
+	}
+}
+
+func TestShowFile_ReadsAtRev(t *testing.T) {
+	t.Parallel()
+	repo := testhelper.Init(t)
+	r := runner()
+	base, err := r.ResolveRef(repo.Path, "HEAD")
+	if err != nil {
+		t.Fatalf("ResolveRef: %v", err)
+	}
+	repo.WriteFile("go.mod", "module example.com/org/lib\n")
+	repo.GitCmd("add", ".")
+	repo.GitCmd("commit", "-m", "add module")
+
+	data, err := r.ShowFile(repo.Path, base, "README.md")
+	if err != nil {
+		t.Fatalf("ShowFile README.md: %v", err)
+	}
+	if !strings.Contains(string(data), "# test") {
+		t.Errorf("ShowFile content = %q", data)
+	}
+	if _, err := r.ShowFile(repo.Path, base, "go.mod"); err == nil {
+		t.Error("go.mod did not exist at the older rev; expected an error")
+	}
+	if data, err := r.ShowFile(repo.Path, "HEAD", "go.mod"); err != nil {
+		t.Fatalf("ShowFile go.mod at HEAD: %v", err)
+	} else if !strings.Contains(string(data), "module example.com/org/lib") {
+		t.Errorf("ShowFile content = %q", data)
+	}
+}

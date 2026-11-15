@@ -12,6 +12,7 @@ import (
 
 	"github.com/suhlig/wtg/internal/config"
 	"github.com/suhlig/wtg/internal/git"
+	"github.com/suhlig/wtg/internal/gomod"
 	"github.com/suhlig/wtg/internal/saga"
 	"github.com/suhlig/wtg/internal/state"
 	"github.com/suhlig/wtg/internal/trace"
@@ -34,12 +35,32 @@ checked out as-is — no reset or rebase is performed.
 Paths in always.secrets are copied from each source repo into its new
 worktree when present.
 
+With --read-only, a repo is added as a member that is consumed, not changed:
+a detached worktree at a pinned ref, listed in go.work if it has a go.mod,
+and invisible to push and land. Without --ref the ref is the version the other
+members' go.mod files select, else origin/<default branch>. A plain
+wtg add without --read-only on a read-only member promotes it to an ordinary
+worktree.
+
 The workspace argument is optional when the current directory is inside a
 known workspace — it will be inferred automatically.`,
 		ShellComplete: completeSpaceThenRepos,
+		Flags: []cli.Flag{
+			&cli.BoolFlag{
+				Name:  "read-only",
+				Usage: "add repos as read-only members: a detached worktree at a pinned ref",
+			},
+			&cli.StringFlag{
+				Name:  "ref",
+				Usage: "ref a read-only member is pinned to or follows (requires --read-only)",
+			},
+		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			if cmd.Args().Len() < 1 {
 				return fmt.Errorf("usage: wtg add [<workspace>] <repo>...") //nolint:staticcheck
+			}
+			if cmd.String("ref") != "" && !cmd.Bool("read-only") {
+				return fmt.Errorf("--ref only applies to a read-only member; add --read-only, or omit --ref")
 			}
 			cfg, err := config.Load(cmd.Root().String("config"))
 			if err != nil {
@@ -50,8 +71,10 @@ known workspace — it will be inferred automatically.`,
 				return err
 			}
 			return RunSpaceAdd(cfg, runner, SpaceAddArgs{
-				Name:  spaceName,
-				Repos: repos,
+				Name:     spaceName,
+				Repos:    repos,
+				ReadOnly: cmd.Bool("read-only"),
+				Ref:      cmd.String("ref"),
 			}, os.Stdout, fsys...)
 		},
 	}
@@ -59,14 +82,24 @@ known workspace — it will be inferred automatically.`,
 
 // SpaceAddArgs holds the parsed arguments for RunSpaceAdd.
 type SpaceAddArgs struct {
-	Name  string
-	Repos []string // short names of repos to add (required)
+	Name     string
+	Repos    []string // short names of repos to add (required)
+	ReadOnly bool     // --read-only: add as a detached worktree at Ref, not on the branch
+	Ref      string   // --ref: the ref to pin or follow (read-only only)
+
+	// Go resolves what the workspace's other members require when Ref is empty.
+	// It is nil in normal use (the go binary is used); tests inject a fake here.
+	Go gomod.Runner
 }
 
 // RunSpaceAdd adds one or more repos to a workspace by creating worktrees on
 // the space's branch and updating the go.work file and state. If a requested
 // repo is currently a symlink in the space (added via always.repos), the
-// symlink is replaced with a proper worktree on the space's branch.
+// symlink is replaced with a proper checkout.
+//
+// With args.ReadOnly the checkout is a detached worktree at a pinned ref
+// instead of a branch worktree (ADR 0024). Adding a repo that is already a
+// read-only member without --read-only promotes it.
 func RunSpaceAdd(cfg *config.Config, runner git.Runner, args SpaceAddArgs, out io.Writer, fsys ...trace.FS) error {
 	var f trace.FS = trace.NewOsFS(nil)
 	if len(fsys) > 0 && fsys[0] != nil {
@@ -75,23 +108,28 @@ func RunSpaceAdd(cfg *config.Config, runner git.Runner, args SpaceAddArgs, out i
 	if len(args.Repos) == 0 {
 		return fmt.Errorf("no repos specified")
 	}
+	goRunner := args.Go
+	if goRunner == nil {
+		goRunner = gomod.New()
+	}
 
 	sp, err := state.Load(args.Name)
 	if err != nil {
 		return fmt.Errorf("load space %q: %w", args.Name, err)
 	}
 
-	// Partition requested repos into: upgrade from symlink, or add fresh.
-	// Names are matched against the space's existing repos exactly, by a unique
-	// basename, or by a unique partial match, matching how they were added (see
-	// repoInSet).
+	// Partition requested repos into: upgrade from symlink, promote from
+	// read-only, or add fresh. Names are matched against the space's existing
+	// repos exactly, by a unique basename, or by a unique partial match,
+	// matching how they were added (see repoInSet).
 	stateNames := make([]string, 0, len(sp.Repos))
 	existingByName := make(map[string]state.RepoEntry, len(sp.Repos))
 	for _, r := range sp.Repos {
 		stateNames = append(stateNames, r.Name)
 		existingByName[r.Name] = r
 	}
-	var toUpgrade []state.RepoEntry // currently symlinks; will become worktrees
+	var toUpgrade []state.RepoEntry // currently symlinks; will become checkouts
+	var toPromote []state.RepoEntry // currently read-only; will become branch worktrees
 	var toAdd []string              // repos not yet in the space
 	for _, name := range args.Repos {
 		canonical, ok, err := repoInSet(stateNames, name)
@@ -103,9 +141,22 @@ func RunSpaceAdd(cfg *config.Config, runner git.Runner, args SpaceAddArgs, out i
 			continue
 		}
 		r := existingByName[canonical]
-		if r.Symlink {
+		switch {
+		case r.Symlink:
+			// E2: a symlink becomes whatever kind was asked for.
 			toUpgrade = append(toUpgrade, r)
-		} else {
+		case r.ReadOnly && args.ReadOnly:
+			return fmt.Errorf("repo %q is already a read-only member of space %q; to re-pin it, `wtg remove %s` and then `wtg add --read-only --ref <ref> %s`",
+				canonical, args.Name, canonical, canonical)
+		case r.ReadOnly:
+			if err := promotionPreflight(runner, r); err != nil {
+				return err
+			}
+			toPromote = append(toPromote, r)
+		case args.ReadOnly:
+			return fmt.Errorf("repo %q is already a read-write member of space %q; use `wtg remove %s` first",
+				canonical, args.Name, canonical)
+		default:
 			return fmt.Errorf("repo %q is already in space %q", canonical, args.Name)
 		}
 	}
@@ -117,7 +168,7 @@ func RunSpaceAdd(cfg *config.Config, runner git.Runner, args SpaceAddArgs, out i
 	}
 	sort.Strings(allPaths)
 
-	// Build repoTargets for brand-new repos (not upgrades).
+	// Build repoTargets for brand-new repos (not upgrades or promotions).
 	var newTargets []*repoTarget
 	if len(toAdd) > 0 {
 		newTargets, err = buildTargets(roots, sp.Path, allPaths, toAdd)
@@ -126,7 +177,7 @@ func RunSpaceAdd(cfg *config.Config, runner git.Runner, args SpaceAddArgs, out i
 		}
 	}
 
-	// Build repoTargets for symlink upgrades (same path, now a worktree).
+	// Build repoTargets for symlink upgrades (same path, now a checkout).
 	upgradeTargets := make([]*repoTarget, len(toUpgrade))
 	for i, r := range toUpgrade {
 		upgradeTargets[i] = &repoTarget{
@@ -136,45 +187,87 @@ func RunSpaceAdd(cfg *config.Config, runner git.Runner, args SpaceAddArgs, out i
 		}
 	}
 
-	allNew := append(upgradeTargets, newTargets...)
-	if err := classifyBranchTargets(runner, allNew, sp.Branch); err != nil {
-		return err
+	// Build repoTargets for promotions (same path, now on the space's branch).
+	promotionTargets := make([]*repoTarget, len(toPromote))
+	for i, r := range toPromote {
+		promotionTargets[i] = &repoTarget{
+			name:         r.Name,
+			repoPath:     r.RepoPath,
+			worktreePath: r.WorktreePath,
+		}
 	}
 
-	// Build the full target list for go.work: existing non-symlink repos +
-	// upgraded repos (now worktrees) + brand-new repos.
-	upgradedNames := make(map[string]bool, len(upgradeTargets))
-	for _, t := range upgradeTargets {
-		upgradedNames[t.name] = true
+	// Pre-flight, before anything is created: resolve every read-only ref (E1)
+	// and, for the read-write targets, let ADR 0007's branch rules run.
+	if args.ReadOnly {
+		readOnlyTargets := append(append([]*repoTarget{}, upgradeTargets...), newTargets...)
+		for _, t := range readOnlyTargets {
+			if err := prepareReadOnlyTarget(runner, goRunner, sp, t, args.Ref, out); err != nil {
+				return err
+			}
+		}
+	} else {
+		branchTargets := append(append([]*repoTarget{}, upgradeTargets...), newTargets...)
+		branchTargets = append(branchTargets, promotionTargets...)
+		if err := classifyBranchTargets(runner, branchTargets, sp.Branch); err != nil {
+			return err
+		}
+	}
+
+	allNew := make([]*repoTarget, 0, len(upgradeTargets)+len(promotionTargets)+len(newTargets))
+	allNew = append(allNew, upgradeTargets...)
+	allNew = append(allNew, promotionTargets...)
+	allNew = append(allNew, newTargets...)
+
+	// Build the full target list for go.work: untouched existing members, then
+	// the upgraded, promoted and brand-new repos.
+	replaced := make(map[string]bool, len(allNew))
+	for _, t := range allNew {
+		replaced[t.name] = true
 	}
 	var keepFromState []*repoTarget
 	for _, t := range targetsFromState(sp) {
-		if !upgradedNames[t.name] {
+		if !replaced[t.name] {
 			keepFromState = append(keepFromState, t)
 		}
 	}
-	allTargets := append(append(keepFromState, upgradeTargets...), newTargets...)
-	hasGoMod, anyGoMod := detectGoMods(allTargets)
+	allTargets := append(keepFromState, allNew...)
+	hasGoMod, _ := detectGoMods(allTargets)
+	anyGoMod := applyReadOnlyGoMods(allTargets, hasGoMod)
 
 	var steps []saga.Step
-	// For each symlink being upgraded: remove the symlink, then add the worktree.
-	for i := range upgradeTargets {
-		t := upgradeTargets[i]
+	// For each symlink being upgraded: remove the symlink, then add the checkout.
+	for _, t := range upgradeTargets {
 		steps = append(steps, saga.Step{
 			Name: fmt.Sprintf("remove symlink %s", t.name),
-			Do:   func(ctx context.Context) error { return f.Remove(t.worktreePath) },
-			Undo: func(ctx context.Context) error { return f.Symlink(t.repoPath, t.worktreePath) },
+			Do:   func(_ context.Context) error { return f.Remove(t.worktreePath) },
+			Undo: func(_ context.Context) error { return f.Symlink(t.repoPath, t.worktreePath) },
 		})
-		steps = append(steps, worktreeStep(runner, t, sp.Branch, "", f))
+		if t.readOnly {
+			steps = append(steps, detachedWorktreeStep(runner, t, f))
+		} else {
+			steps = append(steps, worktreeStep(runner, t, sp.Branch, "", f))
+		}
 		sec, err := secretCopySteps(cfg, t, f)
 		if err != nil {
 			return err
 		}
 		steps = append(steps, sec...)
 	}
-	for i := range newTargets {
-		steps = append(steps, worktreeStep(runner, newTargets[i], sp.Branch, "", f))
-		sec, err := secretCopySteps(cfg, newTargets[i], f)
+	for _, t := range promotionTargets {
+		ps, err := promotionSteps(cfg, runner, t, sp, f)
+		if err != nil {
+			return err
+		}
+		steps = append(steps, ps...)
+	}
+	for _, t := range newTargets {
+		if t.readOnly {
+			steps = append(steps, detachedWorktreeStep(runner, t, f))
+		} else {
+			steps = append(steps, worktreeStep(runner, t, sp.Branch, "", f))
+		}
+		sec, err := secretCopySteps(cfg, t, f)
 		if err != nil {
 			return err
 		}
@@ -190,14 +283,14 @@ func RunSpaceAdd(cfg *config.Config, runner git.Runner, args SpaceAddArgs, out i
 	oldState := *sp
 	steps = append(steps, saga.Step{
 		Name: "save state",
-		Do: func(ctx context.Context) error {
+		Do: func(_ context.Context) error {
 			updated := oldState
 			updated.GoWorkspace = anyGoMod
-			// Rebuild repo list: keep non-upgraded existing entries, then add
-			// upgraded (now worktrees) and new repos.
+			// Rebuild repo list: keep untouched existing entries, then add
+			// upgraded, promoted and new repos.
 			var repos []state.RepoEntry
 			for _, r := range updated.Repos {
-				if !upgradedNames[r.Name] {
+				if !replaced[r.Name] {
 					repos = append(repos, r)
 				}
 			}
@@ -206,12 +299,14 @@ func RunSpaceAdd(cfg *config.Config, runner git.Runner, args SpaceAddArgs, out i
 					Name:         t.name,
 					RepoPath:     t.repoPath,
 					WorktreePath: t.worktreePath,
+					ReadOnly:     t.readOnly,
+					Ref:          t.ref,
 				})
 			}
 			updated.Repos = repos
 			return state.Save(&updated, f)
 		},
-		Undo: func(ctx context.Context) error {
+		Undo: func(_ context.Context) error {
 			return state.Save(&oldState, f)
 		},
 	})
@@ -229,7 +324,14 @@ func RunSpaceAdd(cfg *config.Config, runner git.Runner, args SpaceAddArgs, out i
 	tbl := ui.NewTableWriter(out)
 	addedNames := make([]string, len(allNew))
 	for i, t := range allNew {
-		if dry {
+		if t.readOnly {
+			ref := ui.SymReadOnly + " read-only @ " + t.ref
+			if dry {
+				tbl.Row("  "+t.name, ui.Muted.Render(ref), ui.SymPlan+" would create worktree "+t.worktreePath)
+			} else {
+				tbl.Row("  "+t.name, ui.Muted.Render(ref), t.worktreePath)
+			}
+		} else if dry {
 			tbl.Row("  "+t.name, ui.SymPlan+" would create worktree "+t.worktreePath)
 		} else {
 			tbl.Row("  "+t.name, t.worktreePath)
@@ -243,4 +345,20 @@ func RunSpaceAdd(cfg *config.Config, runner git.Runner, args SpaceAddArgs, out i
 		runSpaceScript(cfg, "add", sp, addedNames, out, f)
 	}
 	return nil
+}
+
+// applyReadOnlyGoMods overrides the go.mod detection for read-only members: the
+// go.mod that matters is the one at the pinned commit, not in the main clone,
+// because a pin may predate the module (ADR 0024 D7). It returns whether any
+// member contributes a go.mod.
+func applyReadOnlyGoMods(targets []*repoTarget, hasGoMod []bool) (anyGoMod bool) {
+	for i, t := range targets {
+		if t.readOnly {
+			hasGoMod[i] = t.hasGoMod
+		}
+		if hasGoMod[i] {
+			anyGoMod = true
+		}
+	}
+	return anyGoMod
 }

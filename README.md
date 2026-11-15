@@ -143,15 +143,21 @@ usual, and `delete` exits non-zero. Copy the change back (or discard it) and run
 `wtg delete` again; it resumes with exactly the kept repos. Other ignored files
 you created yourself are not detected.
 
-### `wtg add [<workspace>] <repo>...`
+### `wtg add [<workspace>] <repo>... [--read-only [--ref <ref>]]`
 
-Add repos to an existing workspace. Creates worktrees on the workspace's branch
-and updates `go.work`. When run from inside a workspace directory, the workspace
-argument can be omitted.
+Add repos to an existing workspace. Creates worktrees on the workspace's branch and updates `go.work`. When run from inside a workspace directory, the workspace argument can be omitted.
 
 ```sh
 wtg add my-feature infra logging
 wtg add infra logging             # workspace inferred from CWD
+```
+
+With `--read-only`, the repo is added as a member you *consume* rather than change: a detached worktree at a pinned ref, listed in `go.work` if it has a `go.mod`, with no feature branch of its own. See [Read-only members](#read-only-members).
+
+```sh
+wtg add --read-only config-lib                # what the workspace's consumers require
+wtg add --read-only --ref v2.0.0 config-lib   # pin a tag
+wtg add --read-only --ref origin/main lib     # follow a branch
 ```
 
 ### `wtg remove [<workspace>] <repo>...`
@@ -165,6 +171,60 @@ wtg remove my-feature logging
 wtg remove my-feature logging -d  # also delete the branch
 wtg remove logging                # workspace inferred from CWD
 ```
+
+### Read-only members
+
+A feature touches two or three repos and merely *uses* a few more: a library you built against, a docs repo, a code generator. `wtg add --read-only` adds such a repo as a **detached worktree at a ref you choose**. It is a real directory, so you can build, search and run in it, and it is listed in `go.work` if it has a `go.mod` — but it has no feature branch, and `push`, `land` and the branch safety checks in `remove`/`delete` ignore it.
+
+```sh
+wtg add --read-only config-lib                 # the version your consumers require
+wtg status
+```
+
+```
+my-feature  ~/workspaces/my-feature
+  api          [geoff/my-feature]    ✓ clean
+  config-lib   ◇ read-only @ v2.0.0  ✓ clean
+```
+
+Where the ref comes from:
+
+| Invocation | Ref |
+|---|---|
+| `--read-only` | the version the other members' `go.mod` files select (`go list -m`), else `origin/<default branch>` |
+| `--read-only --ref v2.0.0` | a tag, pinned |
+| `--read-only --ref 1a2b3c4` | a commit, pinned |
+| `--read-only --ref origin/main` | a branch, followed by `wtg rebase` |
+
+`--ref` applies to every repo named in that invocation; add repos that need different refs in separate invocations. A ref that does not resolve fails before anything is created. Without `--ref`, consumers that require different versions are an error that lists each one, because `go.work` overrides `go.mod`: the member contributes exactly one version to the build and it has to be the right one.
+
+What the commands do with a read-only member:
+
+| Command | Behaviour |
+|---|---|
+| `status` | shows `◇ read-only @ <ref>`; a modified worktree is flagged |
+| `rebase` | advances it when it follows `origin/<branch>`, leaves a pinned one alone, never touches a modified one |
+| `push`, `land` | skipped, with no failure |
+| `exec` | included — it is a real worktree of its own |
+| `remove`, `delete` | removes the worktree; `-d`/`-D` have no branch to delete |
+| `add <repo>` | promotes it to a normal worktree on the workspace's branch |
+
+```sh
+wtg add config-lib       # promote: needs a clean worktree
+wtg rebase               # "advanced" for followed refs, "pinned at v2.0.0" otherwise
+```
+
+"Read-only" is a statement of intent, not file permissions: `wtg` reports a modification but does not prevent one. To change a read-only member, promote it first. To re-pin one, `wtg remove` it and add it again with a different `--ref`.
+
+`wtg status` also compares, for every pair of `go.work` members, the version a consumer requires with what is checked out, and prints a line when they differ:
+
+```
+⚠ config-lib is 12 commits behind v2.0.0, which api requires
+```
+
+That warning means the local build is not what CI builds, since `go.work` overrides `go.mod`. A checkout that is *ahead* of the required version is a muted note instead — that is the normal state of a repo you are editing, but it cannot build without `go.work` until a tag is cut. Modules a consumer `replace`s are not checked, and a version that cannot be resolved locally stays silent rather than raising a false alarm. The check never fails `wtg status` and never fetches.
+
+See [ADR 0024](docs/adr/0024-read-only-workspace-members.md).
 
 ### `wtg push [<workspace>]`
 
@@ -232,6 +292,7 @@ wtg rebase --progress             # live per-repo progress bar
   stash.
 - Repos on another branch, with unresolved conflicts, or with a rebase, merge,
   cherry-pick or revert in progress are skipped.
+- A read-only member is not rebased: one that follows `origin/<branch>` is advanced (`↑ advanced (was a1b2c3d)`), a pinned one is reported as `✓ pinned at v2.0.0`, and a modified one is skipped with a warning.
 - The exit code is non-zero if any repo failed or needs attention. Nothing is
   pushed.
 
@@ -255,6 +316,15 @@ my-feature  ~/workspaces/my-feature
   payments  [geoff/my-feature]  ! 2 modified
   frontend  [geoff/my-feature]  ✓ clean
 ```
+
+Members that are consumed rather than changed show the ref they are pinned to instead of a branch, and a warning is printed when a `go.work` member's checkout differs from what another member requires:
+
+```
+  config-lib  ◇ read-only @ v2.0.0  ✓ clean
+⚠ config-lib is 12 commits behind v2.0.0, which api requires
+```
+
+See [Read-only members](#read-only-members).
 
 ### `wtg exec [<workspace>] [--parallel] -- <cmd> [<args>...]`
 
