@@ -51,7 +51,7 @@ the source repo, and any always.run hook fires once the workspace is created.`,
 			},
 			&cli.StringFlag{
 				Name:  "base",
-				Usage: "commit-ish to branch from (default: HEAD)",
+				Usage: "commit-ish to branch from (default: HEAD); origin/<branch> is also recorded as the base branch for rebase and land",
 			},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
@@ -140,6 +140,10 @@ func RunSpaceNew(cfg *config.Config, runner git.Runner, args SpaceNewArgs, out i
 	if err := classifyBranchTargets(runner, targets, branch); err != nil {
 		return err
 	}
+
+	// A base of origin/<branch> is recorded per repo, so rebase and land know
+	// where this branch belongs beyond its lifetime as a worktree (ADR 0018 D1).
+	recordBaseBranches(runner, targets, args.Base)
 
 	symlinkTargets, err := resolveAlwaysRepos(cfg, roots, spacePath, allPaths, repos)
 	if err != nil {

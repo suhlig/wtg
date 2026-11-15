@@ -31,6 +31,10 @@ type repoTarget struct {
 	remoteBase   string // set when branch exists only on remote; used as start point for WorktreeAdd
 	symlink      bool   // true if this entry should be a symlink to the main clone, not a worktree
 
+	// base is the branch the worktree branch is cut from, recorded in state when
+	// it is a remote-tracking branch other than the default (ADR 0018 D1).
+	base string
+
 	// Read-only members (ADR 0024): a detached worktree at detachAt, recorded
 	// in state as read_only with the user's intent ref.
 	readOnly bool
@@ -48,6 +52,7 @@ func targetsFromState(sp *state.Space) []*repoTarget {
 			repoPath:     r.RepoPath,
 			worktreePath: r.WorktreePath,
 			symlink:      r.Symlink,
+			base:         r.Base,
 			readOnly:     r.ReadOnly,
 			ref:          r.Ref,
 		}
@@ -511,11 +516,32 @@ func buildSpaceState(name, spacePath, branch string, goWorkspace bool, targets [
 			RepoPath:     t.repoPath,
 			WorktreePath: t.worktreePath,
 			Symlink:      t.symlink,
+			Base:         t.base,
 			ReadOnly:     t.readOnly,
 			Ref:          t.ref,
 		})
 	}
 	return sp
+}
+
+// recordBaseBranches sets targets' recorded base branch when base names a
+// remote-tracking branch of origin (ADR 0018 D1). --base accepts any
+// commit-ish, so a tag, commit or local branch is a valid start point but is
+// not recorded: only a branch can be rebased onto and landed into later.
+func recordBaseBranches(runner git.Runner, targets []*repoTarget, base string) {
+	name, ok := strings.CutPrefix(base, "origin/")
+	if !ok || name == "" || name == "HEAD" {
+		return
+	}
+	for _, t := range targets {
+		if t.readOnly || t.symlink {
+			continue
+		}
+		if _, err := runner.ResolveRef(t.repoPath, "refs/remotes/origin/"+name); err != nil {
+			continue // this repo has no such branch; keep the default
+		}
+		t.base = name
+	}
 }
 
 // deleteOne removes the worktree (or symlink) for one repo and optionally

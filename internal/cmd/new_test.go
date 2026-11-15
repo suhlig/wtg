@@ -1137,3 +1137,79 @@ func TestRunSpaceNew_DryRun(t *testing.T) {
 		t.Error("state should not be saved in dry-run mode")
 	}
 }
+
+// --- --base records a non-default base branch (ADR 0018 D1) ---
+
+func TestRunSpaceNew_BaseFlag_RecordsBaseBranch(t *testing.T) {
+	root := t.TempDir()
+	isolateState(t)
+	makeRepo(t, root, "api")
+	cfg := spaceCreateCfg(root, t.TempDir())
+
+	r := &testRunner{
+		branchExistsFn: func(_, _ string) (bool, error) { return false, nil },
+		worktreeAddFn:  func(_, _, _, _ string, _ bool) error { return nil },
+		resolveRefFn:   func(_, ref string) (string, error) { return "abc123", nil },
+	}
+
+	var out bytes.Buffer
+	if err := RunSpaceNew(cfg, r, SpaceNewArgs{Name: "feat", Base: "origin/develop"}, &out); err != nil {
+		t.Fatalf("RunSpaceNew: %v", err)
+	}
+	sp, err := state.Load("feat")
+	if err != nil {
+		t.Fatalf("state.Load: %v", err)
+	}
+	if len(sp.Repos) != 1 || sp.Repos[0].Base != "develop" {
+		t.Fatalf("expected base develop to be recorded, got %+v", sp.Repos)
+	}
+}
+
+func TestRunSpaceNew_BaseFlag_TagIsNotRecorded(t *testing.T) {
+	root := t.TempDir()
+	isolateState(t)
+	makeRepo(t, root, "api")
+	cfg := spaceCreateCfg(root, t.TempDir())
+
+	r := &testRunner{
+		branchExistsFn: func(_, _ string) (bool, error) { return false, nil },
+		worktreeAddFn:  func(_, _, _, _ string, _ bool) error { return nil },
+	}
+
+	var out bytes.Buffer
+	if err := RunSpaceNew(cfg, r, SpaceNewArgs{Name: "feat", Base: "v1.2.3"}, &out); err != nil {
+		t.Fatalf("RunSpaceNew: %v", err)
+	}
+	sp, err := state.Load("feat")
+	if err != nil {
+		t.Fatalf("state.Load: %v", err)
+	}
+	if sp.Repos[0].Base != "" {
+		t.Errorf("a tag is a start point, not a base branch; got Base %q", sp.Repos[0].Base)
+	}
+}
+
+func TestRunSpaceNew_BaseFlag_UnknownRemoteBranchNotRecorded(t *testing.T) {
+	root := t.TempDir()
+	isolateState(t)
+	makeRepo(t, root, "api")
+	cfg := spaceCreateCfg(root, t.TempDir())
+
+	r := &testRunner{
+		branchExistsFn: func(_, _ string) (bool, error) { return false, nil },
+		worktreeAddFn:  func(_, _, _, _ string, _ bool) error { return nil },
+		resolveRefFn:   func(_, _ string) (string, error) { return "", fmt.Errorf("unknown revision") },
+	}
+
+	var out bytes.Buffer
+	if err := RunSpaceNew(cfg, r, SpaceNewArgs{Name: "feat", Base: "origin/develop"}, &out); err != nil {
+		t.Fatalf("RunSpaceNew: %v", err)
+	}
+	sp, err := state.Load("feat")
+	if err != nil {
+		t.Fatalf("state.Load: %v", err)
+	}
+	if sp.Repos[0].Base != "" {
+		t.Errorf("a repo without origin/develop keeps the default; got Base %q", sp.Repos[0].Base)
+	}
+}

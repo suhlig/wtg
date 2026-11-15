@@ -31,6 +31,12 @@ type RepoEntry struct {
 	WorktreePath string `yaml:"worktree_path"`     // absolute path to the linked worktree or symlink
 	Symlink      bool   `yaml:"symlink,omitempty"` // true if this entry is a symlink to the main clone
 
+	// Base records the branch this repo's workspace branch was cut from, when
+	// that is not the repo's default branch: "develop" means origin/develop.
+	// Empty means "the default branch". Written by new/add (ADR 0018 D1) and
+	// honoured by rebase and land (ADR 0019 D4).
+	Base string `yaml:"base,omitempty"`
+
 	// ReadOnly marks a member that is consumed, not changed: a detached
 	// worktree at Ref with no workspace branch (ADR 0024).
 	ReadOnly bool `yaml:"read_only,omitempty"`

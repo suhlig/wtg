@@ -24,10 +24,11 @@ func RebaseCommand(runner git.Runner) *cli.Command {
 		Name:      "rebase",
 		Usage:     "rebase all branches in a workspace onto their base branch",
 		ArgsUsage: "[<workspace>]",
-		Description: `Fetches origin and rebases the workspace's branch onto origin/<default
-branch> in every repo's worktree, in parallel, with --autostash so that
-uncommitted changes are carried along. The default branch is resolved per
-repo; use --onto to name one branch for all repos.
+		Description: `Fetches origin and rebases the workspace's branch onto origin/<base branch> in
+every repo's worktree, in parallel, with --autostash so that uncommitted
+changes are carried along. The base is the branch recorded when the workspace
+was created (wtg new, or wtg add --base origin/<branch>), else the repo's
+default branch; use --onto to name one branch for all repos.
 
 A conflict aborts that repo's rebase and restores the worktree (including
 uncommitted changes); the retry command is printed. Other repos are not
@@ -44,7 +45,7 @@ advanced, a pinned one is left alone, and a modified one is skipped.`,
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:  "onto",
-				Usage: "rebase onto origin/<branch> instead of each repo's default branch",
+				Usage: "rebase onto origin/<branch> instead of each repo's base branch",
 			},
 			&cli.BoolFlag{
 				Name:  "progress",
@@ -239,6 +240,9 @@ func rebaseOne(runner git.Runner, branch, onto string, r state.RepoEntry, phase 
 	defer phase(phaseRebasing, 0)
 
 	base := onto
+	if base == "" {
+		base = r.Base // a branch recorded at new/add time (ADR 0018 D1)
+	}
 	if base == "" {
 		base, err = runner.DefaultBranch(r.WorktreePath)
 		if err != nil {

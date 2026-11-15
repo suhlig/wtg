@@ -690,3 +690,45 @@ func TestRunSpaceAdd_DryRun(t *testing.T) {
 		t.Errorf("state should remain unchanged in dry-run mode, got %v", sp.Repos)
 	}
 }
+
+// --- --base (ADR 0018 D1) ---
+
+func TestRunSpaceAdd_BaseFlagRecordsBaseBranch(t *testing.T) {
+	root := t.TempDir()
+	spacesRoot := t.TempDir()
+	isolateState(t)
+	makeRepo(t, root, "api")
+	makeRepo(t, root, "frontend")
+	makeSpace(t, "feat", "feat", filepath.Join(spacesRoot, "feat"), []string{"api"}, root)
+	cfg := spaceCreateCfg(root, spacesRoot)
+
+	var gotBase string
+	r := &testRunner{
+		branchExistsFn: func(_, _ string) (bool, error) { return false, nil },
+		worktreeAddFn: func(_, _, _, base string, _ bool) error {
+			gotBase = base
+			return nil
+		},
+		resolveRefFn: func(_, ref string) (string, error) { return "abc123", nil },
+	}
+
+	var out bytes.Buffer
+	if err := RunSpaceAdd(cfg, r, SpaceAddArgs{Name: "feat", Repos: []string{"frontend"}, Base: "origin/develop"}, &out); err != nil {
+		t.Fatalf("RunSpaceAdd: %v", err)
+	}
+	if gotBase != "origin/develop" {
+		t.Errorf("worktree base: got %q, want origin/develop", gotBase)
+	}
+	sp, err := state.Load("feat")
+	if err != nil {
+		t.Fatalf("state.Load: %v", err)
+	}
+	for _, repo := range sp.Repos {
+		if repo.Name == "frontend" && repo.Base != "develop" {
+			t.Errorf("frontend base: got %q, want develop", repo.Base)
+		}
+		if repo.Name == "api" && repo.Base != "" {
+			t.Errorf("api keeps the default base, got %q", repo.Base)
+		}
+	}
+}

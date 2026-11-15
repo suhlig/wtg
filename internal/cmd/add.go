@@ -32,6 +32,10 @@ workspace already has one.
 If the branch already exists in a repo (locally or on the remote) it is
 checked out as-is — no reset or rebase is performed.
 
+--base names the commit-ish a new branch is created from. When it is
+origin/<branch>, that branch is recorded as the repo's base, so wtg rebase
+and wtg land target it instead of the repo's default branch.
+
 Paths in always.secrets are copied from each source repo into its new
 worktree when present.
 
@@ -56,6 +60,10 @@ known workspace — it will be inferred automatically.`,
 				Name:  "ref",
 				Usage: "ref a read-only member is pinned to or follows (requires --read-only)",
 			},
+			&cli.StringFlag{
+				Name:  "base",
+				Usage: "commit-ish to create the branch from (default: HEAD); origin/<branch> is also recorded as the base branch for rebase and land",
+			},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			if cmd.Args().Len() < 1 {
@@ -63,6 +71,9 @@ known workspace — it will be inferred automatically.`,
 			}
 			if cmd.String("ref") != "" && !cmd.Bool("read-only") {
 				return fmt.Errorf("--ref only applies to a read-only member; add --read-only, or omit --ref")
+			}
+			if cmd.String("base") != "" && cmd.Bool("read-only") {
+				return fmt.Errorf("--base only applies to a worktree on the workspace branch; omit it with --read-only")
 			}
 			cfg, err := config.Load(cmd.Root().String("config"))
 			if err != nil {
@@ -77,6 +88,7 @@ known workspace — it will be inferred automatically.`,
 				Repos:    repos,
 				ReadOnly: cmd.Bool("read-only"),
 				Ref:      cmd.String("ref"),
+				Base:     cmd.String("base"),
 			}, os.Stdout, fsys...)
 		},
 	}
@@ -88,6 +100,7 @@ type SpaceAddArgs struct {
 	Repos    []string // short names of repos to add (required)
 	ReadOnly bool     // --read-only: add as a detached worktree at Ref, not on the branch
 	Ref      string   // --ref: the ref to pin or follow (read-only only)
+	Base     string   // --base: commit-ish to create the branch from; origin/<branch> is recorded
 
 	// Go resolves what the workspace's other members require when Ref is empty.
 	// It is nil in normal use (the go binary is used); tests inject a fake here.
@@ -221,6 +234,10 @@ func RunSpaceAdd(cfg *config.Config, runner git.Runner, args SpaceAddArgs, out i
 	allNew = append(allNew, promotionTargets...)
 	allNew = append(allNew, newTargets...)
 
+	// A base of origin/<branch> is recorded per repo, so rebase and land know
+	// where these branches belong (ADR 0018 D1).
+	recordBaseBranches(runner, allNew, args.Base)
+
 	// Build the full target list for go.work: untouched existing members, then
 	// the upgraded, promoted and brand-new repos.
 	replaced := make(map[string]bool, len(allNew))
@@ -248,7 +265,7 @@ func RunSpaceAdd(cfg *config.Config, runner git.Runner, args SpaceAddArgs, out i
 		if t.readOnly {
 			steps = append(steps, detachedWorktreeStep(runner, t, f))
 		} else {
-			steps = append(steps, worktreeStep(runner, t, sp.Branch, "", f))
+			steps = append(steps, worktreeStep(runner, t, sp.Branch, args.Base, f))
 		}
 		sec, err := secretCopySteps(cfg, t, f)
 		if err != nil {
@@ -267,7 +284,7 @@ func RunSpaceAdd(cfg *config.Config, runner git.Runner, args SpaceAddArgs, out i
 		if t.readOnly {
 			steps = append(steps, detachedWorktreeStep(runner, t, f))
 		} else {
-			steps = append(steps, worktreeStep(runner, t, sp.Branch, "", f))
+			steps = append(steps, worktreeStep(runner, t, sp.Branch, args.Base, f))
 		}
 		sec, err := secretCopySteps(cfg, t, f)
 		if err != nil {
@@ -301,6 +318,7 @@ func RunSpaceAdd(cfg *config.Config, runner git.Runner, args SpaceAddArgs, out i
 					Name:         t.name,
 					RepoPath:     t.repoPath,
 					WorktreePath: t.worktreePath,
+					Base:         t.base,
 					ReadOnly:     t.readOnly,
 					Ref:          t.ref,
 				})

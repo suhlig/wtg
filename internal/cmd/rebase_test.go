@@ -11,6 +11,7 @@ import (
 	"testing/synctest"
 
 	"github.com/suhlig/wtg/internal/git"
+	"github.com/suhlig/wtg/internal/state"
 	"github.com/suhlig/wtg/internal/ui"
 )
 
@@ -379,5 +380,49 @@ func TestRunSpaceRebase_DryRun_PlansAndNamesTheLastFetch(t *testing.T) {
 	}
 	if !strings.Contains(dry.String(), "up to date (as of the last fetch)") {
 		t.Errorf("expected last-fetch note, got %q", dry.String())
+	}
+}
+
+// --- recorded per-repo base branch (ADR 0018 D1) ---
+
+// runRebaseWithBase records base for the space's only repo, then rebases.
+func runRebaseWithBase(t *testing.T, r *testRunner, base, onto string) string {
+	t.Helper()
+	isolateState(t)
+	sp := makeSpace(t, "feat", "geoff/feat", t.TempDir(), []string{"api"}, "/repos")
+	sp.Repos[0].Base = base
+	if err := state.Save(sp); err != nil {
+		t.Fatalf("save space: %v", err)
+	}
+	var out bytes.Buffer
+	if err := RunSpaceRebase(r, "feat", onto, false, &out); err != nil {
+		t.Fatalf("RunSpaceRebase: %v\n%s", err, out.String())
+	}
+	return out.String()
+}
+
+func TestRunSpaceRebase_UsesRecordedBase(t *testing.T) {
+	r := rebaseRunner()
+	r.defaultBranchFn = func(string) (string, error) {
+		t.Error("a recorded base must win over the default branch")
+		return "main", nil
+	}
+	var gotOnto string
+	r.rebaseFn = func(_, onto string) error { gotOnto = onto; return nil }
+
+	runRebaseWithBase(t, r, "develop", "")
+	if gotOnto != "origin/develop" {
+		t.Errorf("rebased onto %q, want origin/develop", gotOnto)
+	}
+}
+
+func TestRunSpaceRebase_OntoBeatsRecordedBase(t *testing.T) {
+	r := rebaseRunner()
+	var gotOnto string
+	r.rebaseFn = func(_, onto string) error { gotOnto = onto; return nil }
+
+	runRebaseWithBase(t, r, "develop", "release")
+	if gotOnto != "origin/release" {
+		t.Errorf("rebased onto %q, want origin/release", gotOnto)
 	}
 }
