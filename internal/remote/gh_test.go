@@ -29,6 +29,8 @@ case "$1 $2" in
     exit "${GH_AUTH_EXIT:-0}" ;;
   "repo view")
     printf '%s\n' "$GH_VIEW_JSON" ;;
+  "pr list")
+    printf '%s\n' "$GH_PR_LIST_JSON" ;;
 esac
 exit "${GH_MUTATE_EXIT:-0}"
 `
@@ -108,6 +110,35 @@ func TestSystemRunnerArchiveFailure(t *testing.T) {
 	t.Setenv("GH_MUTATE_EXIT", "1")
 	if err := NewSystemRunner(nil).Archive(context.Background(), GitHubHost, "owner/foo"); err == nil {
 		t.Error("Archive should surface a gh failure")
+	}
+}
+
+func TestSystemRunnerFindPRState(t *testing.T) {
+	calls := installFakeGH(t)
+	t.Setenv("GH_PR_LIST_JSON", `[{"number":42,"url":"https://github.com/owner/foo/pull/42","state":"MERGED","headRefOid":"abc123"}]`)
+	pr, found, err := NewSystemRunner(nil).FindPRState(context.Background(), GitHubHost, "owner/foo", "feat")
+	if err != nil || !found || pr.State != "MERGED" || pr.Number != 42 || pr.HeadRefOid != "abc123" {
+		t.Fatalf("FindPRState: got %+v, found=%v, %v", pr, found, err)
+	}
+	assertCall(t, calls(), "HOST=github.com pr list --repo owner/foo --head feat --state all --limit 10 --json number,url,state,headRefOid")
+}
+
+func TestSystemRunnerFindPRState_MergedWinsOverClosed(t *testing.T) {
+	installFakeGH(t)
+	// gh lists newest first; a closed re-open attempt must not hide the merge.
+	t.Setenv("GH_PR_LIST_JSON", `[{"number":9,"state":"CLOSED","headRefOid":"def456"},{"number":3,"state":"MERGED","headRefOid":"abc123"}]`)
+	pr, found, err := NewSystemRunner(nil).FindPRState(context.Background(), GitHubHost, "owner/foo", "feat")
+	if err != nil || !found || pr.State != "MERGED" || pr.Number != 3 {
+		t.Fatalf("FindPRState: got %+v, found=%v, %v", pr, found, err)
+	}
+}
+
+func TestSystemRunnerFindPRState_None(t *testing.T) {
+	installFakeGH(t)
+	t.Setenv("GH_PR_LIST_JSON", "[]")
+	pr, found, err := NewSystemRunner(nil).FindPRState(context.Background(), GitHubHost, "owner/foo", "feat")
+	if err != nil || found || pr.Number != 0 {
+		t.Fatalf("FindPRState: got %+v, found=%v, %v; want no PR", pr, found, err)
 	}
 }
 

@@ -22,6 +22,18 @@ type PR struct {
 	URL    string
 }
 
+// PRState describes a pull request in any state, which is what `wtg delete -d`
+// needs to recognise a squash- or rebase-merged branch
+// (docs/adr/0019-workspace-land.md D12).
+type PRState struct {
+	PR
+	State string // "OPEN", "MERGED" or "CLOSED"
+	// HeadRefOid is the commit the PR's head branch pointed at. Comparing it
+	// with the local branch tip tells "this merge contains everything I have"
+	// from "I committed more after the merge".
+	HeadRefOid string
+}
+
 // Runner runs the read-only and mutating `gh` commands that back
 // `wtg repo archive --remote` and `wtg land`. It is an interface so command
 // tests can inject a fake; the real implementation is SystemRunner.
@@ -46,6 +58,11 @@ type Runner interface {
 	PRBody(ctx context.Context, host, ownerRepo string, number int) (string, error)
 	// SetPRBody replaces the body of a PR.
 	SetPRBody(ctx context.Context, host, ownerRepo string, number int, body string) error
+	// FindPRState returns the most recent pull request whose head is head, in
+	// any state, or found=false. A MERGED one wins, because a merge is what
+	// makes `wtg delete -d` safe for a squash- or rebase-merged branch
+	// (docs/adr/0019-workspace-land.md D12).
+	FindPRState(ctx context.Context, host, ownerRepo, head string) (pr PRState, found bool, err error)
 }
 
 // SystemRunner runs the gh CLI found on PATH. rec may be nil (no recording).
@@ -198,4 +215,39 @@ func (s *SystemRunner) SetPRBody(ctx context.Context, host, ownerRepo string, nu
 		return fmt.Errorf("gh pr edit %d failed:\n%s", number, strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+// FindPRState returns the most recent PR whose head is head, in any state, or
+// found=false when there is none. A merged PR wins over a newer closed one:
+// the merge is what puts the commits into the base branch, which is the
+// question `wtg delete -d` asks.
+func (s *SystemRunner) FindPRState(ctx context.Context, host, ownerRepo, head string) (PRState, bool, error) {
+	out, err := s.ghOutput(ctx, host, "pr", "list", "--repo", ownerRepo, "--head", head, "--state", "all", "--limit", "10", "--json", "number,url,state,headRefOid")
+	if err != nil {
+		return PRState{}, false, fmt.Errorf("gh pr list --head %s failed:\n%s", head, strings.TrimSpace(string(out)))
+	}
+	var prs []struct {
+		Number     int    `json:"number"`
+		URL        string `json:"url"`
+		State      string `json:"state"`
+		HeadRefOid string `json:"headRefOid"`
+	}
+	if err := json.Unmarshal(out, &prs); err != nil {
+		return PRState{}, false, fmt.Errorf("parse gh pr list output: %w", err)
+	}
+	if len(prs) == 0 {
+		return PRState{}, false, nil
+	}
+	pick := prs[0]
+	for _, pr := range prs {
+		if pr.State == "MERGED" {
+			pick = pr
+			break
+		}
+	}
+	return PRState{
+		PR:         PR{Number: pick.Number, URL: pick.URL},
+		State:      pick.State,
+		HeadRefOid: pick.HeadRefOid,
+	}, true, nil
 }

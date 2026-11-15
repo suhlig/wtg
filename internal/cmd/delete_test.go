@@ -32,7 +32,7 @@ func cleanStatus(_ string) (git.RepoStatus, error) {
 func TestRunSpaceDelete_SpaceNotFound(t *testing.T) {
 	isolateState(t)
 	var out bytes.Buffer
-	err := RunSpaceDelete(&config.Config{}, &testRunner{}, SpaceDeleteArgs{Name: "nonexistent"}, &bytes.Buffer{}, &out)
+	err := RunSpaceDelete(t.Context(), &config.Config{}, &testRunner{}, nil, SpaceDeleteArgs{Name: "nonexistent"}, &bytes.Buffer{}, &out)
 	if err == nil {
 		t.Fatal("expected error when space does not exist")
 	}
@@ -54,7 +54,7 @@ func TestRunSpaceDelete_RemovesWorktrees(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if err := RunSpaceDelete(&config.Config{}, r, SpaceDeleteArgs{Name: "feat"}, &bytes.Buffer{}, &out); err != nil {
+	if err := RunSpaceDelete(t.Context(), &config.Config{}, r, nil, SpaceDeleteArgs{Name: "feat"}, &bytes.Buffer{}, &out); err != nil {
 		t.Fatalf("RunSpaceDelete: %v", err)
 	}
 	if len(removed) != 2 {
@@ -80,7 +80,7 @@ func TestRunSpaceDelete_NotForced_WhenClean(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if err := RunSpaceDelete(&config.Config{}, r, SpaceDeleteArgs{Name: "feat"}, &bytes.Buffer{}, &out); err != nil {
+	if err := RunSpaceDelete(t.Context(), &config.Config{}, r, nil, SpaceDeleteArgs{Name: "feat"}, &bytes.Buffer{}, &out); err != nil {
 		t.Fatalf("RunSpaceDelete: %v", err)
 	}
 	if usedForce {
@@ -103,7 +103,7 @@ func TestRunSpaceDelete_DirtyWorktree_UserDeclines(t *testing.T) {
 
 	var out bytes.Buffer
 	// "n\n" → user declines
-	err := RunSpaceDelete(&config.Config{}, r, SpaceDeleteArgs{Name: "feat"}, strings.NewReader("n\n"), &out)
+	err := RunSpaceDelete(t.Context(), &config.Config{}, r, nil, SpaceDeleteArgs{Name: "feat"}, strings.NewReader("n\n"), &out)
 	if err == nil || !strings.Contains(err.Error(), "aborted: nothing deleted") {
 		t.Fatalf("declined prompt must exit non-zero with 'aborted: nothing deleted', got %v", err)
 	}
@@ -133,7 +133,7 @@ func TestRunSpaceDelete_DirtyWorktree_UserConfirms(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if err := RunSpaceDelete(&config.Config{}, r, SpaceDeleteArgs{Name: "feat"}, strings.NewReader("y\n"), &out); err != nil {
+	if err := RunSpaceDelete(t.Context(), &config.Config{}, r, nil, SpaceDeleteArgs{Name: "feat"}, strings.NewReader("y\n"), &out); err != nil {
 		t.Fatalf("RunSpaceDelete: %v", err)
 	}
 	if !usedForce {
@@ -161,7 +161,7 @@ func TestRunSpaceDelete_UnpushedCommits_Warned(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	_ = RunSpaceDelete(&config.Config{}, r, SpaceDeleteArgs{Name: "feat"}, strings.NewReader("n\n"), &out)
+	_ = RunSpaceDelete(t.Context(), &config.Config{}, r, nil, SpaceDeleteArgs{Name: "feat"}, strings.NewReader("n\n"), &out)
 	if !strings.Contains(out.String(), "unpushed") {
 		t.Errorf("output should mention unpushed commits: %q", out.String())
 	}
@@ -185,7 +185,7 @@ func TestRunSpaceDelete_DeleteBranch(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if err := RunSpaceDelete(&config.Config{}, r, SpaceDeleteArgs{Name: "feat", DeleteBranch: true}, &bytes.Buffer{}, &out); err != nil {
+	if err := RunSpaceDelete(t.Context(), &config.Config{}, r, nil, SpaceDeleteArgs{Name: "feat", DeleteBranch: true}, &bytes.Buffer{}, &out); err != nil {
 		t.Fatalf("RunSpaceDelete: %v", err)
 	}
 	if deletedBranch != "mybranch" {
@@ -205,7 +205,7 @@ func TestRunSpaceDelete_DeleteBranch_RefusedWhenCommitsOnNoRemote(t *testing.T) 
 	// branchDeleteFn intentionally not set: BranchDelete must not be called.
 
 	var out bytes.Buffer
-	err := RunSpaceDelete(&config.Config{}, r, SpaceDeleteArgs{Name: "feat", DeleteBranch: true, Yes: true}, &bytes.Buffer{}, &out)
+	err := RunSpaceDelete(t.Context(), &config.Config{}, r, nil, SpaceDeleteArgs{Name: "feat", DeleteBranch: true, Yes: true}, &bytes.Buffer{}, &out)
 	if err != nil {
 		t.Fatalf("RunSpaceDelete: %v", err)
 	}
@@ -226,7 +226,7 @@ func TestRunSpaceDelete_WarnsAboutOtherCheckedOutBranch(t *testing.T) {
 		return 0, nil
 	}
 	var out bytes.Buffer
-	_ = RunSpaceDelete(&config.Config{}, r, SpaceDeleteArgs{Name: "feat"}, strings.NewReader("n\n"), &out)
+	_ = RunSpaceDelete(t.Context(), &config.Config{}, r, nil, SpaceDeleteArgs{Name: "feat"}, strings.NewReader("n\n"), &out)
 	if !strings.Contains(out.String(), "3 unpushed commit(s) on scratch") {
 		t.Errorf("expected warning for the checked-out branch, got %q", out.String())
 	}
@@ -238,7 +238,7 @@ func TestRunSpaceDelete_NoTerminal_RefusesWithoutYes(t *testing.T) {
 	r := deleteRunner(func(_ string) (git.RepoStatus, error) {
 		return git.RepoStatus{Files: []git.FileStatus{{Path: "a.go", Index: 'M'}}}, nil
 	})
-	err := RunSpaceDelete(&config.Config{}, r, SpaceDeleteArgs{Name: "feat", NoTerminal: true}, strings.NewReader("y\n"), &bytes.Buffer{})
+	err := RunSpaceDelete(t.Context(), &config.Config{}, r, nil, SpaceDeleteArgs{Name: "feat", NoTerminal: true}, strings.NewReader("y\n"), &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "--yes") {
 		t.Fatalf("expected a refusal that mentions --yes, got %v", err)
 	}
@@ -253,7 +253,7 @@ func TestRunSpaceDelete_Yes_SkipsPrompt(t *testing.T) {
 	r := deleteRunner(func(_ string) (git.RepoStatus, error) {
 		return git.RepoStatus{Files: []git.FileStatus{{Path: "a.go", Index: 'M'}}}, nil
 	})
-	if err := RunSpaceDelete(&config.Config{}, r, SpaceDeleteArgs{Name: "feat", Yes: true, NoTerminal: true}, strings.NewReader(""), &bytes.Buffer{}); err != nil {
+	if err := RunSpaceDelete(t.Context(), &config.Config{}, r, nil, SpaceDeleteArgs{Name: "feat", Yes: true, NoTerminal: true}, strings.NewReader(""), &bytes.Buffer{}); err != nil {
 		t.Fatalf("RunSpaceDelete: %v", err)
 	}
 	if _, err := state.Load("feat"); err == nil {
@@ -287,7 +287,7 @@ func TestRunSpaceDelete_ChangedSecret_KeepsRepoAndFails(t *testing.T) {
 	cfg := &config.Config{Always: config.AlwaysConfig{Secrets: []string{".env.local"}}}
 
 	var out bytes.Buffer
-	err := RunSpaceDelete(cfg, r, SpaceDeleteArgs{Name: "feat", ForceBranch: false, Yes: true}, &bytes.Buffer{}, &out)
+	err := RunSpaceDelete(t.Context(), cfg, r, nil, SpaceDeleteArgs{Name: "feat", ForceBranch: false, Yes: true}, &bytes.Buffer{}, &out)
 	if err == nil {
 		t.Fatal("expected a non-zero exit when a repo is kept")
 	}
@@ -307,7 +307,7 @@ func TestRunSpaceDelete_ChangedSecret_KeepsRepoAndFails(t *testing.T) {
 
 	// Once the copy is reconciled, a second run finishes the job.
 	_ = os.WriteFile(filepath.Join(root, "api", ".env.local"), []byte("A=2\n"), 0o600)
-	if err := RunSpaceDelete(cfg, r, SpaceDeleteArgs{Name: "feat", Yes: true}, &bytes.Buffer{}, &bytes.Buffer{}); err != nil {
+	if err := RunSpaceDelete(t.Context(), cfg, r, nil, SpaceDeleteArgs{Name: "feat", Yes: true}, &bytes.Buffer{}, &bytes.Buffer{}); err != nil {
 		t.Fatalf("second run: %v", err)
 	}
 	if _, err := state.Load("feat"); err == nil {
@@ -323,7 +323,7 @@ func TestRunSpaceDelete_SecretSourceMissing_Keeps(t *testing.T) {
 	_ = os.MkdirAll(filepath.Join(spacePath, "api"), 0o750)
 	_ = os.WriteFile(filepath.Join(spacePath, "api", ".env.local"), []byte("A=1\n"), 0o600)
 	cfg := &config.Config{Always: config.AlwaysConfig{Secrets: []string{".env.local"}}}
-	if err := RunSpaceDelete(cfg, deleteRunner(cleanStatus), SpaceDeleteArgs{Name: "feat", Yes: true}, &bytes.Buffer{}, &bytes.Buffer{}); err == nil {
+	if err := RunSpaceDelete(t.Context(), cfg, deleteRunner(cleanStatus), nil, SpaceDeleteArgs{Name: "feat", Yes: true}, &bytes.Buffer{}, &bytes.Buffer{}); err == nil {
 		t.Fatal("the worktree holds the only copy: delete must keep the repo and fail")
 	}
 }
@@ -335,7 +335,7 @@ func TestRunSpaceDelete_SecretCopyMissingInWorktree_Deletes(t *testing.T) {
 	_ = os.MkdirAll(filepath.Join(root, "api"), 0o750)
 	_ = os.WriteFile(filepath.Join(root, "api", ".env.local"), []byte("A=1\n"), 0o600)
 	cfg := &config.Config{Always: config.AlwaysConfig{Secrets: []string{".env.local"}}}
-	if err := RunSpaceDelete(cfg, deleteRunner(cleanStatus), SpaceDeleteArgs{Name: "feat", Yes: true}, &bytes.Buffer{}, &bytes.Buffer{}); err != nil {
+	if err := RunSpaceDelete(t.Context(), cfg, deleteRunner(cleanStatus), nil, SpaceDeleteArgs{Name: "feat", Yes: true}, &bytes.Buffer{}, &bytes.Buffer{}); err != nil {
 		t.Fatalf("a missing copy loses nothing: %v", err)
 	}
 }
@@ -354,7 +354,7 @@ func TestRunSpaceDelete_ForceBranch(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if err := RunSpaceDelete(&config.Config{}, r, SpaceDeleteArgs{Name: "feat", ForceBranch: true}, &bytes.Buffer{}, &out); err != nil {
+	if err := RunSpaceDelete(t.Context(), &config.Config{}, r, nil, SpaceDeleteArgs{Name: "feat", ForceBranch: true}, &bytes.Buffer{}, &out); err != nil {
 		t.Fatalf("RunSpaceDelete: %v", err)
 	}
 	if !deletedForce {
@@ -376,7 +376,7 @@ func TestRunSpaceDelete_BranchDeleteFailure_StateStillDeleted(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if err := RunSpaceDelete(&config.Config{}, r, SpaceDeleteArgs{Name: "feat", DeleteBranch: true}, &bytes.Buffer{}, &out); err != nil {
+	if err := RunSpaceDelete(t.Context(), &config.Config{}, r, nil, SpaceDeleteArgs{Name: "feat", DeleteBranch: true}, &bytes.Buffer{}, &out); err != nil {
 		t.Fatalf("RunSpaceDelete should succeed when only branch deletion fails: %v", err)
 	}
 	// State should still be deleted — the worktree is gone.
@@ -399,7 +399,7 @@ func TestRunSpaceDelete_NoBranchDelete_WhenNoFlag(t *testing.T) {
 	// branchDeleteFn intentionally not set — panics if called unexpectedly.
 
 	var out bytes.Buffer
-	if err := RunSpaceDelete(&config.Config{}, r, SpaceDeleteArgs{Name: "feat"}, &bytes.Buffer{}, &out); err != nil {
+	if err := RunSpaceDelete(t.Context(), &config.Config{}, r, nil, SpaceDeleteArgs{Name: "feat"}, &bytes.Buffer{}, &out); err != nil {
 		t.Fatalf("RunSpaceDelete: %v", err)
 	}
 }
@@ -424,7 +424,7 @@ func TestRunSpaceDelete_PartialFailure_StatePreserved(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	err := RunSpaceDelete(&config.Config{}, r, SpaceDeleteArgs{Name: "feat"}, &bytes.Buffer{}, &out)
+	err := RunSpaceDelete(t.Context(), &config.Config{}, r, nil, SpaceDeleteArgs{Name: "feat"}, &bytes.Buffer{}, &out)
 	if err == nil {
 		t.Fatal("expected error when one worktree removal fails")
 	}
@@ -471,7 +471,7 @@ func TestRunSpaceDelete_MixedDirtyClean_PromptFires(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if err := RunSpaceDelete(&config.Config{}, r, SpaceDeleteArgs{Name: "feat"}, strings.NewReader("y\n"), &out); err != nil {
+	if err := RunSpaceDelete(t.Context(), &config.Config{}, r, nil, SpaceDeleteArgs{Name: "feat"}, strings.NewReader("y\n"), &out); err != nil {
 		t.Fatalf("RunSpaceDelete: %v", err)
 	}
 	// Both repos should be removed with force=true since any warning triggers force.
@@ -493,7 +493,7 @@ func TestRunSpaceDelete_StatusError_SkippedSilently(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if err := RunSpaceDelete(&config.Config{}, r, SpaceDeleteArgs{Name: "feat"}, &bytes.Buffer{}, &out); err != nil {
+	if err := RunSpaceDelete(t.Context(), &config.Config{}, r, nil, SpaceDeleteArgs{Name: "feat"}, &bytes.Buffer{}, &out); err != nil {
 		t.Fatalf("RunSpaceDelete: %v", err)
 	}
 	// No prompt should have been written (no warnings).
@@ -508,7 +508,7 @@ func TestRunSpaceDelete_EmptySpace_DeletesState(t *testing.T) {
 	makeSpace(t, "feat", "feat", spacePath, nil, "")
 
 	var out bytes.Buffer
-	if err := RunSpaceDelete(&config.Config{}, &testRunner{}, SpaceDeleteArgs{Name: "feat"}, &bytes.Buffer{}, &out); err != nil {
+	if err := RunSpaceDelete(t.Context(), &config.Config{}, &testRunner{}, nil, SpaceDeleteArgs{Name: "feat"}, &bytes.Buffer{}, &out); err != nil {
 		t.Fatalf("RunSpaceDelete: %v", err)
 	}
 	if _, err := state.Load("feat"); err == nil {
@@ -537,7 +537,7 @@ func TestRunSpaceDelete_DryRun(t *testing.T) {
 
 	var out bytes.Buffer
 	// Empty reader — if it prompts, it would fail or decline
-	if err := RunSpaceDelete(&config.Config{}, r, SpaceDeleteArgs{Name: "feat"}, &bytes.Buffer{}, &out, fs); err != nil {
+	if err := RunSpaceDelete(t.Context(), &config.Config{}, r, nil, SpaceDeleteArgs{Name: "feat"}, &bytes.Buffer{}, &out, fs); err != nil {
 		t.Fatalf("RunSpaceDelete: %v", err)
 	}
 
@@ -576,7 +576,7 @@ func TestRunSpaceDelete_RemovesGoWorkAndSum(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if err := RunSpaceDelete(&config.Config{}, &testRunner{}, SpaceDeleteArgs{Name: "feat"}, &bytes.Buffer{}, &out); err != nil {
+	if err := RunSpaceDelete(t.Context(), &config.Config{}, &testRunner{}, nil, SpaceDeleteArgs{Name: "feat"}, &bytes.Buffer{}, &out); err != nil {
 		t.Fatalf("RunSpaceDelete: %v", err)
 	}
 	if _, err := os.Stat(goWork); err == nil {
@@ -601,7 +601,7 @@ func TestRunSpaceDelete_WorktreeRemoveError_StatePreserved(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	err := RunSpaceDelete(&config.Config{}, r, SpaceDeleteArgs{Name: "feat"}, &bytes.Buffer{}, &out)
+	err := RunSpaceDelete(t.Context(), &config.Config{}, r, nil, SpaceDeleteArgs{Name: "feat"}, &bytes.Buffer{}, &out)
 	if err == nil {
 		t.Fatal("expected error when worktree removal fails")
 	}
@@ -634,7 +634,7 @@ func TestRunSpaceDelete_AlwaysFiles_RemovedBeforeDirectoryDelete(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if err := RunSpaceDelete(cfg, &testRunner{}, SpaceDeleteArgs{Name: "feat"}, &bytes.Buffer{}, &out); err != nil {
+	if err := RunSpaceDelete(t.Context(), cfg, &testRunner{}, nil, SpaceDeleteArgs{Name: "feat"}, &bytes.Buffer{}, &out); err != nil {
 		t.Fatalf("RunSpaceDelete: %v", err)
 	}
 
@@ -668,7 +668,7 @@ func TestRunSpaceDelete_PrunesNestedWorktreeDirs(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if err := RunSpaceDelete(&config.Config{}, r, SpaceDeleteArgs{Name: "feat"}, &bytes.Buffer{}, &out); err != nil {
+	if err := RunSpaceDelete(t.Context(), &config.Config{}, r, nil, SpaceDeleteArgs{Name: "feat"}, &bytes.Buffer{}, &out); err != nil {
 		t.Fatalf("RunSpaceDelete: %v", err)
 	}
 	if strings.Contains(out.String(), "directory not empty") {
@@ -680,5 +680,153 @@ func TestRunSpaceDelete_PrunesNestedWorktreeDirs(t *testing.T) {
 	}
 	if _, err := os.Stat(spacePath); !os.IsNotExist(err) {
 		t.Errorf("space root should be removed: %v", err)
+	}
+}
+
+// --- a merged PR excuses commits on no remote (ADR 0019 D12) ---
+
+// mergedPRTip is both the head commit of the merged PR and the tip of the
+// local branch in these tests; newerLocalTip is a commit made after the merge.
+const (
+	mergedPRTip   = "abc1234"
+	newerLocalTip = "def5678"
+)
+
+// mergedPRRunner is a delete runner whose workspace branch has one commit that
+// exists on no remote, and whose origin is a GitHub remote.
+func mergedPRRunner() *testRunner {
+	r := deleteRunner(cleanStatus)
+	r.commitsOnNoRemoteFn = func(_, _ string) (int, error) { return 1, nil }
+	r.remoteURLFn = func(_, _ string) (string, error) { return "git@github.com:owner/api.git", nil }
+	r.resolveRefFn = func(_, _ string) (string, error) { return mergedPRTip, nil }
+	return r
+}
+
+func TestRunSpaceDelete_DeleteBranch_MergedPR(t *testing.T) {
+	isolateState(t)
+	makeSpace(t, "feat", "feat", t.TempDir(), []string{"github.com/owner/api"}, t.TempDir())
+
+	r := mergedPRRunner()
+	var deleted bool
+	r.branchDeleteFn = func(_, branch string, force bool) error {
+		deleted = true
+		if branch != "feat" || !force {
+			t.Errorf("BranchDelete(%q, force=%v), want (feat, true)", branch, force)
+		}
+		return nil
+	}
+	gh := &fakeGH{
+		prStates:   map[string]string{"owner/api/feat": "MERGED"},
+		prHeadOIDs: map[string]string{"owner/api/feat": mergedPRTip},
+	}
+
+	var out bytes.Buffer
+	if err := RunSpaceDelete(t.Context(), &config.Config{}, r, gh, SpaceDeleteArgs{Name: "feat", DeleteBranch: true}, &bytes.Buffer{}, &out); err != nil {
+		t.Fatalf("a merged PR makes the branch safe to delete: %v", err)
+	}
+	if !deleted {
+		t.Error("the branch should be deleted")
+	}
+	if strings.Contains(out.String(), "unpushed commit") {
+		t.Errorf("a merged PR must not be reported as unpushed work: %q", out.String())
+	}
+	if !strings.Contains(out.String(), "PR #7 merged") {
+		t.Errorf("the row should name the merged PR, got %q", out.String())
+	}
+}
+
+func TestRunSpaceDelete_DeleteBranch_CommitsAfterTheMergeKeepBranch(t *testing.T) {
+	isolateState(t)
+	makeSpace(t, "feat", "feat", t.TempDir(), []string{"github.com/owner/api"}, t.TempDir())
+
+	// The merged PR's head is abc1234; the branch has a commit on top of it,
+	// which the merge does not contain. Deleting the branch would lose it.
+	r := mergedPRRunner()
+	r.resolveRefFn = func(_, _ string) (string, error) { return newerLocalTip, nil }
+	gh := &fakeGH{
+		prStates:   map[string]string{"owner/api/feat": "MERGED"},
+		prHeadOIDs: map[string]string{"owner/api/feat": mergedPRTip},
+	}
+
+	var out bytes.Buffer
+	if err := RunSpaceDelete(t.Context(), &config.Config{}, r, gh, SpaceDeleteArgs{Name: "feat", DeleteBranch: true, Yes: true}, &bytes.Buffer{}, &out); err != nil {
+		t.Fatalf("RunSpaceDelete: %v", err)
+	}
+	if !strings.Contains(out.String(), "exist on no remote") {
+		t.Errorf("a commit made after the merge must keep the branch: %q", out.String())
+	}
+}
+
+func TestRunSpaceDelete_DeleteBranch_ClosedPRKeepsBranch(t *testing.T) {
+	isolateState(t)
+	makeSpace(t, "feat", "feat", t.TempDir(), []string{"github.com/owner/api"}, t.TempDir())
+
+	r := mergedPRRunner()
+	gh := &fakeGH{
+		prStates:   map[string]string{"owner/api/feat": "CLOSED"},
+		prHeadOIDs: map[string]string{"owner/api/feat": mergedPRTip},
+	}
+
+	var out bytes.Buffer
+	if err := RunSpaceDelete(t.Context(), &config.Config{}, r, gh, SpaceDeleteArgs{Name: "feat", DeleteBranch: true, Yes: true}, &bytes.Buffer{}, &out); err != nil {
+		t.Fatalf("RunSpaceDelete: %v", err)
+	}
+	if !strings.Contains(out.String(), "exist on no remote") {
+		t.Errorf("a closed PR is not a merge; the branch must be kept: %q", out.String())
+	}
+}
+
+func TestRunSpaceDelete_DeleteBranch_NoPRKeepsBranch(t *testing.T) {
+	isolateState(t)
+	makeSpace(t, "feat", "feat", t.TempDir(), []string{"github.com/owner/api"}, t.TempDir())
+
+	r := mergedPRRunner()
+	var out bytes.Buffer
+	if err := RunSpaceDelete(t.Context(), &config.Config{}, r, &fakeGH{}, SpaceDeleteArgs{Name: "feat", DeleteBranch: true, Yes: true}, &bytes.Buffer{}, &out); err != nil {
+		t.Fatalf("RunSpaceDelete: %v", err)
+	}
+	if !strings.Contains(out.String(), "exist on no remote") {
+		t.Errorf("without a PR the branch must be kept: %q", out.String())
+	}
+}
+
+func TestRunSpaceDelete_DeleteBranch_PRLookupFailureKeepsBranch(t *testing.T) {
+	isolateState(t)
+	makeSpace(t, "feat", "feat", t.TempDir(), []string{"github.com/owner/api"}, t.TempDir())
+
+	r := mergedPRRunner()
+	gh := &fakeGH{findStateErr: fmt.Errorf("gh is unavailable")}
+
+	var out bytes.Buffer
+	if err := RunSpaceDelete(t.Context(), &config.Config{}, r, gh, SpaceDeleteArgs{Name: "feat", DeleteBranch: true, Yes: true}, &bytes.Buffer{}, &out); err != nil {
+		t.Fatalf("RunSpaceDelete: %v", err)
+	}
+	if !strings.Contains(out.String(), "exist on no remote") {
+		t.Errorf("a failed lookup must keep the branch: %q", out.String())
+	}
+}
+
+func TestRunSpaceDelete_ForceBranchSkipsPRLookup(t *testing.T) {
+	isolateState(t)
+	makeSpace(t, "feat", "feat", t.TempDir(), []string{"github.com/owner/api"}, t.TempDir())
+
+	r := mergedPRRunner()
+	// remoteURLFn would panic as a nil-lookup signal if gh were consulted: the
+	// runner below has no PR path at all because -D deletes regardless.
+	r.remoteURLFn = func(_, _ string) (string, error) {
+		t.Error("gh must not be consulted with -D")
+		return "", fmt.Errorf("unexpected")
+	}
+	r.branchDeleteFn = func(_, _ string, _ bool) error { return nil }
+
+	var out bytes.Buffer
+	if err := RunSpaceDelete(t.Context(), &config.Config{}, r, &fakeGH{
+		prStates:   map[string]string{"owner/api/feat": "MERGED"},
+		prHeadOIDs: map[string]string{"owner/api/feat": mergedPRTip},
+	}, SpaceDeleteArgs{Name: "feat", ForceBranch: true, Yes: true}, &bytes.Buffer{}, &out); err != nil {
+		t.Fatalf("RunSpaceDelete: %v", err)
+	}
+	if !strings.Contains(out.String(), "branch deleted") {
+		t.Errorf("-D deletes the branch, got %q", out.String())
 	}
 }

@@ -15,13 +15,14 @@ import (
 
 	"github.com/suhlig/wtg/internal/config"
 	"github.com/suhlig/wtg/internal/git"
+	"github.com/suhlig/wtg/internal/remote"
 	"github.com/suhlig/wtg/internal/state"
 	"github.com/suhlig/wtg/internal/trace"
 	"github.com/suhlig/wtg/internal/ui"
 )
 
 // RemoveCommand returns the `wtg remove` command.
-func RemoveCommand(runner git.Runner, fsys ...trace.FS) *cli.Command {
+func RemoveCommand(runner git.Runner, gh remote.Runner, fsys ...trace.FS) *cli.Command {
 	return &cli.Command{
 		Name:      "remove",
 		Aliases:   []string{"rm"},
@@ -32,7 +33,9 @@ By default, branches are left untouched — use --delete-branch (-d) or
 --force-delete-branch (-D) to also delete them.
 
 Prompts for confirmation if any repo has uncommitted changes or unpushed
-commits. To remove all repos at once, use wtg delete instead.
+commits. To remove all repos at once, use wtg delete instead. -d deletes a
+branch whose work is upstream, including a merged pull request, which
+git's own ancestry check cannot see after a squash or rebase merge.
 
 A repo argument of "." means the repo containing the current directory.
 
@@ -63,7 +66,7 @@ known workspace — it will be inferred automatically.`,
 			if err != nil {
 				return err
 			}
-			return RunSpaceRemove(cfg, runner, SpaceRemoveArgs{
+			return RunSpaceRemove(ctx, cfg, runner, gh, SpaceRemoveArgs{
 				Name:         spaceName,
 				Repos:        repos,
 				DeleteBranch: cmd.Bool("delete-branch"),
@@ -84,14 +87,15 @@ type SpaceRemoveArgs struct {
 // RunSpaceRemove removes one or more repos from a workspace by deleting their
 // worktrees and updating the go.work file and state. It mirrors the safety
 // checks of RunSpaceDelete: uncommitted changes and unpushed commits prompt for
-// confirmation before proceeding.
+// confirmation before proceeding. gh may be nil: it is only consulted to
+// recognise a branch whose pull request was merged (ADR 0019 D12).
 //
 // Special handling for always.repos entries: if the removed repo is in
 // cfg.Always.Repos and was a real worktree (not already a symlink), a symlink
 // is restored in its place rather than leaving the repo absent from the space.
 // Removing a repo that is currently a symlink leaves it absent (the user
 // explicitly opted out for this space).
-func RunSpaceRemove(cfg *config.Config, runner git.Runner, args SpaceRemoveArgs, in io.Reader, out io.Writer, fsys ...trace.FS) error {
+func RunSpaceRemove(ctx context.Context, cfg *config.Config, runner git.Runner, gh remote.Runner, args SpaceRemoveArgs, in io.Reader, out io.Writer, fsys ...trace.FS) error {
 	var f trace.FS = trace.NewOsFS(nil)
 	if len(fsys) > 0 && fsys[0] != nil {
 		f = fsys[0]
@@ -147,7 +151,12 @@ func RunSpaceRemove(cfg *config.Config, runner git.Runner, args SpaceRemoveArgs,
 	// parallel (independent per-repo git status calls — see ADR 0023 D3).
 	// Symlink entries are skipped — they point to the shared main clone and
 	// their state is not specific to this space.
-	type warnResult struct{ msgs []string }
+	type warnResult struct {
+		msgs     []string
+		mergedPR string // "#<n>" when a merged PR already contains the branch's work
+	}
+	// Only -d needs the PR lookup: -D deletes regardless (ADR 0019 D12).
+	checkPR := args.DeleteBranch && !args.ForceBranch
 	warnResults := make([]warnResult, len(toRemove))
 	var wg sync.WaitGroup
 	for i, r := range toRemove {
@@ -165,14 +174,19 @@ func RunSpaceRemove(cfg *config.Config, runner git.Runner, args SpaceRemoveArgs,
 			if len(st.Files) > 0 {
 				msgs = append(msgs, fmt.Sprintf("%s: has uncommitted changes", r.Name))
 			}
-			msgs = append(msgs, unpushedWarnings(runner, r, sp.Branch, st.Branch)...)
-			warnResults[i] = warnResult{msgs}
+			branchMsgs, mergedPR := branchWarnings(ctx, runner, gh, r, sp.Branch, st.Branch, checkPR)
+			msgs = append(msgs, branchMsgs...)
+			warnResults[i] = warnResult{msgs: msgs, mergedPR: mergedPR}
 		}(i, r)
 	}
 	wg.Wait()
 
 	var warnings []string
-	for _, wr := range warnResults {
+	mergedPRs := make(map[string]string, len(warnResults))
+	for i, wr := range warnResults {
+		if wr.mergedPR != "" {
+			mergedPRs[toRemove[i].Name] = wr.mergedPR
+		}
 		warnings = append(warnings, wr.msgs...)
 	}
 
@@ -199,7 +213,7 @@ func RunSpaceRemove(cfg *config.Config, runner git.Runner, args SpaceRemoveArgs,
 	hadError := false
 	tbl := ui.NewTableWriter(out)
 	for _, r := range toRemove {
-		sym, msg := deleteOne(runner, r, sp.Branch, args.DeleteBranch, args.ForceBranch, needsForce, f)
+		sym, msg := deleteOne(runner, r, sp.Branch, args.DeleteBranch, args.ForceBranch, needsForce, mergedPRs[r.Name], f)
 		tbl.Row(r.Name, sym+" "+msg)
 		if sym == ui.SymFail {
 			hadError = true

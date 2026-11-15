@@ -610,7 +610,7 @@ func TestRunSpaceRemove_ReadOnlyMemberSkipsBranchLogic(t *testing.T) {
 	}
 	args := SpaceRemoveArgs{Name: "feat", Repos: []string{"config-lib"}, ForceBranch: true}
 	var out bytes.Buffer
-	if err := RunSpaceRemove(cfg, r, args, strings.NewReader(""), &out, nil); err != nil {
+	if err := RunSpaceRemove(t.Context(), cfg, r, nil, args, strings.NewReader(""), &out, nil); err != nil {
 		t.Fatalf("RunSpaceRemove: %v", err)
 	}
 	if !strings.Contains(out.String(), "worktree removed") {
@@ -638,7 +638,7 @@ func TestRunSpaceDelete_ReadOnlyMemberSkipsBranchLogic(t *testing.T) {
 	}
 	args := SpaceDeleteArgs{Name: "feat", ForceBranch: true, Yes: true}
 	var out bytes.Buffer
-	if err := RunSpaceDelete(cfg, r, args, strings.NewReader(""), &out); err != nil {
+	if err := RunSpaceDelete(t.Context(), cfg, r, nil, args, strings.NewReader(""), &out); err != nil {
 		t.Fatalf("RunSpaceDelete: %v", err)
 	}
 }

@@ -553,7 +553,10 @@ func recordBaseBranches(runner git.Runner, targets []*repoTarget, base string) {
 // or, worse, delete a same-named branch the user did not ask to delete.
 // force causes WorktreeRemove to bypass git's dirty-check (used when the user
 // has already confirmed they want to proceed despite uncommitted changes).
-func deleteOne(runner git.Runner, r state.RepoEntry, branch string, deleteBranch, forceBranch, force bool, fsys ...trace.FS) (sym, msg string) {
+// landedPR is "#<n>" when a merged pull request already contains this branch's
+// work; the branch is then deleted by -d even though its commits are on no
+// remote, because squash and rebase merges are not ancestry (ADR 0019 D12).
+func deleteOne(runner git.Runner, r state.RepoEntry, branch string, deleteBranch, forceBranch, force bool, landedPR string, fsys ...trace.FS) (sym, msg string) {
 	var f trace.FS = trace.NewOsFS(nil)
 	if len(fsys) > 0 && fsys[0] != nil {
 		f = fsys[0]
@@ -588,7 +591,10 @@ func deleteOne(runner git.Runner, r state.RepoEntry, branch string, deleteBranch
 		if err != nil {
 			return ui.SymWarn, fmt.Sprintf("worktree removed, branch not deleted: cannot check for unpushed commits: %v", err)
 		}
-		if n > 0 {
+		// A merged PR puts the work upstream even when the commits are not an
+		// ancestor of the branch (squash and rebase merges), which is the one
+		// case CommitsOnNoRemote cannot see (ADR 0019 D12).
+		if n > 0 && landedPR == "" {
 			return ui.SymWarn, fmt.Sprintf("worktree removed, branch not deleted: %d commit(s) exist on no remote (use -D to delete anyway)", n)
 		}
 		forceDelete = true
@@ -596,5 +602,10 @@ func deleteOne(runner git.Runner, r state.RepoEntry, branch string, deleteBranch
 	if err := runner.BranchDelete(r.RepoPath, branch, forceDelete); err != nil {
 		return ui.SymWarn, fmt.Sprintf("worktree removed, branch not deleted: %v", err)
 	}
-	return done("worktree removed, branch deleted", "would remove worktree and delete branch")
+	msg, planMsg := "worktree removed, branch deleted", "would remove worktree and delete branch"
+	if landedPR != "" {
+		msg += " (PR " + landedPR + " merged)"
+		planMsg += " (PR " + landedPR + " merged)"
+	}
+	return done(msg, planMsg)
 }

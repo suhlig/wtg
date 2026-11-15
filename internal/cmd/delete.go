@@ -18,13 +18,14 @@ import (
 
 	"github.com/suhlig/wtg/internal/config"
 	"github.com/suhlig/wtg/internal/git"
+	"github.com/suhlig/wtg/internal/remote"
 	"github.com/suhlig/wtg/internal/state"
 	"github.com/suhlig/wtg/internal/trace"
 	"github.com/suhlig/wtg/internal/ui"
 )
 
 // DeleteCommand returns the `wtg delete` command.
-func DeleteCommand(runner git.Runner, fsys ...trace.FS) *cli.Command {
+func DeleteCommand(runner git.Runner, gh remote.Runner, fsys ...trace.FS) *cli.Command {
 	return &cli.Command{
 		Name:      "delete",
 		Usage:     "delete a workspace and optionally its branches",
@@ -38,7 +39,8 @@ Prompts for confirmation if any repo has uncommitted changes or commits that
 exist on no remote. Pass --yes to answer the prompt in scripts; without --yes
 and without a terminal, delete refuses. A declined prompt exits non-zero, so
 "wtg land && wtg delete && ..." stops. -d deletes a branch when no commit
-exists only on it.
+exists only on it; a merged pull request for the branch counts as upstream
+too, so a squash- or rebase-merged branch can be deleted with -d.
 
 A repo whose always.secrets copy differs from the main clone (or whose source
 no longer exists) is kept, with its branch, and delete exits non-zero; resolve
@@ -77,7 +79,7 @@ workspace containing the current directory.`,
 			if err != nil {
 				return err
 			}
-			return RunSpaceDelete(cfg, runner, SpaceDeleteArgs{
+			return RunSpaceDelete(ctx, cfg, runner, gh, SpaceDeleteArgs{
 				Name:         spaceName,
 				DeleteBranch: cmd.Bool("delete-branch"),
 				ForceBranch:  cmd.Bool("force-delete-branch"),
@@ -100,7 +102,9 @@ type SpaceDeleteArgs struct {
 // RunSpaceDelete removes all worktrees belonging to a space. If -d or -D is
 // set, branches are also deleted. Prompts the user when uncommitted changes or
 // unpushed commits are detected; only deletes state once all removals succeed.
-func RunSpaceDelete(cfg *config.Config, runner git.Runner, args SpaceDeleteArgs, in io.Reader, out io.Writer, fsys ...trace.FS) error {
+// gh may be nil: it is only consulted to recognise a branch whose pull request
+// was merged (ADR 0019 D12).
+func RunSpaceDelete(ctx context.Context, cfg *config.Config, runner git.Runner, gh remote.Runner, args SpaceDeleteArgs, in io.Reader, out io.Writer, fsys ...trace.FS) error {
 	var f trace.FS = trace.NewOsFS(nil)
 	if len(fsys) > 0 && fsys[0] != nil {
 		f = fsys[0]
@@ -115,9 +119,13 @@ func RunSpaceDelete(cfg *config.Config, runner git.Runner, args SpaceDeleteArgs,
 	// Symlink entries point to the shared main clone; their state is not
 	// specific to this space, so they are excluded from pre-flight checks.
 	type warnResult struct {
-		msgs   []string
-		secret []string // always.secrets files that differ from the main clone
+		msgs     []string
+		secret   []string // always.secrets files that differ from the main clone
+		mergedPR string   // "#<n>" when a merged PR already contains the branch's work
 	}
+	// Only -d needs the PR lookup: -D deletes regardless, and a plain delete
+	// leaves branches alone.
+	checkPR := args.DeleteBranch && !args.ForceBranch
 	warnResults := make([]warnResult, len(sp.Repos))
 	var wg sync.WaitGroup
 	for i, r := range sp.Repos {
@@ -135,8 +143,9 @@ func RunSpaceDelete(cfg *config.Config, runner git.Runner, args SpaceDeleteArgs,
 			if len(st.Files) > 0 {
 				msgs = append(msgs, fmt.Sprintf("%s: has uncommitted changes", r.Name))
 			}
-			msgs = append(msgs, unpushedWarnings(runner, r, sp.Branch, st.Branch)...)
-			warnResults[i] = warnResult{msgs: msgs, secret: changedSecrets(cfg, r)}
+			branchMsgs, mergedPR := branchWarnings(ctx, runner, gh, r, sp.Branch, st.Branch, checkPR)
+			msgs = append(msgs, branchMsgs...)
+			warnResults[i] = warnResult{msgs: msgs, secret: changedSecrets(cfg, r), mergedPR: mergedPR}
 		}(i, r)
 	}
 	wg.Wait()
@@ -144,11 +153,15 @@ func RunSpaceDelete(cfg *config.Config, runner git.Runner, args SpaceDeleteArgs,
 	// A repo with a changed always.secrets copy is kept (ADR 0019 D11, change 5):
 	// it is neither removed nor warned about, because nothing will be deleted.
 	kept := make(map[string][]string)
+	mergedPRs := make(map[string]string)
 	var warnings []string
 	for i, wr := range warnResults {
 		if len(wr.secret) > 0 {
 			kept[sp.Repos[i].Name] = wr.secret
 			continue
+		}
+		if wr.mergedPR != "" {
+			mergedPRs[sp.Repos[i].Name] = wr.mergedPR
 		}
 		warnings = append(warnings, wr.msgs...)
 	}
@@ -191,7 +204,7 @@ func RunSpaceDelete(cfg *config.Config, runner git.Runner, args SpaceDeleteArgs,
 			}
 			continue
 		}
-		sym, msg := deleteOne(runner, r, sp.Branch, args.DeleteBranch, args.ForceBranch, needsForce, f)
+		sym, msg := deleteOne(runner, r, sp.Branch, args.DeleteBranch, args.ForceBranch, needsForce, mergedPRs[r.Name], f)
 		tbl.Row(r.Name, sym+" "+msg)
 		if sym == ui.SymFail {
 			hadError = true
@@ -258,28 +271,66 @@ func RunSpaceDelete(cfg *config.Config, runner git.Runner, args SpaceDeleteArgs,
 	return nil
 }
 
-// unpushedWarnings reports commits that exist on no remote for the workspace
+// branchWarnings reports commits that exist on no remote for the workspace
 // branch and for whatever else is checked out in the worktree (ADR 0019 D11,
 // change 2). Unlike "ahead of upstream", this is zero once a commit is on any
 // remote, and non-zero for a branch that was never pushed.
 //
+// When checkPR is set and the workspace branch has such commits, a merged pull
+// request excuses them: GitHub's squash and rebase merges leave no ancestry to
+// find, and "#<n>" is returned for deleteOne to report (ADR 0019 D12).
+//
 // A read-only member has no branch of ours: refs/heads/<space branch> does not
 // exist there, and its detached HEAD is a commit that lives elsewhere. The check
 // is therefore skipped, not merely allowed to report zero (ADR 0024 D7).
-func unpushedWarnings(runner git.Runner, r state.RepoEntry, spaceBranch, checkedOut string) []string {
+func branchWarnings(ctx context.Context, runner git.Runner, gh remote.Runner, r state.RepoEntry, spaceBranch, checkedOut string, checkPR bool) (msgs []string, mergedPR string) {
 	if r.ReadOnly {
-		return nil
+		return nil, ""
 	}
-	var msgs []string
 	if n, err := runner.CommitsOnNoRemote(r.WorktreePath, "refs/heads/"+spaceBranch); err == nil && n > 0 {
-		msgs = append(msgs, fmt.Sprintf("%s: has %d unpushed commit(s)", r.Name, n))
+		if checkPR {
+			mergedPR = mergedPRForBranch(ctx, runner, gh, r, spaceBranch)
+		}
+		if mergedPR == "" {
+			msgs = append(msgs, fmt.Sprintf("%s: has %d unpushed commit(s)", r.Name, n))
+		}
 	}
 	if checkedOut != "" && checkedOut != spaceBranch {
 		if n, err := runner.CommitsOnNoRemote(r.WorktreePath, "refs/heads/"+checkedOut); err == nil && n > 0 {
 			msgs = append(msgs, fmt.Sprintf("%s: has %d unpushed commit(s) on %s", r.Name, n, checkedOut))
 		}
 	}
-	return msgs
+	return msgs, mergedPR
+}
+
+// mergedPRForBranch returns "#<n>" when branch's pull request was merged and
+// that merge contains the branch's current tip, or "" otherwise: no PR, a
+// non-GitHub remote, gh unavailable, a failed lookup, or a tip the merge does
+// not include (commits made after the merge). Every one of those keeps the
+// branch: the lookup must never make delete less safe.
+func mergedPRForBranch(ctx context.Context, runner git.Runner, gh remote.Runner, r state.RepoEntry, branch string) string {
+	if gh == nil {
+		return ""
+	}
+	remoteURL, err := runner.RemoteURL(r.RepoPath, "origin")
+	if err != nil {
+		return ""
+	}
+	ownerRepo, host, ok := remote.ParseGitHubRemote(remoteURL)
+	if !ok {
+		return ""
+	}
+	pr, found, err := gh.FindPRState(ctx, host, ownerRepo, branch)
+	if err != nil || !found || pr.State != "MERGED" || pr.HeadRefOid == "" {
+		return ""
+	}
+	// The PR's head commit must be the branch tip. A commit made after the
+	// merge is not in it, and deleting the branch would lose that commit.
+	tip, err := runner.ResolveRef(r.RepoPath, "refs/heads/"+branch)
+	if err != nil || tip != pr.HeadRefOid {
+		return ""
+	}
+	return fmt.Sprintf("#%d", pr.Number)
 }
 
 // changedSecrets returns the always.secrets paths in r's worktree whose

@@ -423,6 +423,10 @@ type fakeGH struct {
 	createPRErr  error
 	prBodies     map[string]string // "ownerRepo/number" -> body
 	setPRBodyErr error
+	prStates     map[string]string // "ownerRepo/head" -> OPEN, MERGED, CLOSED
+	prHeadOIDs   map[string]string // "ownerRepo/head" -> head commit of that PR
+	findStateErr error
+	createBase   string // base branch of the last CreatePR call
 }
 
 func (f *fakeGH) Available() error { return f.availableErr }
@@ -457,7 +461,8 @@ func (f *fakeGH) FindPR(_ context.Context, _, ownerRepo, head string) (remote.PR
 	return remote.PR{}, false, nil
 }
 
-func (f *fakeGH) CreatePR(_ context.Context, _, ownerRepo, head, _ string, _ bool) (remote.PR, error) {
+func (f *fakeGH) CreatePR(_ context.Context, _, ownerRepo, head, base string, _ bool) (remote.PR, error) {
+	f.createBase = base
 	if f.createPRErr != nil {
 		return remote.PR{}, f.createPRErr
 	}
@@ -478,6 +483,22 @@ func (f *fakeGH) SetPRBody(_ context.Context, _, ownerRepo string, number int, b
 	}
 	f.prBodies[fmt.Sprintf("%s/%d", ownerRepo, number)] = body
 	return nil
+}
+
+func (f *fakeGH) FindPRState(_ context.Context, _, ownerRepo, head string) (remote.PRState, bool, error) {
+	if f.findStateErr != nil {
+		return remote.PRState{}, false, f.findStateErr
+	}
+	key := ownerRepo + "/" + head
+	st, ok := f.prStates[key]
+	if !ok || st == "" {
+		return remote.PRState{}, false, nil
+	}
+	return remote.PRState{
+		PR:         remote.PR{Number: 7, URL: "https://github.com/" + ownerRepo + "/pull/7"},
+		State:      st,
+		HeadRefOid: f.prHeadOIDs[key],
+	}, true, nil
 }
 
 func TestRunRepoArchive_RemoteArchivesUpstream(t *testing.T) {

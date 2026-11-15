@@ -151,7 +151,7 @@ func TestFootprint_NewThenDeleteRestoresRepo(t *testing.T) {
 	}
 
 	// delete -d returns the repository to exactly where it started.
-	if err := RunSpaceDelete(cfg, runner, SpaceDeleteArgs{Name: "feat", DeleteBranch: true, NoTerminal: true}, strings.NewReader(""), &bytes.Buffer{}); err != nil {
+	if err := RunSpaceDelete(t.Context(), cfg, runner, nil, SpaceDeleteArgs{Name: "feat", DeleteBranch: true, NoTerminal: true}, strings.NewReader(""), &bytes.Buffer{}); err != nil {
 		t.Fatalf("RunSpaceDelete: %v", err)
 	}
 	if got := snapshotRepo(t, local.Path); got != before {
@@ -205,7 +205,7 @@ func TestLandThenDelete_MergeStrategy_PushedEarlierThenMoreCommits(t *testing.T)
 
 	// No warning, no prompt (no terminal, no --yes): delete -d must just work.
 	var out bytes.Buffer
-	if err := RunSpaceDelete(cfg, runner, SpaceDeleteArgs{Name: "feat", DeleteBranch: true, NoTerminal: true}, strings.NewReader(""), &out); err != nil {
+	if err := RunSpaceDelete(t.Context(), cfg, runner, nil, SpaceDeleteArgs{Name: "feat", DeleteBranch: true, NoTerminal: true}, strings.NewReader(""), &out); err != nil {
 		t.Fatalf("delete after land: %v\n%s", err, out.String())
 	}
 	if strings.Contains(out.String(), "unpushed") {
@@ -222,7 +222,7 @@ func TestDelete_NeverPushedBranch_IsProtected(t *testing.T) {
 	runner := git.New()
 
 	// Without --yes and a terminal, delete refuses: the commit exists nowhere else.
-	err := RunSpaceDelete(cfg, runner, SpaceDeleteArgs{Name: "feat", NoTerminal: true}, strings.NewReader(""), &bytes.Buffer{})
+	err := RunSpaceDelete(t.Context(), cfg, runner, nil, SpaceDeleteArgs{Name: "feat", NoTerminal: true}, strings.NewReader(""), &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "--yes") {
 		t.Fatalf("expected refusal mentioning --yes, got %v", err)
 	}
@@ -232,7 +232,7 @@ func TestDelete_NeverPushedBranch_IsProtected(t *testing.T) {
 
 	// With --yes the worktree goes, and -d still refuses to drop the branch.
 	var out bytes.Buffer
-	if err := RunSpaceDelete(cfg, runner, SpaceDeleteArgs{Name: "feat", DeleteBranch: true, Yes: true}, strings.NewReader(""), &out); err != nil {
+	if err := RunSpaceDelete(t.Context(), cfg, runner, nil, SpaceDeleteArgs{Name: "feat", DeleteBranch: true, Yes: true}, strings.NewReader(""), &out); err != nil {
 		t.Fatalf("delete --yes: %v", err)
 	}
 	if gitOut(t, local.Path, "branch", "--list", "feat") == "" {
