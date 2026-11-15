@@ -1,6 +1,6 @@
 # ADR 0024: Read-only workspace members — pinned, in `go.work`, never branched
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-02
 - Author: Steffen Uhlig
 
@@ -15,13 +15,13 @@ A workspace is one shared feature branch across several repos ([ADR 0007](0007-b
 
 There is nothing in between. A repo that is only consumed has to be either a worktree, which forces a feature branch nobody uses, or a symlink, which cannot be part of the Go workspace.
 
-The first option is what happens in practice, and the result is a third, unmodelled state: worktrees that sit on a detached HEAD. In the `my-feature` workspace on 2026-11-02, three of ten members were detached (`config-lib`, `codegen`, `controller-a`). The consequences were:
+The first option is what happens in practice, and the result is a third, unmodelled state: worktrees that sit on a detached HEAD. In a `my-feature` workspace, several members were detached (`config-lib`, `codegen-tool`, `service-a`). The consequences were:
 
 - `wtg rebase` reports each of them as `⚠ skipped — on detached HEAD, expected my-feature` on every run and exits non-zero ([ADR 0018](0018-workspace-rebase.md), E7). The warning cannot be acted on, so it trains the user to ignore the exit code.
-- Nothing ever updates them. `config-lib` was checked out at `v2.14.0`'s predecessor `v2.12.1`, two minor versions behind the `cli/go.mod` pin, and neither `wtg status` nor `wtg rebase` gave any signal.
-- That mattered because `go.work` **overrides** `go.mod`. A member in the Go workspace is built from its checkout, whatever the consuming module pins. A stale checkout therefore silently changes what is built and tested locally, and CI (which has no `go.work`) builds something else. The same mechanism hid that the `api` checkout was 14 commits past its last tag: the code compiled locally and could not compile in CI.
+- Nothing ever updates them. `config-lib` was checked out two minor versions behind the pin in a consumer's `go.mod`, and neither `wtg status` nor `wtg rebase` gave any signal.
+- That mattered because `go.work` **overrides** `go.mod`. A member in the Go workspace is built from its checkout, whatever the consuming module pins. A stale checkout therefore silently changes what is built and tested locally, and CI (which has no `go.work`) builds something else. The same mechanism hid that another member's checkout was many commits past its last tag: the code compiled locally and could not compile in CI.
 
-Whether the stale `config-lib` caused the two failing integration tests seen that day was not established (a stale test cache is an equally plausible cause). The structural point stands either way: wtg lets a member influence the build without anyone having decided which version it should be.
+Whether the stale `config-lib` caused failing integration tests observed at the time was not established (a stale test cache is an equally plausible cause). The structural point stands either way: wtg lets a member influence the build without anyone having decided which version it should be.
 
 ### Git facts this design rests on
 
@@ -46,6 +46,7 @@ wtg add --read-only [--ref <ref>] [<workspace>] <repo>...   # new: pinned, branc
 wtg add [<workspace>] <repo>...                              # existing: on a read-only member, promotes it
 ```
 
+- `.` is accepted wherever `<repo>` is and is resolved before `--read-only` handling, so `wtg add --read-only .` pins the repo containing the current directory ([ADR 0025](0025-dot-repo-arguments.md)).
 - A read-only member is a **detached worktree** at a resolved commit. It is a real directory, so it can be built, searched and run, and it is listed in `go.work` if it has a `go.mod`.
 - It has no feature branch and is invisible to `push` and `land`.
 - `wtg rebase` moves it forward when it follows a remote branch, and leaves it alone when it is pinned to a tag or commit.
@@ -71,26 +72,26 @@ repos:
     repo_path: /Users/me/git/github.com/example/config-lib
     worktree_path: /Users/me/workspace/ws/github.com/example/config-lib
     read_only: true            # omitted when false
-    ref: v2.14.0               # the ref as the user gave it, or origin/<default branch>
+    ref: v2.0.0                # the ref as the user gave it, or origin/<default branch>
 ```
 
 - Both use `omitempty`, so existing state files load unchanged and no migration is needed.
-- `ref` records the user's *intent* (`v2.14.0`, `origin/main`), not the resolved commit; the commit is always available from the worktree's `HEAD`.
+- `ref` records the user's *intent* (`v2.0.0`, `origin/main`), not the resolved commit; the commit is always available from the worktree's `HEAD`.
 
 ### D3. Choosing the ref (decided)
 
 ```sh
 wtg add --read-only config-lib                      # the version a consumer in the workspace requires (D8), else origin/<default branch>
-wtg add --read-only --ref v2.14.0 config-lib        # pinned to a tag
+wtg add --read-only --ref v2.0.0 config-lib         # pinned to a tag
 wtg add --read-only --ref 1a2b3c4 config-lib        # pinned to a commit
 wtg add --read-only --ref origin/main config-lib    # follows a branch
 ```
 
 - Without `--ref`, the ref is derived from the consumers' `go.mod` files (D8). If no member of the workspace requires the module, it is `origin/<default branch>` (resolved per repo with `Runner.DefaultBranch`, as in [ADR 0018](0018-workspace-rebase.md) D1), after a fetch: the "follow main" behaviour.
-- `--ref` applies to every repo named in that invocation. Repos that need different refs are added in separate invocations. A per-repo `repo@ref` syntax is rejected: `@` already has a meaning in remote URLs (`internal/remote`), and the repo-name resolution of [ADR 0005](0005-repository-discovery.md) should not grow a second syntax for one flag.
+- `--ref` applies to every repo named in that invocation. Repos that need different refs are added in separate invocations. A per-repo `repo@ref` syntax is rejected: `@` already has a meaning in remote URLs (`internal/remote`), and the repo-name resolution of [ADR 0005](0005-repository-discovery.md) should not grow a second syntax for one flag. `.` is not a second syntax: it is a reserved argument resolved before name matching ([ADR 0025](0025-dot-repo-arguments.md)).
 - `--ref` without `--read-only` is an error.
 - A ref that does not resolve in a repo fails the pre-flight for the whole invocation, before anything is created ([ADR 0003](0003-transactions-saga-pattern.md)).
-- A *local* branch name is accepted but is resolved to its current commit and is then fixed: only refs under `origin/` follow a moving target (D4).
+- Any ref that is not a local branch and not under `origin/` (a tag, a commit, or another remote such as `upstream/main`) is resolved once and pinned. A local branch name is accepted, resolved to its current commit, and pinned. Only refs under `origin/` follow a moving target (D4).
 - Deriving the default from the consuming `go.mod` is D8.
 
 ### D4. `wtg rebase` advances a following member and leaves a pinned one (decided)
@@ -113,6 +114,7 @@ Advancing never rebases and never uses `--autostash`: there are no commits of ou
 - The saga's undo re-creates the detached worktree at the recorded `ref`.
 - There is no direct demotion. `wtg remove` followed by `wtg add --read-only` does it, and `remove` already refuses to drop unpushed work.
 - Adding a repo that is already a read-write member with `--read-only` is an error that names `wtg remove`.
+- Adding a repo that is already a read-only member with `--read-only` is an error that says it is already in the space; it is not a no-op or a re-pin. Re-pinning is `wtg remove` followed by `wtg add --read-only --ref <ref>`.
 
 ### D6. Drift check in `wtg status` (decided; independent of D1–D5)
 
@@ -128,8 +130,8 @@ Algorithm, per consumer `go.mod` (parsed with `golang.org/x/mod/modfile`, alread
 | Relation of checkout to the required version | Output |
 |---|---|
 | Same commit | nothing |
-| Behind or diverged | `⚠ config-lib is 41 commits behind v2.14.0, which cli requires` |
-| Ahead | muted note: `api is 19 commits ahead of v0.9.5 (cli requires v0.9.5; this will not build without go.work until a tag is cut)` |
+| Behind or diverged | `⚠ config-lib is 12 commits behind v2.0.0, which api requires` |
+| Ahead | muted note: `api is 12 commits ahead of v0.3.0 (a consumer requires v0.3.0; this will not build without go.work until a tag is cut)` |
 
 "Ahead" is the intended state for a repo being edited, so it is a note, not a warning. It still tells the user that the branch cannot build elsewhere yet, which is the second half of the incident. `wtg status` never fails because of drift; warnings are information.
 
@@ -143,7 +145,7 @@ Steps 1 and 2 are what D8 gets from the Go toolchain instead of reimplementing; 
 | `push` | `⚠ skipped — read-only member`, no failure, same as for symlinks. |
 | `land` | `⚠ skipped — read-only member`. It is excluded from the PR-linking block ([ADR 0019](0019-workspace-land.md)). |
 | `exec` | Included. Unlike a symlink it is a worktree of its own, so running a build or a search there is unsurprising. |
-| `remove` | Removes the worktree. If the repo is in `always.repos`, the symlink is restored, as for any removed worktree. The unpushed-commit check is skipped (see below). |
+| `remove` | Removes the worktree. If the repo is in `always.repos`, the symlink is restored, as for any removed worktree. The uncommitted-changes warning and prompt remain, because the worktree is deleted; the unpushed-commit check is skipped, and `-d`/`-D` do nothing because there is no workspace branch to delete (see below). |
 | `delete` | Removes the worktree. `-d` and `-D` do not apply: no branch is looked up or deleted ([ADR 0009](0009-delete-and-branch-safety.md)). A modified worktree still produces the usual uncommitted-changes warning. |
 | `new` | Unchanged in v1: every named repo is a read-write member. See Follow-ups. |
 | `go.work` | Written for read-only members with a `go.mod`, like any worktree. Read-only members without one (docs, generated assets) are still members, just not listed. |
@@ -152,8 +154,9 @@ Steps 1 and 2 are what D8 gets from the Go toolchain instead of reimplementing; 
 
 - `unpushedWarnings` ([`delete.go`](../../internal/cmd/delete.go)) runs `CommitsOnNoRemote` on `refs/heads/<space branch>`. For a read-only member that ref does not exist, so the call would error or report nothing useful. It must be skipped for read-only entries.
 - `deleteOne` ([`workspace.go`](../../internal/cmd/workspace.go)) calls `BranchDelete(<space branch>)` after removing the worktree when `-d` or `-D` is given. In a repo that has no such branch this ends as `⚠ branch not deleted`, a false warning, and in a repo that happens to have a *same-named* branch (for example one left over from an earlier workspace) it could delete it. Read-only entries must return right after `WorktreeRemove`, the way symlink entries return right after unlinking.
+- The uncommitted-changes prompt in `remove` (`RunSpaceRemove`) must remain for read-only entries: the worktree is about to be deleted, so a modified member is at risk. Only the unpushed-commit check is skipped.
 
-The second case is the one to test: it is the only place where this feature could remove something the user did not ask to remove.
+The same-named-branch case is the one to test most carefully: it is the only place where this feature could remove something the user did not ask to remove.
 
 "Read-only" is a statement of intent, not file permissions: wtg does not `chmod` anything. A modification is detected and reported, not prevented.
 
@@ -171,7 +174,7 @@ Given the repo being added and the other members of the workspace:
    ```
 
    - `GOWORK=off` is essential. In workspace mode a `use`d module is reported as the main module with no version.
-   - `-mod=readonly` is essential too, for two reasons: it works in repos with a `vendor/` directory for modules that are in the build list but not vendored (the default fails there with `can't resolve module using the vendor directory`; verified for `controller-b` in `api`), and, unlike `-mod=mod`, it never touches `go.mod` or `go.sum`. During the investigation for this ADR `-mod=mod` left `go.sum` modified in four repos.
+   - `-mod=readonly` is essential too, for two reasons: it works in repos with a `vendor/` directory for modules that are in the build list but not vendored (the default fails there with `can't resolve module using the vendor directory`; verified in a consumer with a `vendor/` directory), and, unlike `-mod=mod`, it never touches `go.mod` or `go.sum`. During the investigation for this ADR `-mod=mod` left `go.sum` modified in several repos.
    - It returns the *selected* version, so multiple requirements and indirect requirements are already resolved. A module the consumer does not depend on fails with `not a known dependency`; that member simply does not vote.
    - A consumer with a `replace` for the module is skipped: the user has decided there, and the replacement is not a version of this repo (same rule as D6, step 2).
 3. Turn the version into a ref:
@@ -186,11 +189,11 @@ Verified on 2026-11-02 against the `my-feature` workspace with Go 1.27.3:
 
 | Probe | Result |
 |---|---|
-| `GOWORK=off go list -m -f '{{.Version}}' github.com/example/config-lib/v2` in `cli` | `v2.14.0`, the same as `api` selects |
+| `GOWORK=off go list -m -f '{{.Version}}' github.com/example/config-lib/v2` in a consumer | `v2.0.0`, the same as another consumer selects |
 | Same, but with the path without `/v2` | `not a known dependency`, so the `/vN` suffix must come from the repo's own `module` line |
-| Pseudo-version module (`shared-lib`) | `v0.0.0-20260101120000-0123456789ab`, handled by `module.PseudoVersionRev` |
-| `go list -m` in `api` (has `vendor/`) for `controller-b`, which is in the build list but not vendored | Fails without `-mod=readonly`; with it, `v0.4.649`. For vendored modules (`config-lib/v2` in `api`; `controller-b` in the other controller repos and `controller-a`) both modes give the same version. The tree stays clean in all cases. |
-| `go list -m -json <module>@v2.14.0` | `Origin.Hash` is `1a2b3c4…`, identical to the `config-lib` checkout's `HEAD`. Useful to cross-check, but needs the module cache or network, so wtg resolves with git instead. |
+| Pseudo-version module (`example.com/org/lib`) | `v0.0.0-20260101120000-0123456789ab`, handled by `module.PseudoVersionRev` |
+| `go list -m` in a consumer that has `vendor/`, for a module in the build list but not vendored | Fails without `-mod=readonly`; with it, `v0.4.0`. For vendored modules both modes give the same version. The tree stays clean in all cases. |
+| `go list -m -json <module>@v2.0.0` | `Origin.Hash` is `1a2b3c4…`, identical to the `config-lib` checkout's `HEAD`. Useful to cross-check, but needs the module cache or network, so wtg resolves with git instead. |
 
 Consequences for wtg:
 
@@ -224,7 +227,9 @@ There is no spec to wait for: the behaviour above is the documented behaviour of
 | E17 | D8: required version does not resolve in the repo (tag missing after fetch, unreachable commit) | Pre-flight error naming consumer and version. |
 | E18 | D8: the only consumer is the repo being edited in this workspace (read-write member that requires an older tag of the module being added) | It votes like any other; its requirement is what CI would build. |
 
-## Implementation notes (proposed)
+## Implementation plan
+
+Not yet implemented; accepting this ADR records the decision, not the feature.
 
 Two independently shippable steps. The first is useful on its own.
 
@@ -235,11 +240,11 @@ Two independently shippable steps. The first is useful on its own.
 
    New `Runner` methods: `RevListCount(path, a, b)` and `ResolveRef(path, ref)`. No state change, no new flags.
 2. **Read-only members (D1–D5, D7).**
-   - `state.RepoEntry`: `ReadOnly bool` (`read_only,omitempty`) and `Ref string` (`ref,omitempty`).
+   - `state.RepoEntry`: `ReadOnly bool` (`read_only,omitempty`) and `Ref string` (`ref,omitempty`). The same two fields must flow through `repoTarget` and `targetsFromState`, or `rebase`, `status`, `delete`, and `remove` cannot see a read-only member.
    - `Runner`: `WorktreeAddDetached(repoPath, worktreePath, ref)` and `CheckoutDetached(worktreePath, ref)`.
    - `internal/cmd/add.go`: `--read-only` and `--ref`, and the promotion branch next to the existing symlink upgrade. `internal/cmd/rebase.go`: replace the E7 skip for read-only members by D4. `push.go` and `land.go`: add `ReadOnly` next to the `Symlink` skips. `status.go`: render the new kind. `delete.go` and `workspace.go` (`deleteOne`): skip the branch logic for read-only entries (D7).
    - `detectGoMods` needs no change: it excludes `t.symlink` only.
-3. Tests with the implementation (AGENTS.md): unit tests with the mock runner for E1–E18, and real-git scenarios via `internal/git/testhelper`: add pinned, add following, advance after an upstream commit, promote, refuse promotion when modified, `delete -D` leaving a same-named branch in a read-only member's repo untouched, and the drift cases (behind, ahead, replaced, unresolvable). `gomod` needs a test that runs the real `go` on a tiny fixture module (a consumer requiring a `/v2` module and a pseudo-version, with a `vendor/` directory) and asserts the fixture's `go.sum` is unchanged afterwards; skip when `go` is absent.
+3. Tests with the implementation (AGENTS.md): unit tests with the mock runner for E1–E18, and real-git scenarios via `internal/git/testhelper`: add pinned, add following, advance after an upstream commit, promote, refuse promotion when modified, remove of a modified read-only member prompts, `delete -D` leaving a same-named branch in a read-only member's repo untouched, and the drift cases (behind, ahead, replaced, unresolvable). `gomod` needs a test that runs the real `go` on a tiny fixture module (a consumer requiring a `/v2` module and a pseudo-version, with a `vendor/` directory) and asserts the fixture's `go.sum` is unchanged afterwards; skip when `go` is absent.
 4. Docs: README section for `--read-only`, a note in [`docs/always.md`](../always.md) on how this differs from `always.repos`, a `CHANGELOG.md` entry under *Unreleased → Added*, and the index row in [`DESIGN.md`](../DESIGN.md) (already added).
 
 ## Without wtg ([ADR 0022](0022-no-tool-dependency.md))
