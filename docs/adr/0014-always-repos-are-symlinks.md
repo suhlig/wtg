@@ -21,7 +21,7 @@ A symlink keeps a single shared working copy: the repo stays on whatever branch 
 ## Consequences
 
 - Edits are shared across every space that symlinks the repo, because they are all the same working copy.
-- To work on the branch in a shared repo, name it explicitly on `wtg new` (an explicit repo wins over the symlink) or upgrade it later with `wtg add`, which replaces the symlink with a worktree. `wtg remove` restores the symlink.
+- To work on the branch in a shared repo, name it explicitly on `wtg new` (an explicit repo wins over the symlink) or upgrade it later with `wtg add`, which replaces the symlink with a worktree. `wtg remove` restores the symlink. Naming it explicitly includes `.` when the current directory is inside that repo; `.` resolves to the repo's short name, so `wtg add .` upgrades the symlink exactly like `wtg add <name>` ([ADR 0025](0025-dot-repo-arguments.md)).
 
 ## Alternatives
 

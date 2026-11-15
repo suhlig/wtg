@@ -37,7 +37,7 @@ Provide one command that, for every repo in the workspace that has work to land,
 wtg land [<workspace>] [--strategy pr|merge] [--draft] [--no-link] [--dry-run]
 ```
 
-- The workspace is inferred from the current directory, as in `push` and `rebase`.
+- The workspace is inferred from the current directory, as in `push` and `rebase`. A `.` argument names the workspace containing the current directory ([ADR 0025](0025-dot-repo-arguments.md)).
 - When the run produces two or more pull requests, each one is linked to its siblings (D7). `--no-link` turns that off.
 - Per-repo work runs in parallel and is reported per repo in a table, like `wtg push`. The exit code is non-zero if any repo failed or was left needing attention (D11.1), so that `wtg land && wtg delete` stops.
 - `land` never deletes anything. The usual sequence is `wtg rebase` (if needed), `wtg land`, then `wtg delete`.

@@ -8,4 +8,6 @@
 
 `repo sync` operates exclusively on the main clones in `discovery.root_dir` — it does NOT touch workspace worktrees. This is intentional: worktrees are on feature branches, not the default branch, and should be rebased/merged explicitly by the developer.
 
+A repo argument of `.` names the repo containing the current directory. From inside a worktree it resolves to the main clone ([ADR 0025](0025-dot-repo-arguments.md)), so `repo sync .` still updates only the clone and never the worktree.
+
 When `wtg new` runs, it branches from the current HEAD of the local default branch. Users should run `repo sync` first to ensure they're branching from the latest upstream.

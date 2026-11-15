@@ -16,7 +16,7 @@ Provide a safe, batchable, scriptable way to retire one or more repos: move each
 
 ## Decisions
 
-1. **Command surface: `wtg repo archive <repo>...`.** Archiving is a main-clone lifecycle operation, so it belongs in the `repo` command group alongside `repo sync` and `repo status`, not at the top level. It accepts multiple repos in one invocation, and an optional `--archive-dir` per-run override mirrors `wtg new --path`.
+1. **Command surface: `wtg repo archive <repo>...`.** Archiving is a main-clone lifecycle operation, so it belongs in the `repo` command group alongside `repo sync` and `repo status`, not at the top level. It accepts multiple repos in one invocation, and an optional `--archive-dir` per-run override mirrors `wtg new --path`. A `.` argument names the repo containing the current directory ([ADR 0025](0025-dot-repo-arguments.md)); from inside a worktree it resolves to the main clone, which pre-flight then refuses because the clone is referenced by that space.
 
 2. **The local move is the core action and is provider-agnostic.** Archiving renames the main clone from its discovery path to `<archive.root_dir>/<repo-short-name>`, mirroring the nested short-name layout used everywhere else. The clone is kept intact; nothing is deleted. A same-filesystem rename is assumed (instant and lossless).
 

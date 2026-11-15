@@ -29,7 +29,7 @@ wtg rebase [<workspace>] [--onto <branch>] [--progress]
 
 ### Workspace inference
 
-The workspace argument is optional and is inferred from the current directory. This reuses `resolveSpaceArg` and `spaceContainingCWD`, exactly as `push`, `status`, and `exec` do. Outside any workspace, the command errors with "specify one explicitly". Shell completion uses `completeSpaces`.
+The workspace argument is optional and is inferred from the current directory. This reuses `resolveSpaceArg` and `spaceContainingCWD`, exactly as `push`, `status`, and `exec` do. Outside any workspace, the command errors with "specify one explicitly". Shell completion uses `completeSpaces`. A `.` argument names the workspace containing the current directory and is equivalent to omitting it; in this position it never means a repo ([ADR 0025](0025-dot-repo-arguments.md)).
 
 ## Decisions
 
