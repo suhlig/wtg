@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `wtg add`, `remove` and `delete` edit an existing `go.work` instead of rewriting it: comments, `replace`, `toolchain` and `godebug` directives survive, only the `use` entries are reconciled with the workspace members, and the `go` directive is raised but never lowered. An unparseable `go.work` is still replaced (ADR 0008)
+
 ## [1.9.0] - 2026-11-15
 
 ### Added

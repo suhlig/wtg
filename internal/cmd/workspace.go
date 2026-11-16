@@ -471,6 +471,12 @@ func goWorkStep(goWorkPath, spacePath string, targets []*repoTarget, hasGoMod []
 // writeGoWork writes a go.work file at goWorkPath with a use directive for
 // each repo that has a go.mod. hasGoMod[i] corresponds to targets[i].
 // goVersion is written as the go directive (e.g. "1.24").
+//
+// When goWorkPath already holds a parseable go.work, it is edited rather than
+// rewritten (ADR 0008): only the use directives are reconciled with the
+// members, and everything else (comments, replace, toolchain, godebug) is
+// kept. The go directive is raised to goVersion when it is lower, never
+// lowered.
 func writeGoWork(goWorkPath, spacePath string, targets []*repoTarget, hasGoMod []bool, goVersion string, fsys ...trace.FS) error {
 	var f trace.FS = trace.NewOsFS(nil)
 	if len(fsys) > 0 && fsys[0] != nil {
@@ -491,6 +497,12 @@ func writeGoWork(goWorkPath, spacePath string, targets []*repoTarget, hasGoMod [
 		return nil
 	}
 
+	if existing, err := os.ReadFile(goWorkPath); err == nil { // #nosec G304 -- path derived from workspace root
+		if data, ok := editGoWork(goWorkPath, existing, usePaths, goVersion); ok {
+			return f.WriteFile(goWorkPath, data, 0o644) // #nosec G304,G306,G703 -- path derived from workspace root; go.work needs 0644
+		}
+	}
+
 	var b strings.Builder
 	b.WriteString("go " + goVersion + "\n\nuse (\n")
 	for _, p := range usePaths {
@@ -499,6 +511,46 @@ func writeGoWork(goWorkPath, spacePath string, targets []*repoTarget, hasGoMod [
 	b.WriteString(")\n")
 
 	return f.WriteFile(goWorkPath, []byte(b.String()), 0o644) // #nosec G304,G306,G703 -- path derived from workspace root; go.work needs 0644
+}
+
+// editGoWork returns existing with its use directives reconciled to usePaths
+// and its go directive raised to goVersion if lower. It reports false when
+// existing cannot be parsed, so the caller can fall back to a fresh file.
+func editGoWork(name string, existing []byte, usePaths []string, goVersion string) ([]byte, bool) {
+	wf, err := modfile.ParseWork(name, existing, nil)
+	if err != nil {
+		return nil, false
+	}
+	want := make(map[string]bool, len(usePaths))
+	for _, p := range usePaths {
+		want[p] = true
+	}
+	have := make(map[string]bool, len(wf.Use))
+	var stale []string
+	for _, u := range wf.Use {
+		if want[u.Path] {
+			have[u.Path] = true
+		} else {
+			stale = append(stale, u.Path)
+		}
+	}
+	for _, p := range stale {
+		if err := wf.DropUse(p); err != nil {
+			return nil, false
+		}
+	}
+	for _, p := range usePaths {
+		if !have[p] {
+			wf.AddNewUse(p, "")
+		}
+	}
+	if wf.Go == nil || cmpGoVersion(goVersion, wf.Go.Version) > 0 {
+		if err := wf.AddGoStmt(goVersion); err != nil {
+			return nil, false
+		}
+	}
+	wf.Cleanup()
+	return modfile.Format(wf.Syntax), true
 }
 
 // buildSpaceState constructs the state.Space value to persist.
