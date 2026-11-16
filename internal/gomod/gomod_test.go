@@ -139,3 +139,64 @@ func TestRefForVersion(t *testing.T) {
 		}
 	}
 }
+
+// seedModuleInfo writes the .info, .mod and list files `go list -m` needs for
+// modPath@version in a test-owned module cache, and points the toolchain at it
+// with the network off. The sources are not needed: a build list query reads
+// only go.mod files.
+func seedModuleInfo(t *testing.T, modPath, version string) {
+	t.Helper()
+	cache := t.TempDir()
+	dir := filepath.Join(cache, "cache", "download", filepath.FromSlash(modPath), "@v")
+	writeFile(t, filepath.Join(dir, version+".info"), `{"Version":"`+version+`","Time":"2026-01-01T00:00:00Z"}`)
+	writeFile(t, filepath.Join(dir, version+".mod"), "module "+modPath+"\n\ngo 1.22\n")
+	writeFile(t, filepath.Join(dir, "list"), version+"\n")
+	t.Setenv("GOMODCACHE", cache)
+	t.Setenv("GOPROXY", "off")
+	t.Setenv("GOSUMDB", "off")
+}
+
+// A consumer that requires a /v2 module and a pseudo-version, with a vendor/
+// directory, is answered by the toolchain without go.mod or go.sum changing
+// (ADR 0024 D8 and its test requirements). The vendor/ directory is what
+// -mod=readonly has to cope with; the default fails there for modules that are
+// in the build list but not vendored.
+func TestSystemRunner_RequiredVersion_V2AndPseudoVersionWithVendorLeaveFilesUnchanged(t *testing.T) {
+	requireGo(t)
+	const (
+		v2     = "example.com/org/lib/v2"
+		shared = "example.com/org/shared"
+		pseudo = "v0.0.0-20260101120000-0123456789ab"
+	)
+	seedModuleInfo(t, v2, "v2.0.0")
+	// A second module in the same cache.
+	dir := filepath.Join(os.Getenv("GOMODCACHE"), "cache", "download", filepath.FromSlash(shared), "@v")
+	writeFile(t, filepath.Join(dir, pseudo+".info"), `{"Version":"`+pseudo+`","Time":"2026-01-01T12:00:00Z"}`)
+	writeFile(t, filepath.Join(dir, pseudo+".mod"), "module "+shared+"\n\ngo 1.22\n")
+	writeFile(t, filepath.Join(dir, "list"), pseudo+"\n")
+
+	consumer := t.TempDir()
+	goMod := "module example.com/app\n\ngo 1.22\n\nrequire (\n\t" + v2 + " v2.0.0\n\t" + shared + " " + pseudo + "\n)\n"
+	writeFile(t, filepath.Join(consumer, "go.mod"), goMod)
+	writeFile(t, filepath.Join(consumer, "go.sum"), "")
+	// Only the /v2 module is vendored; the pseudo-version is in the build list
+	// but not vendored.
+	writeFile(t, filepath.Join(consumer, "vendor", "modules.txt"), "# "+v2+" v2.0.0\n## explicit; go 1.22\n"+v2+"\n")
+
+	for module, want := range map[string]string{v2: "v2.0.0", shared: pseudo} {
+		version, replaced, err := New().RequiredVersion(consumer, module)
+		if err != nil {
+			t.Fatalf("RequiredVersion(%s): %v", module, err)
+		}
+		if version != want || replaced {
+			t.Errorf("RequiredVersion(%s) = %q, replaced=%v; want %q, false", module, version, replaced, want)
+		}
+	}
+
+	if got, _ := os.ReadFile(filepath.Join(consumer, "go.mod")); string(got) != goMod {
+		t.Errorf("go.mod changed:\n%s", got)
+	}
+	if got, _ := os.ReadFile(filepath.Join(consumer, "go.sum")); len(got) != 0 {
+		t.Errorf("go.sum changed: %q", got)
+	}
+}
