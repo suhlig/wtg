@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/suhlig/wtg/internal/git"
 	"github.com/suhlig/wtg/internal/git/testhelper"
@@ -821,5 +822,111 @@ func TestToplevel_NotARepositoryFails(t *testing.T) {
 	t.Parallel()
 	if _, err := runner().Toplevel(t.TempDir()); err == nil {
 		t.Fatal("expected an error outside a repository")
+	}
+}
+
+// --- network timeout and active commands ---
+
+// hangingRemote returns a repo whose origin is a command that never answers,
+// standing in for a server that accepts the connection and then stalls.
+func hangingRemote(t *testing.T, sleepSeconds string) *testhelper.Repo {
+	t.Helper()
+	repo := testhelper.Init(t)
+	repo.GitCmd("remote", "add", "origin", "ext::sleep "+sleepSeconds)
+	t.Setenv("GIT_CONFIG_COUNT", "1")
+	t.Setenv("GIT_CONFIG_KEY_0", "protocol.ext.allow")
+	t.Setenv("GIT_CONFIG_VALUE_0", "always")
+	return repo
+}
+
+func TestFetch_TimesOutAndNamesTheLimit(t *testing.T) {
+	repo := hangingRemote(t, "61.1")
+	r := runner()
+	r.SetNetworkTimeout(300 * time.Millisecond)
+
+	start := time.Now()
+	err := r.Fetch(repo.Path)
+	if err == nil {
+		t.Fatal("expected a timeout error")
+	}
+	if elapsed := time.Since(start); elapsed > 20*time.Second {
+		t.Errorf("fetch was not interrupted promptly: %s", elapsed)
+	}
+	for _, want := range []string{"fetch origin", "timed out after 300ms", "git.network_timeout"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q missing %q", err, want)
+		}
+	}
+	if ops := r.Active(); len(ops) != 0 {
+		t.Errorf("finished command still listed as active: %+v", ops)
+	}
+}
+
+func TestActive_ListsRunningCommand(t *testing.T) {
+	repo := hangingRemote(t, "61.2") // a duration no other process uses
+	r := runner()
+	r.SetNetworkTimeout(0) // no timeout: only the test ends the command
+
+	done := make(chan error, 1)
+	go func() { done <- r.Fetch(repo.Path) }()
+
+	var ops []git.ActiveOp
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if ops = r.Active(); len(ops) > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if len(ops) != 1 || ops[0].Repo != repo.Path || ops[0].Args[0] != "fetch" {
+		t.Fatalf("Active() = %+v, want one fetch in %s", ops, repo.Path)
+	}
+	if got := git.FormatActive(ops, ops[0].Since.Add(65*time.Second)); !strings.Contains(got, repo.Path) || !strings.Contains(got, "1m5s") {
+		t.Errorf("FormatActive = %q", got)
+	}
+
+	// Release the stuck fetch, and its transport helper with it.
+	r.Interrupt()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Error("expected an error from the interrupted fetch")
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("fetch did not return after Interrupt")
+	}
+}
+
+func TestLocalCommandsAreNotTimedOut(t *testing.T) {
+	repo := testhelper.Init(t)
+	r := runner()
+	r.SetNetworkTimeout(time.Nanosecond) // would fail any command it applied to
+	if _, err := r.Status(repo.Path); err != nil {
+		t.Fatalf("Status must not be subject to the network timeout: %v", err)
+	}
+}
+
+func TestInterrupt_StopsRunningCommand(t *testing.T) {
+	repo := hangingRemote(t, "61.3")
+	r := runner()
+	r.SetNetworkTimeout(0)
+
+	done := make(chan error, 1)
+	go func() { done <- r.Fetch(repo.Path) }()
+	for deadline := time.Now().Add(10 * time.Second); len(r.Active()) == 0 && time.Now().Before(deadline); {
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	r.Interrupt()
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "interrupted") {
+			t.Errorf("got %v, want an 'interrupted' error", err)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("fetch did not stop after Interrupt")
+	}
+	if out, _ := exec.Command("pgrep", "-f", "sleep 61.3").Output(); len(out) > 0 {
+		t.Errorf("transport helper outlived the interrupted fetch: %s", out)
 	}
 }

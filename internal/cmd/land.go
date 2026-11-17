@@ -128,6 +128,12 @@ func RunSpaceLand(ctx context.Context, runner git.Runner, gh remote.Runner, args
 
 	results := make([]landResult, len(sp.Repos))
 
+	labels := make(map[string]string, len(sp.Repos))
+	for _, r := range sp.Repos {
+		labels[r.WorktreePath] = r.Name
+	}
+	defer noticeSlow(runners{runner, gh}, labelByPath(labels))() // also covers sibling linking below
+
 	var wg sync.WaitGroup
 	for i, r := range sp.Repos {
 		wg.Add(1)

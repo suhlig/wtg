@@ -4,6 +4,7 @@
 package trace
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"io/fs"
@@ -334,6 +335,12 @@ func FormatGHLine(args []string) string {
 // RunProcess so it is recorded and skipped under --dry-run.
 func Command(name string, args ...string) *exec.Cmd {
 	return exec.Command(name, args...) // #nosec G204 -- user-supplied program
+}
+
+// CommandContext is Command with a context that stops the process when it is
+// done. The same rules apply: run it through RunProcess.
+func CommandContext(ctx context.Context, name string, args ...string) *exec.Cmd {
+	return exec.CommandContext(ctx, name, args...) // #nosec G204 -- user-supplied program
 }
 
 // RunProcess executes runFn, or skips it in dry-run mode, recording "(wtg) run: <line>".

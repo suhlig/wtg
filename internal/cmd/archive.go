@@ -27,7 +27,7 @@ import (
 )
 
 // ArchiveCommand returns the `wtg repo archive` subcommand.
-func ArchiveCommand(runner git.Runner, fsys ...trace.FS) *cli.Command {
+func ArchiveCommand(runner git.Runner, gh remote.Runner, fsys ...trace.FS) *cli.Command {
 	return &cli.Command{
 		Name:      "archive",
 		Usage:     "retire main repo clones by moving them to an archive directory",
@@ -68,6 +68,7 @@ first.`,
 				DryRun:     cmd.Bool("dry-run") || cmd.Root().Bool("dry-run"),
 				ArchiveDir: cmd.String("archive-dir"),
 				Remote:     cmd.Bool("remote"),
+				GH:         gh,
 			}, os.Stdout, fsys...)
 		},
 	}
@@ -81,8 +82,9 @@ type RepoArchiveArgs struct {
 	ArchiveDir string   // overrides cfg.Archive.RootDir when non-empty
 	Remote     bool     // also archive each repo upstream on GitHub via gh
 
-	// GH is the gh client used when Remote is set. It is nil in normal use (the
-	// system gh CLI is used); tests inject a fake here.
+	// GH is the gh client used when Remote is set. The command passes the shared
+	// one, which carries the configured timeout; nil falls back to a plain system
+	// gh, and tests inject a fake here.
 	GH remote.Runner
 }
 
@@ -186,6 +188,7 @@ func RunRepoArchive(cfg *config.Config, runner git.Runner, args RepoArchiveArgs,
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, remoteTimeout)
 		defer cancel()
+		defer noticeSlow(gh, nil)()
 		if err := gh.Available(); err != nil {
 			return err
 		}

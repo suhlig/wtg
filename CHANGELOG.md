@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `git.network_timeout` (env `WTG_GIT_NETWORK_TIMEOUT`, default `5m`, `0` disables) bounds each git command that talks to a remote and each `gh` call. A call that exceeds it fails that repo with a message naming the setting, instead of blocking the whole run (ADR 0026)
+- `wtg exec --timeout <duration>` stops the command in any repo that runs longer; that repo is reported as timed out and the others carry on. There is no default limit (ADR 0026)
+- A repo that is slow to fetch is now named: `repo sync --progress` and `rebase --progress` show `(1 fetching; slow: <repo> 1m5s)`, and `repo sync`, `repo fetch`, `rebase`, `push` and `land` print `wtg: still waiting for: <repo> <duration>` to stderr after 30 seconds. `delete`, `repo archive --remote`, `repo unarchive --remote` and the fetch in `new`/`add --read-only` do the same, naming the `gh` call or repo, and `exec --parallel` names a slow repo in its progress line (ADR 0026)
+
+### Changed
+
+- Ctrl-C during a run now prints the git, `gh` and `exec` commands that were still running (repo and duration), stops them and their helper processes, and exits 130 (ADR 0026)
+- `wtg repo archive --remote` and `wtg repo unarchive --remote` use the shared `gh` runner, so they honour the timeout; a `gh` call that times out is reported as such rather than as "not authenticated" (ADR 0026)
+
+### Fixed
+
+- A timed-out or interrupted `git fetch` no longer leaves `git-remote-https` and `index-pack` processes running, nor a partial `tmp_pack_*` file behind (ADR 0026)
+
 ## [1.10.0] - 2026-11-17
 
 ### Added

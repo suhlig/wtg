@@ -4,11 +4,15 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"runtime/debug"
+	"syscall"
+	"time"
 
 	"github.com/urfave/cli/v3"
 
 	"github.com/suhlig/wtg/internal/cmd"
+	"github.com/suhlig/wtg/internal/config"
 	"github.com/suhlig/wtg/internal/git"
 	"github.com/suhlig/wtg/internal/remote"
 	"github.com/suhlig/wtg/internal/trace"
@@ -37,6 +41,9 @@ var dryRunCommands = map[string]bool{
 	"config": true,
 }
 
+// interruptGrace is how long wtg gives git to clean up after Ctrl-C.
+const interruptGrace = 500 * time.Millisecond
+
 func main() {
 	// Allocate the recorder before building runners — runners hold a pointer to
 	// it, so SetDryRun() called in Before will be seen by all of them at call time.
@@ -46,6 +53,26 @@ func main() {
 	fs := trace.NewOsFS(rec)
 	gitRunner := git.New(rec)
 	ghRunner := remote.NewSystemRunner(rec)
+
+	// On Ctrl-C (or SIGTERM), say which git commands were still running, so an
+	// interrupted run explains what it was waiting for, stop them (they run in
+	// their own process group, so the terminal does not signal them), and exit.
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sigs
+		now := time.Now()
+		if waiting := git.FormatActive(gitRunner.Active(), now) + remote.FormatActive(ghRunner.Active(), now) + cmd.ActiveProcesses(now); waiting != "" {
+			fmt.Fprintf(os.Stderr, "\nwtg: interrupted while waiting for:\n%s", waiting)
+		} else {
+			fmt.Fprintln(os.Stderr, "\nwtg: interrupted")
+		}
+		gitRunner.Interrupt()
+		ghRunner.Interrupt()
+		cmd.StopProcesses()
+		time.Sleep(interruptGrace) // let git remove its temporary pack
+		os.Exit(130)
+	}()
 
 	// rejected is set by Before when a --dry-run command is not yet converted.
 	// After checks it to avoid printing the dry-run header after an early exit.
@@ -72,6 +99,12 @@ func main() {
 			},
 		},
 		Before: func(ctx context.Context, c *cli.Command) (context.Context, error) {
+			// A config that fails to load is reported by the command that
+			// needs it; here it only means the default network timeout stays.
+			if cfg, err := config.Load(c.String("config")); err == nil {
+				gitRunner.SetNetworkTimeout(cfg.Git.NetworkTimeout)
+				ghRunner.SetTimeout(cfg.Git.NetworkTimeout)
+			}
 			if c.Bool("dry-run") {
 				// D1 (ADR 0021): refuse commands that have not been converted yet.
 				subcmd := c.Args().First()
@@ -113,7 +146,7 @@ func main() {
 		},
 		Commands: []*cli.Command{
 			cmd.ConfigCommand(fs),
-			cmd.RepoCommand(gitRunner, fs),
+			cmd.RepoCommand(gitRunner, ghRunner, fs),
 			cmd.StatusCommand(gitRunner),
 			cmd.NewCommand(gitRunner, fs),
 			cmd.DeleteCommand(gitRunner, ghRunner, fs),

@@ -22,7 +22,7 @@ import (
 )
 
 // UnarchiveCommand returns the `wtg repo unarchive` subcommand.
-func UnarchiveCommand(fsys ...trace.FS) *cli.Command {
+func UnarchiveCommand(gh remote.Runner, fsys ...trace.FS) *cli.Command {
 	return &cli.Command{
 		Name:      "unarchive",
 		Usage:     "restore archived repo clones to their original locations",
@@ -52,6 +52,7 @@ as is). Use --dry-run to see the plan first.`,
 				DryRun:     cmd.Bool("dry-run") || cmd.Root().Bool("dry-run"),
 				Remote:     cmd.Bool("remote"),
 				ArchiveDir: cmd.String("archive-dir"),
+				GH:         gh,
 			}, os.Stdout, fsys...)
 		},
 	}
@@ -152,6 +153,7 @@ func RunRepoUnarchive(cfg *config.Config, args RepoUnarchiveArgs, out io.Writer,
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, remoteTimeout)
 		defer cancel()
+		defer noticeSlow(gh, nil)()
 		if err := gh.Available(); err != nil {
 			return err
 		}

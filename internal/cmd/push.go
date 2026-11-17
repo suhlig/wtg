@@ -68,6 +68,12 @@ func RunSpacePush(runner git.Runner, spaceName string, out io.Writer) error {
 	results := make([]opResult, len(sp.Repos))
 	dry := trace.IsDry(runner)
 
+	labels := make(map[string]string, len(sp.Repos))
+	for _, r := range sp.Repos {
+		labels[r.WorktreePath] = r.Name
+	}
+	defer noticeSlow(runner, labelByPath(labels))()
+
 	var g errgroup.Group
 	for i, r := range sp.Repos {
 		if r.Symlink {

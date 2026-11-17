@@ -7,10 +7,35 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/suhlig/wtg/internal/trace"
 )
+
+// DefaultTimeout bounds a single gh call. It matches the default of
+// git.network_timeout in the config, which governs both git and gh.
+const DefaultTimeout = 5 * time.Minute
+
+// killGrace is how long a timed-out gh gets to exit after being interrupted
+// before its output pipes are closed on it.
+const killGrace = 5 * time.Second
+
+// timeoutError is returned by ghOutput when gh was stopped for running too long,
+// so callers can tell that apart from a failure gh reported itself.
+type timeoutError struct{ after time.Duration }
+
+func (e *timeoutError) Error() string {
+	return fmt.Sprintf("timed out after %s (raise git.network_timeout or WTG_GIT_NETWORK_TIMEOUT, or set it to 0 to disable)", e.after)
+}
+
+// ActiveOp describes a gh command that is currently running.
+type ActiveOp struct {
+	Args  []string  // gh arguments
+	Since time.Time // when the command started
+}
 
 // PlaceholderPRNumber is the number of the PR that a skipped `gh pr create`
 // returns under --dry-run. It is never a real PR number.
@@ -68,10 +93,70 @@ type Runner interface {
 // SystemRunner runs the gh CLI found on PATH. rec may be nil (no recording).
 type SystemRunner struct {
 	rec *trace.Recorder
+
+	// base is the parent of every call's context; Interrupt cancels it.
+	base       context.Context
+	cancelBase context.CancelFunc
+
+	mu      sync.Mutex
+	timeout time.Duration // <= 0 disables the timeout
+	active  map[int]ActiveOp
+	nextID  int
 }
 
 // NewSystemRunner returns a SystemRunner. rec may be nil.
-func NewSystemRunner(rec *trace.Recorder) *SystemRunner { return &SystemRunner{rec: rec} }
+func NewSystemRunner(rec *trace.Recorder) *SystemRunner {
+	base, cancel := context.WithCancel(context.Background())
+	return &SystemRunner{rec: rec, base: base, cancelBase: cancel, timeout: DefaultTimeout, active: map[int]ActiveOp{}}
+}
+
+// Interrupt stops every running gh call, and any started afterwards. The caller
+// that catches Ctrl-C calls it so gh does not outlive wtg.
+func (s *SystemRunner) Interrupt() { s.cancelBase() }
+
+// SetTimeout sets the longest a single gh call may run before it is
+// interrupted. Zero or negative disables the timeout.
+func (s *SystemRunner) SetTimeout(d time.Duration) {
+	s.mu.Lock()
+	s.timeout = d
+	s.mu.Unlock()
+}
+
+// Active returns the gh commands that are running right now, oldest first.
+func (s *SystemRunner) Active() []ActiveOp {
+	s.mu.Lock()
+	ops := make([]ActiveOp, 0, len(s.active))
+	for _, op := range s.active {
+		ops = append(ops, op)
+	}
+	s.mu.Unlock()
+	sort.Slice(ops, func(i, j int) bool { return ops[i].Since.Before(ops[j].Since) })
+	return ops
+}
+
+// FormatActive renders the running commands for a human, one per line with how
+// long each has been running, e.g. "  gh pr list --repo org/api (1m5s)".
+func FormatActive(ops []ActiveOp, now time.Time) string {
+	var b strings.Builder
+	for _, op := range ops {
+		fmt.Fprintf(&b, "  %s (%s)\n", trace.FormatGHLine(op.Args), now.Sub(op.Since).Round(time.Second))
+	}
+	return b.String()
+}
+
+// begin registers a running command and returns the function that removes it.
+func (s *SystemRunner) begin(args []string) (end func()) {
+	s.mu.Lock()
+	id := s.nextID
+	s.nextID++
+	s.active[id] = ActiveOp{Args: args, Since: time.Now()}
+	s.mu.Unlock()
+	return func() {
+		s.mu.Lock()
+		delete(s.active, id)
+		s.mu.Unlock()
+	}
+}
 
 // Available reports whether gh is installed.
 func (s *SystemRunner) Available() error {
@@ -84,6 +169,10 @@ func (s *SystemRunner) Available() error {
 // AuthStatus verifies gh is authenticated for host.
 func (s *SystemRunner) AuthStatus(ctx context.Context, host string) error {
 	out, err := s.ghOutput(ctx, host, "auth", "status", "--hostname", host)
+	// A call that was cut short says nothing about authentication.
+	if _, ok := errors.AsType[*timeoutError](err); ok || errors.Is(err, context.Canceled) {
+		return fmt.Errorf("gh auth status for %s: %w", host, err)
+	}
 	if err != nil {
 		return fmt.Errorf("gh is not authenticated for %s; run `gh auth login --hostname %s` first:\n%s",
 			host, host, strings.TrimSpace(string(out)))
@@ -135,9 +224,42 @@ func (s *SystemRunner) ghOutput(ctx context.Context, host string, args ...string
 		s.rec.Record("", trace.FormatGHLine(args), -1, true)
 		return []byte("{}"), nil // return valid JSON so callers that unmarshal don't panic
 	}
+	s.mu.Lock()
+	timeout := s.timeout
+	s.mu.Unlock()
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+	defer s.begin(args)()
+	// Also stop when Interrupt is called, whatever context the caller passed.
+	ctx, stop := context.WithCancel(ctx)
+	defer stop()
+	go func() {
+		select {
+		case <-s.base.Done():
+			stop()
+		case <-ctx.Done():
+		}
+	}()
 	cmd := exec.CommandContext(ctx, "gh", args...) // #nosec G204 -- gh with a parsed host and owner/repo slug
 	cmd.Env = append(os.Environ(), "GH_HOST="+host)
+	cmd.Cancel = func() error { return cmd.Process.Signal(os.Interrupt) }
+	cmd.WaitDelay = killGrace
 	out, err := cmd.CombinedOutput()
+	if err != nil && ctx.Err() != nil {
+		// A killed gh prints nothing, and callers quote this output in their
+		// error, so say why it stopped.
+		if timeout > 0 && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			te := &timeoutError{timeout}
+			out = append(out, te.Error()...)
+			err = te
+		} else {
+			err = fmt.Errorf("stopped: %w", ctx.Err())
+			out = append(out, err.Error()...)
+		}
+	}
 	if s.rec != nil && isMutating {
 		code := 0
 		if err != nil {

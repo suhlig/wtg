@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestLoad_Defaults(t *testing.T) {
@@ -426,5 +427,34 @@ func TestLoad_ArchiveEnvOverride(t *testing.T) {
 	}
 	if cfg.Archive.RootDir != "/tmp/cold" {
 		t.Errorf("Archive.RootDir: got %q, want /tmp/cold", cfg.Archive.RootDir)
+	}
+}
+
+func TestLoad_NetworkTimeout(t *testing.T) {
+	cfg, err := Load(filepath.Join(t.TempDir(), "missing.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Git.NetworkTimeout != 5*time.Minute {
+		t.Errorf("default: got %s, want 5m", cfg.Git.NetworkTimeout)
+	}
+
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte("[git]\nnetwork_timeout = \"90s\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if cfg, err = Load(path); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Git.NetworkTimeout != 90*time.Second {
+		t.Errorf("file: got %s, want 90s", cfg.Git.NetworkTimeout)
+	}
+
+	t.Setenv("WTG_GIT_NETWORK_TIMEOUT", "0")
+	if cfg, err = Load(path); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Git.NetworkTimeout != 0 {
+		t.Errorf("env: got %s, want 0 (disabled)", cfg.Git.NetworkTimeout)
 	}
 }

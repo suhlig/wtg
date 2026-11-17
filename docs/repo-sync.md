@@ -19,6 +19,13 @@ The bar also shows a `(N fetching)` suffix after the closing `]` with the
 count of in-flight network calls, so it is always clear whether sync is
 still working or just waiting on the last few stragglers.
 
+When a fetch has run for more than 30 seconds the suffix names the slowest repo
+and how long it has been going, e.g. `(2 fetching; slow: github.com/org/api 1m5s +1)`
+(`+1` means one more is slow too). Without `--progress`, a
+`wtg: still waiting for: …` line is printed to stderr instead. A fetch is stopped
+after `git.network_timeout` (default 5 minutes) and the repo shows `!`; Ctrl-C
+prints the git commands that were still running.
+
 `⚠` slots flip noticeably faster than the others because the branch and
 dirty checks are local and run before any network call.
 

@@ -93,6 +93,11 @@ func RunSpaceRebase(runner git.Runner, spaceName, onto string, progress bool, ou
 	}
 	var fetching, rebasing atomic.Int32
 	termWidth := termWidthFn()
+	labels := make(map[string]string, len(sp.Repos))
+	for _, r := range sp.Repos {
+		labels[r.WorktreePath] = r.Name
+	}
+	label := labelByPath(labels)
 
 	printProgress := func() {
 		var parts []string
@@ -101,6 +106,9 @@ func RunSpaceRebase(runner git.Runner, spaceName, onto string, progress bool, ou
 		}
 		if n := rebasing.Load(); n > 0 {
 			parts = append(parts, fmt.Sprintf("%d rebasing", n))
+		}
+		if note := slowBarNote(runner, label); note != "" {
+			parts = append(parts, note)
 		}
 		suffix := ""
 		if len(parts) > 0 {
@@ -161,6 +169,18 @@ func RunSpaceRebase(runner git.Runner, spaceName, onto string, progress bool, ou
 		mu.Unlock()
 	}
 
+	// Redraw on a timer so the slow note appears while every repo is stuck.
+	var stopSlow func()
+	if progress {
+		stopSlow = watchSlow(runner, slowInterval, func() {
+			mu.Lock()
+			printProgress()
+			mu.Unlock()
+		})
+	} else {
+		stopSlow = noticeSlow(runner, label)
+	}
+
 	var wg sync.WaitGroup
 	for i, r := range sp.Repos {
 		wg.Go(func() {
@@ -185,6 +205,7 @@ func RunSpaceRebase(runner git.Runner, spaceName, onto string, progress bool, ou
 		})
 	}
 	wg.Wait()
+	stopSlow() // before the final newline, or a redraw would land after it
 
 	if progress {
 		_, _ = fmt.Fprintln(out)

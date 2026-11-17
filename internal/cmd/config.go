@@ -52,6 +52,11 @@ const configTemplate = `# wtg configuration. Every setting is shown commented ou
 # name alone. (default: none)
 # branch_prefix = ""
 
+# Longest a single git command that talks to a remote (fetch, push) may run
+# before wtg interrupts it and reports the repo as timed out. A Go duration such
+# as "90s" or "10m"; "0" disables the timeout. (default: 5m)
+# network_timeout = "5m"
+
 [always]
 # Repos symlinked into every new space without getting their own worktree. Use it
 # for shared docs or tooling you want on hand but never branch. Default is none;

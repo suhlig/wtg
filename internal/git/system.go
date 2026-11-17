@@ -2,20 +2,49 @@ package git
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/suhlig/wtg/internal/trace"
 )
 
+// DefaultNetworkTimeout bounds a single git command that talks to a remote
+// (fetch, push, ls-remote, remote set-head). It matches the default of
+// git.network_timeout in the config.
+const DefaultNetworkTimeout = 5 * time.Minute
+
+// cancelGrace is how long a timed-out git command gets to clean up (remove its
+// temporary pack, stop its helpers) after being interrupted before it is killed.
+const cancelGrace = 10 * time.Second
+
+// ActiveOp describes a git command that is currently running.
+type ActiveOp struct {
+	Repo  string    // directory passed to git -C
+	Args  []string  // git arguments after -C <repo>
+	Since time.Time // when the command started
+}
+
 // SystemRunner is the production Runner implementation that shells out to system git.
 type SystemRunner struct {
 	rec *trace.Recorder
+
+	// base is the parent of every command's context; Interrupt cancels it.
+	base       context.Context
+	cancelBase context.CancelFunc
+
+	mu             sync.Mutex
+	networkTimeout time.Duration // <= 0 disables the timeout
+	active         map[int]ActiveOp
+	nextID         int
 }
 
 // New returns a SystemRunner. rec may be nil (no recording, no dry-run).
@@ -24,20 +53,95 @@ func New(rec ...*trace.Recorder) *SystemRunner {
 	if len(rec) > 0 {
 		r = rec[0]
 	}
-	return &SystemRunner{rec: r}
+	base, cancel := context.WithCancel(context.Background())
+	return &SystemRunner{rec: r, base: base, cancelBase: cancel, networkTimeout: DefaultNetworkTimeout, active: map[int]ActiveOp{}}
+}
+
+// Interrupt stops every running git command, and any started afterwards, along
+// with the helpers they spawned. git runs in its own process group (so a
+// timeout can stop the whole tree), which means a terminal's Ctrl-C no longer
+// reaches it; the caller that catches the signal must call this instead.
+func (r *SystemRunner) Interrupt() { r.cancelBase() }
+
+// SetNetworkTimeout sets the longest a single network git command may run
+// before it is interrupted. Zero or negative disables the timeout.
+func (r *SystemRunner) SetNetworkTimeout(d time.Duration) {
+	r.mu.Lock()
+	r.networkTimeout = d
+	r.mu.Unlock()
+}
+
+// Active returns the git commands that are running right now, oldest first.
+func (r *SystemRunner) Active() []ActiveOp {
+	r.mu.Lock()
+	ops := make([]ActiveOp, 0, len(r.active))
+	for _, op := range r.active {
+		ops = append(ops, op)
+	}
+	r.mu.Unlock()
+	sort.Slice(ops, func(i, j int) bool { return ops[i].Since.Before(ops[j].Since) })
+	return ops
+}
+
+// FormatActive renders the running commands for a human, one per line with how
+// long each has been running, e.g. "  git -C /repos/api fetch origin (1m5s)".
+func FormatActive(ops []ActiveOp, now time.Time) string {
+	var b strings.Builder
+	for _, op := range ops {
+		fmt.Fprintf(&b, "  %s (%s)\n", trace.FormatGitLine(op.Repo, op.Args), now.Sub(op.Since).Round(time.Second))
+	}
+	return b.String()
+}
+
+// begin registers a running command and returns the function that removes it.
+func (r *SystemRunner) begin(repoPath string, args []string) (end func()) {
+	r.mu.Lock()
+	id := r.nextID
+	r.nextID++
+	r.active[id] = ActiveOp{Repo: repoPath, Args: args, Since: time.Now()}
+	r.mu.Unlock()
+	return func() {
+		r.mu.Lock()
+		delete(r.active, id)
+		r.mu.Unlock()
+	}
 }
 
 // DryRun reports whether the runner is skipping mutating calls (--dry-run).
 func (r *SystemRunner) DryRun() bool { return r.rec.DryRun() }
+
+// isNetwork reports whether a git invocation contacts a remote and so can
+// stall on a slow or unreachable server.
+func isNetwork(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	switch args[0] {
+	case "fetch", "push", "ls-remote":
+		return true
+	case "remote":
+		return len(args) > 1 && args[1] == "set-head"
+	}
+	return false
+}
 
 // runError wraps a failed git command with its exit code and stderr output.
 type runError struct {
 	args     []string
 	exitCode int
 	stderr   string
+	timeout  time.Duration // non-zero when the command was interrupted for running too long
+	canceled bool          // the command was stopped by Interrupt (Ctrl-C)
 }
 
 func (e *runError) Error() string {
+	if e.canceled {
+		return fmt.Sprintf("git %s: interrupted", strings.Join(e.args, " "))
+	}
+	if e.timeout > 0 {
+		return fmt.Sprintf("git %s: timed out after %s (raise git.network_timeout or WTG_GIT_NETWORK_TIMEOUT, or set it to 0 to disable)",
+			strings.Join(e.args, " "), e.timeout)
+	}
 	msg := fmt.Sprintf("git %s: exit %d", strings.Join(e.args, " "), e.exitCode)
 	if s := strings.TrimSpace(e.stderr); s != "" {
 		msg += ": " + s
@@ -55,7 +159,27 @@ func (r *SystemRunner) run(repoPath string, args ...string) (string, error) {
 		r.rec.Record(repoPath, trace.FormatGitLine(repoPath, args), -1, true)
 		return "", nil
 	}
-	cmd := exec.Command("git", append([]string{"-C", repoPath}, args...)...) // #nosec G204 -- git with caller-controlled args
+	ctx := r.base
+	var timeout time.Duration
+	if isNetwork(args) {
+		r.mu.Lock()
+		timeout = r.networkTimeout
+		r.mu.Unlock()
+	}
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+	defer r.begin(repoPath, args)()
+	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", repoPath}, args...)...) // #nosec G204 -- git with caller-controlled args
+	// Stop the whole process group on timeout, not just git: its transport
+	// helper (git-remote-https, ssh) and index-pack would otherwise outlive it
+	// and keep the output pipes open. SIGTERM lets git remove its temporary
+	// pack; cancelGrace bounds the wait if something ignores it.
+	trace.OwnProcessGroup(cmd)
+	cmd.Cancel = func() error { return trace.TerminateGroup(cmd) }
+	cmd.WaitDelay = cancelGrace
 	// Never let git (or the SSH subprocess it spawns) block on a terminal
 	// prompt. GIT_TERMINAL_PROMPT=0 suppresses HTTPS credential prompts;
 	// BatchMode=yes in GIT_SSH_COMMAND makes SSH fail immediately instead of
@@ -73,6 +197,11 @@ func (r *SystemRunner) run(repoPath string, args ...string) (string, error) {
 			code = exitErr.ExitCode()
 		}
 		re := &runError{args: args, exitCode: code, stderr: stderr.String()}
+		if r.base.Err() != nil {
+			re.canceled = true
+		} else if timeout > 0 && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			re.timeout = timeout
+		}
 		if r.rec != nil && isMutating {
 			r.rec.Record(repoPath, trace.FormatGitLine(repoPath, args), code, false)
 		}

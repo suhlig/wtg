@@ -40,7 +40,10 @@ func prepareReadOnlyTarget(runner git.Runner, goRunner gomod.Runner, sp *state.S
 	// Fetch first, so a tag or commit pushed since the last fetch is found. A
 	// repo without a remote has nothing to fetch and can still be pinned.
 	if none, _ := hasNoRemotes(t.repoPath, runner); !none {
-		if err := runner.Fetch(t.repoPath); err != nil {
+		stop := noticeSlow(runner, labelByPath(map[string]string{t.repoPath: t.name}))
+		err := runner.Fetch(t.repoPath)
+		stop()
+		if err != nil {
 			return fmt.Errorf("%s: fetch failed: %w", t.name, err)
 		}
 	}

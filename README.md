@@ -53,10 +53,13 @@ root_dir = "~/workspaces"  # where workspaces are created
 
 [git]
 branch_prefix = ""         # prepended to workspace names, e.g. "yourname/"
+network_timeout = "5m"     # longest one fetch/push may take; "0" disables (see below)
 
 [archive]
 root_dir = "~/repos-archived"  # where `wtg repo archive` moves retired clones
 ```
+
+`network_timeout` (env `WTG_GIT_NETWORK_TIMEOUT`) bounds each git command that talks to a remote, and each `gh` call (`land --strategy pr`, `delete -d`'s PR lookup, `repo archive --remote`). A repo that exceeds it is reported as failed (`timed out after 5m0s`) and the others carry on. A first fetch of a very large repo over a slow link can need more; raise it or set it to `0`. While a fetch or push runs longer than 30 seconds, wtg names the repo it is waiting on, and Ctrl-C prints which git commands were still running. See [ADR 0026](docs/adr/0026-network-timeout-and-slow-repo-visibility.md).
 
 YAML is still accepted: a file ending in `.yaml`/`.yml` loads via its extension, so an existing `config.yaml` keeps working.
 
@@ -333,7 +336,7 @@ Members that are consumed rather than changed show the ref they are pinned to in
 
 See [Read-only members](#read-only-members).
 
-### `wtg exec [<workspace>] [--parallel] -- <cmd> [<args>...]`
+### `wtg exec [<workspace>] [--parallel] [--timeout <duration>] -- <cmd> [<args>...]`
 
 Run a command in each repo's worktree sequentially, streaming output as it goes. With `--parallel`, commands run in all repos concurrently with a live progress indicator, buffering per-repo output until complete.
 
@@ -343,7 +346,10 @@ Execution continues even if a command fails — all repos are attempted and fail
 wtg exec my-feature -- git status
 wtg exec my-feature --parallel -- go test ./...
 wtg exec -- git status            # workspace inferred from CWD
+wtg exec --timeout 10m my-feature --parallel -- go test ./...
 ```
+
+`--timeout` stops the command in any repo that runs longer than the given Go duration (`90s`, `10m`); that repo is reported as `timed out after …` and the others carry on. There is no limit by default, because `exec` runs your own commands. With `--parallel`, the progress line names a repo whose command has run for more than 30 seconds, e.g. `[····] (slow: api 1m5s +1)`. Ctrl-C lists the commands still running.
 
 ## Previewing and reporting
 

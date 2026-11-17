@@ -17,6 +17,7 @@ import (
 
 	"github.com/suhlig/wtg/internal/config"
 	"github.com/suhlig/wtg/internal/git"
+	"github.com/suhlig/wtg/internal/remote"
 	"github.com/suhlig/wtg/internal/trace"
 	"github.com/suhlig/wtg/internal/ui"
 )
@@ -64,7 +65,7 @@ func (r opResult) renderSym() string {
 }
 
 // RepoCommand returns the `wtg repo` command with its subcommands.
-func RepoCommand(runner git.Runner, fsys ...trace.FS) *cli.Command {
+func RepoCommand(runner git.Runner, gh remote.Runner, fsys ...trace.FS) *cli.Command {
 	return &cli.Command{
 		Name:  "repo",
 		Usage: "manage repositories",
@@ -137,8 +138,8 @@ A repo argument of "." means the repo containing the current directory.`,
 					return RunSync(cfg, runner, cmd.Args().Slice(), cmd.Bool("progress"), os.Stdout)
 				},
 			},
-			ArchiveCommand(runner, fsys...),
-			UnarchiveCommand(fsys...),
+			ArchiveCommand(runner, gh, fsys...),
+			UnarchiveCommand(gh, fsys...),
 		},
 	}
 }
@@ -231,6 +232,7 @@ func RunFetch(cfg *config.Config, runner git.Runner, args []string, out io.Write
 
 	roots := cfg.DiscoveryRootDirs()
 	results := make([]opResult, len(paths))
+	defer noticeSlow(runner, repoLabel(roots))()
 
 	var g errgroup.Group
 	for i, p := range paths {
@@ -301,6 +303,10 @@ func RunSync(cfg *config.Config, runner git.Runner, args []string, progress bool
 		suffix := ""
 		if n > 0 {
 			suffix = fmt.Sprintf(" (%d fetching)", n)
+			// Name the straggler, so a stalled sync says which repo it waits on.
+			if note := slowBarNote(runner, repoLabel(roots)); note != "" {
+				suffix = fmt.Sprintf(" (%d fetching; %s)", n, note)
+			}
 		}
 		var b strings.Builder
 		// Total visible columns: len(syms) slots + 2 brackets + len(suffix).
@@ -327,6 +333,20 @@ func RunSync(cfg *config.Config, runner git.Runner, args []string, progress bool
 		mu.Lock()
 		printProgress()
 		mu.Unlock()
+	}
+
+	// Redraw on a timer too, so the slow note appears and its duration ticks
+	// even while every repo is stuck and no result arrives. Without a bar, print
+	// a line instead.
+	var stopSlow func()
+	if progress {
+		stopSlow = watchSlow(runner, slowInterval, func() {
+			mu.Lock()
+			printProgress()
+			mu.Unlock()
+		})
+	} else {
+		stopSlow = noticeSlow(runner, repoLabel(roots))
 	}
 
 	var g errgroup.Group
@@ -364,6 +384,7 @@ func RunSync(cfg *config.Config, runner git.Runner, args []string, progress bool
 		})
 	}
 	_ = g.Wait() // goroutines always return nil; outcomes are written to results[i]
+	stopSlow()   // before the final newline, or a redraw would land after it
 
 	if progress {
 		_, _ = fmt.Fprintln(out)
@@ -378,6 +399,12 @@ func RunSync(cfg *config.Config, runner git.Runner, args []string, progress bool
 	}
 	tbl.Flush()
 	return nil
+}
+
+// repoLabel returns a function that turns the directory git ran in into the
+// repo's short name.
+func repoLabel(roots []string) func(string) string {
+	return func(p string) string { return repoName(roots, p) }
 }
 
 // hasNoRemotes reports true when the repo has no configured remotes.

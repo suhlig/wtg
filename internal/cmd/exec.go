@@ -3,11 +3,14 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/urfave/cli/v3"
 	"golang.org/x/term"
@@ -38,7 +41,13 @@ fails — all repos are attempted and failures are reported at the end.
 
 With --parallel, all commands run concurrently. A progress indicator shows
 live status. Output for each repo is buffered and printed serially in repo
-order once all commands complete.
+order once all commands complete. If a command in one repo runs long, the
+progress line names it.
+
+Use --timeout to stop a command that runs longer than a given time in any repo
+(a Go duration such as 90s or 10m). That repo is reported as timed out and the
+others carry on. There is no timeout by default: exec runs your own commands,
+and only you know how long they should take.
 
 The workspace argument is optional when the current directory is inside a
 known workspace — it will be inferred automatically. Use -- to separate the
@@ -53,13 +62,17 @@ workspace name from the command:
 				Name:  "parallel",
 				Usage: "run the command in all repos concurrently",
 			},
+			&cli.DurationFlag{
+				Name:  "timeout",
+				Usage: "stop the command in a repo after this long, e.g. 90s (default: no limit)",
+			},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			spaceName, execArgs, err := resolveExecArgs(cmd.Args().Slice())
 			if err != nil {
 				return err
 			}
-			return RunSpaceExec(spaceName, execArgs, cmd.Bool("parallel"), os.Stdout, fsys...)
+			return RunSpaceExecTimeout(spaceName, execArgs, cmd.Bool("parallel"), cmd.Duration("timeout"), os.Stdout, fsys...)
 		},
 	}
 }
@@ -167,6 +180,74 @@ func resolveExecArgs(args []string) (spaceName string, execArgs []string, err er
 // have finished. In both modes execution continues past failures and all
 // failed repos are reported at the end.
 func RunSpaceExec(spaceName string, args []string, parallel bool, out io.Writer, fsys ...trace.FS) error {
+	return RunSpaceExecTimeout(spaceName, args, parallel, 0, out, fsys...)
+}
+
+// execKillGrace is how long a command that timed out gets to exit after being
+// interrupted before it is killed.
+const execKillGrace = 5 * time.Second
+
+// execProc is one user command, started in dir. With a timeout it is stopped
+// when the time is up. Where stdin is not a terminal it runs in a process group
+// of its own and the whole group is stopped, so a shell's children do not
+// outlive it. On a terminal it stays in wtg's group: a command in the
+// background group that reads the terminal is stopped by SIGTTIN, and an
+// interactive command must keep working. Then only the command itself is
+// stopped, and its children are cut off from the output after a grace period.
+// Without a timeout it is always in wtg's group, where the terminal's Ctrl-C
+// reaches it, as before; wtg also interrupts it itself, for a signal that was
+// sent to wtg alone.
+type execProc struct {
+	*exec.Cmd
+	ctx     context.Context
+	timeout time.Duration
+	stop    func() // releases the timer and the tracker entry
+}
+
+// startExec builds the command for the repo called name. The command is not
+// started; run it with trace.RunProcess and call stop when done.
+func startExec(name, dir string, args []string, timeout time.Duration) *execProc {
+	// The cancel func ends the command on timeout and when wtg is interrupted
+	// (StopProcesses), including by a signal sent to wtg alone.
+	ctx, cancel := context.WithCancel(context.Background())
+	if timeout > 0 {
+		var cancelTimeout context.CancelFunc
+		ctx, cancelTimeout = context.WithTimeout(ctx, timeout)
+		inner := cancel
+		cancel = func() { cancelTimeout(); inner() }
+	}
+	cmd := trace.CommandContext(ctx, args[0], args[1:]...)
+	cmd.Dir = dir
+	cmd.Stdin = os.Stdin
+	cmd.Cancel = func() error { return cmd.Process.Signal(os.Interrupt) }
+	cmd.WaitDelay = execKillGrace
+	if timeout > 0 && !stdinIsTerminal() {
+		// Stop the whole group, so a shell's children do not outlive it.
+		trace.OwnProcessGroup(cmd)
+		cmd.Cancel = func() error { return trace.TerminateGroup(cmd) }
+	}
+	end := execProcs.begin(name, cancel)
+	return &execProc{Cmd: cmd, ctx: ctx, timeout: timeout, stop: func() { end(); cancel() }}
+}
+
+// stdinIsTerminal reports whether wtg's stdin is a terminal. A variable so
+// tests can override it.
+var stdinIsTerminal = func() bool { return term.IsTerminal(int(os.Stdin.Fd())) }
+
+// timedOut reports whether the command was stopped for running too long.
+func (p *execProc) timedOut() bool {
+	return p.timeout > 0 && errors.Is(p.ctx.Err(), context.DeadlineExceeded)
+}
+
+// timeoutMsg is the status line shown for a command that was stopped.
+func timeoutMsg(d time.Duration) string { return "timed out after " + d.String() }
+
+// RunSpaceExecTimeout is RunSpaceExec with a limit on how long the command may
+// run in each repo. A timeout of zero or less means no limit. A command that
+// exceeds it is interrupted, and killed if it does not exit; the repo is
+// reported as timed out and the others carry on. The command and the processes
+// it started are stopped together.
+func RunSpaceExecTimeout(spaceName string, args []string, parallel bool, timeout time.Duration, out io.Writer, fsys ...trace.FS) error {
 	var f trace.FS = trace.NewOsFS(nil)
 	if len(fsys) > 0 && fsys[0] != nil {
 		f = fsys[0]
@@ -177,12 +258,12 @@ func RunSpaceExec(spaceName string, args []string, parallel bool, out io.Writer,
 	}
 
 	if !parallel {
-		return runSpaceExecSerial(sp, args, out, f)
+		return runSpaceExecSerial(sp, args, timeout, out, f)
 	}
-	return runSpaceExecParallel(sp, args, out, f)
+	return runSpaceExecParallel(sp, args, timeout, out, f)
 }
 
-func runSpaceExecSerial(sp *state.Space, args []string, out io.Writer, f trace.FS) error {
+func runSpaceExecSerial(sp *state.Space, args []string, timeout time.Duration, out io.Writer, f trace.FS) error {
 	var failed []string
 	isDry := trace.IsDryRun(f)
 	for i, r := range sp.Repos {
@@ -199,14 +280,18 @@ func runSpaceExecSerial(sp *state.Space, args []string, out io.Writer, f trace.F
 			_, _ = fmt.Fprintf(out, "%s\n", ui.OK.Render("→ would run in "+r.WorktreePath+": "+trace.FmtArgs(args)))
 			continue
 		}
-		cmd := trace.Command(args[0], args[1:]...)
-		cmd.Dir = r.WorktreePath
-		cmd.Stdin = os.Stdin
-		cmd.Stdout = out
-		cmd.Stderr = out
-		if err := trace.RunProcess(f, r.WorktreePath, trace.FmtArgs(args), func() error { return cmd.Run() }); err != nil {
+		p := startExec(r.Name, r.WorktreePath, args, timeout)
+		p.Stdout = out
+		p.Stderr = out
+		err := trace.RunProcess(f, r.WorktreePath, trace.FmtArgs(args), func() error { return p.Run() })
+		p.stop()
+		if err != nil {
 			failed = append(failed, r.Name)
-			_, _ = fmt.Fprintf(out, "%s\n", ui.Fail.Render(ui.SymFail+" failed"))
+			msg := "failed"
+			if p.timedOut() {
+				msg = timeoutMsg(timeout)
+			}
+			_, _ = fmt.Fprintf(out, "%s\n", ui.Fail.Render(ui.SymFail+" "+msg))
 		} else {
 			_, _ = fmt.Fprintf(out, "%s\n", ui.OK.Render(ui.SymOK+" ok"))
 		}
@@ -224,9 +309,10 @@ type execResult struct {
 	output  []byte
 	failed  bool
 	skipped bool
+	timeout time.Duration // non-zero when the command was stopped for running too long
 }
 
-func runSpaceExecParallel(sp *state.Space, args []string, out io.Writer, f trace.FS) error {
+func runSpaceExecParallel(sp *state.Space, args []string, timeout time.Duration, out io.Writer, f trace.FS) error {
 	repos := sp.Repos
 	results := make([]execResult, len(repos))
 	isDry := trace.IsDryRun(f)
@@ -240,9 +326,15 @@ func runSpaceExecParallel(sp *state.Space, args []string, out io.Writer, f trace
 	termWidth := execTermWidthFn()
 
 	printProgress := func() {
+		// Output is buffered until every command is done, so name a repo that
+		// is taking long here, or the bar would sit still without saying why.
+		suffix := ""
+		if note := slowBarNote(execProcs, nil); note != "" {
+			suffix = " (" + note + ")"
+		}
 		var b strings.Builder
 		if termWidth > 0 {
-			extraLines := (len(syms) + 2) / termWidth
+			extraLines := (len(syms) + 2 + len(suffix)) / termWidth
 			for range extraLines {
 				b.WriteString("\x1b[A") // cursor up one line
 			}
@@ -253,6 +345,8 @@ func runSpaceExecParallel(sp *state.Space, args []string, out io.Writer, f trace
 			b.WriteString(s)
 		}
 		b.WriteRune(']')
+		b.WriteString(suffix)
+		b.WriteString("\x1b[K") // erase to end of line so a shrinking suffix leaves no ghost chars
 		_, _ = fmt.Fprint(out, b.String())
 	}
 
@@ -262,6 +356,13 @@ func runSpaceExecParallel(sp *state.Space, args []string, out io.Writer, f trace
 		printProgress()
 		mu.Unlock()
 	}
+	// Redraw on a timer so the slow note appears and its duration ticks while
+	// every command is still running.
+	stopSlow := watchSlow(execProcs, slowInterval, func() {
+		mu.Lock()
+		printProgress()
+		mu.Unlock()
+	})
 
 	var wg sync.WaitGroup
 	for i, r := range repos {
@@ -287,14 +388,16 @@ func runSpaceExecParallel(sp *state.Space, args []string, out io.Writer, f trace
 				return
 			}
 			var buf bytes.Buffer
-			cmd := trace.Command(args[0], args[1:]...)
-			cmd.Dir = r.WorktreePath
-			cmd.Stdin = os.Stdin
-			cmd.Stdout = &buf
-			cmd.Stderr = &buf
-			if err := trace.RunProcess(f, r.WorktreePath, trace.FmtArgs(args), func() error { return cmd.Run() }); err != nil {
+			p := startExec(r.Name, r.WorktreePath, args, timeout)
+			p.Stdout = &buf
+			p.Stderr = &buf
+			if err := trace.RunProcess(f, r.WorktreePath, trace.FmtArgs(args), func() error { return p.Run() }); err != nil {
 				res.failed = true
+				if p.timedOut() {
+					res.timeout = timeout
+				}
 			}
+			p.stop()
 			res.output = buf.Bytes()
 			mu.Lock()
 			if res.failed {
@@ -308,6 +411,7 @@ func runSpaceExecParallel(sp *state.Space, args []string, out io.Writer, f trace
 		})
 	}
 	wg.Wait()
+	stopSlow() // before the final newline, or a redraw would land after it
 
 	// End progress line.
 	_, _ = fmt.Fprintln(out)
@@ -330,7 +434,11 @@ func runSpaceExecParallel(sp *state.Space, args []string, out io.Writer, f trace
 		_, _ = out.Write(res.output)
 		if res.failed {
 			failed = append(failed, res.name)
-			_, _ = fmt.Fprintf(out, "%s\n", ui.Fail.Render(ui.SymFail+" failed"))
+			msg := "failed"
+			if res.timeout > 0 {
+				msg = timeoutMsg(res.timeout)
+			}
+			_, _ = fmt.Fprintf(out, "%s\n", ui.Fail.Render(ui.SymFail+" "+msg))
 		} else {
 			_, _ = fmt.Fprintf(out, "%s\n", ui.OK.Render(ui.SymOK+" ok"))
 		}

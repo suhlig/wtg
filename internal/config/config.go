@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/knadh/koanf/parsers/toml"
 	"github.com/knadh/koanf/parsers/yaml"
@@ -47,6 +48,9 @@ type SpacesConfig struct {
 // GitConfig controls git operation behaviour.
 type GitConfig struct {
 	BranchPrefix string `koanf:"branch_prefix" yaml:"branch_prefix"`
+	// NetworkTimeout bounds one git command that talks to a remote (fetch,
+	// push, ls-remote). Zero disables the timeout.
+	NetworkTimeout time.Duration `koanf:"network_timeout" yaml:"network_timeout"`
 }
 
 // ArchiveConfig controls where `wtg repo archive` moves retired repo clones.
@@ -110,6 +114,7 @@ func Load(path string) (*Config, error) {
 		"discovery.max_depth": 2,
 		"spaces.root_dir":     "~/spaces",
 		"archive.root_dir":    "~/repos-archived",
+		"git.network_timeout": "5m",
 	}, "."), nil); err != nil {
 		return nil, fmt.Errorf("load defaults: %w", err)
 	}
@@ -130,6 +135,7 @@ func Load(path string) (*Config, error) {
 	// The section is always a single word, so we split on the first underscore only.
 	// Examples:
 	//   WTG_GIT_BRANCH_PREFIX     → git.branch_prefix
+	//   WTG_GIT_NETWORK_TIMEOUT   → git.network_timeout
 	//   WTG_DISCOVERY_ROOT_DIR    → discovery.root_dir
 	//   WTG_DISCOVERY_MAX_DEPTH   → discovery.max_depth
 	if err := k.Load(env.Provider("WTG_", ".", func(s string) string {

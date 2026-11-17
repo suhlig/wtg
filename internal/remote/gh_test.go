@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // installFakeGH writes an executable `gh` shim into a temp dir and prepends it
@@ -148,4 +149,118 @@ func assertCall(t *testing.T, calls []string, want string) {
 		return
 	}
 	t.Errorf("gh calls %v do not include %q", calls, want)
+}
+
+// installSlowGH puts a `gh` on PATH that sleeps, standing in for a GitHub that
+// accepts the request and never answers.
+func installSlowGH(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("fake gh shim requires a POSIX shell")
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "gh"), []byte("#!/bin/sh\nexec sleep 30\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+func TestSystemRunnerTimesOut(t *testing.T) {
+	installSlowGH(t)
+	s := NewSystemRunner(nil)
+	s.SetTimeout(200 * time.Millisecond)
+
+	start := time.Now()
+	_, err := s.IsArchived(context.Background(), GitHubHost, "owner/foo")
+	if err == nil {
+		t.Fatal("expected a timeout error")
+	}
+	if elapsed := time.Since(start); elapsed > 10*time.Second {
+		t.Errorf("gh was not interrupted promptly: %s", elapsed)
+	}
+	for _, want := range []string{"gh repo view owner/foo failed", "timed out after 200ms", "git.network_timeout"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q missing %q", err, want)
+		}
+	}
+	if ops := s.Active(); len(ops) != 0 {
+		t.Errorf("finished command still active: %+v", ops)
+	}
+}
+
+func TestSystemRunnerActive(t *testing.T) {
+	installSlowGH(t)
+	s := NewSystemRunner(nil)
+	s.SetTimeout(0)
+	ctx, cancel := context.WithCancel(context.Background())
+
+	done := make(chan error, 1)
+	go func() { _, err := s.IsArchived(ctx, GitHubHost, "owner/foo"); done <- err }()
+
+	var ops []ActiveOp
+	for deadline := time.Now().Add(5 * time.Second); len(ops) == 0 && time.Now().Before(deadline); {
+		ops = s.Active()
+		time.Sleep(10 * time.Millisecond)
+	}
+	if len(ops) != 1 || ops[0].Args[0] != "repo" {
+		t.Fatalf("Active() = %+v, want the repo view", ops)
+	}
+	if got := FormatActive(ops, ops[0].Since.Add(65*time.Second)); !strings.Contains(got, "gh repo view owner/foo") || !strings.Contains(got, "1m5s") {
+		t.Errorf("FormatActive = %q", got)
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Error("expected an error after cancel")
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("gh did not stop after its context was cancelled")
+	}
+}
+
+func TestSystemRunnerFastCallsUnaffectedByTimeout(t *testing.T) {
+	installFakeGH(t)
+	t.Setenv("GH_VIEW_JSON", `{"isArchived":false}`)
+	s := NewSystemRunner(nil)
+	s.SetTimeout(30 * time.Second)
+	if _, err := s.IsArchived(context.Background(), GitHubHost, "owner/foo"); err != nil {
+		t.Fatalf("IsArchived: %v", err)
+	}
+}
+
+// A timeout is not "not authenticated": the message must say what happened.
+func TestSystemRunnerAuthStatusTimeout(t *testing.T) {
+	installSlowGH(t)
+	s := NewSystemRunner(nil)
+	s.SetTimeout(200 * time.Millisecond)
+	err := s.AuthStatus(context.Background(), GitHubHost)
+	if err == nil || !strings.Contains(err.Error(), "timed out after 200ms") {
+		t.Fatalf("got %v, want a timeout", err)
+	}
+	if strings.Contains(err.Error(), "not authenticated") {
+		t.Errorf("a timeout must not be reported as an authentication failure: %v", err)
+	}
+}
+
+func TestSystemRunnerInterrupt(t *testing.T) {
+	installSlowGH(t)
+	s := NewSystemRunner(nil)
+	s.SetTimeout(0)
+
+	done := make(chan error, 1)
+	go func() { _, err := s.IsArchived(context.Background(), GitHubHost, "owner/foo"); done <- err }()
+	for deadline := time.Now().Add(5 * time.Second); len(s.Active()) == 0 && time.Now().Before(deadline); {
+		time.Sleep(10 * time.Millisecond)
+	}
+	s.Interrupt()
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "stopped") {
+			t.Errorf("got %v, want a 'stopped' error", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("gh did not stop after Interrupt")
+	}
 }

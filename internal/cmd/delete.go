@@ -127,6 +127,11 @@ func RunSpaceDelete(ctx context.Context, cfg *config.Config, runner git.Runner, 
 	// leaves branches alone.
 	checkPR := args.DeleteBranch && !args.ForceBranch
 	warnResults := make([]warnResult, len(sp.Repos))
+	labels := make(map[string]string, len(sp.Repos))
+	for _, r := range sp.Repos {
+		labels[r.WorktreePath] = r.Name
+	}
+	stopSlow := noticeSlow(runners{runner, gh}, labelByPath(labels))
 	var wg sync.WaitGroup
 	for i, r := range sp.Repos {
 		if r.Symlink {
@@ -149,6 +154,7 @@ func RunSpaceDelete(ctx context.Context, cfg *config.Config, runner git.Runner, 
 		}(i, r)
 	}
 	wg.Wait()
+	stopSlow()
 
 	// A repo with a changed always.secrets copy is kept (ADR 0019 D11, change 5):
 	// it is neither removed nor warned about, because nothing will be deleted.

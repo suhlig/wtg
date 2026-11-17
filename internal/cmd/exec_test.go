@@ -393,3 +393,111 @@ func TestRunSpaceExec_DryRun(t *testing.T) {
 		t.Errorf("expected worktree path in output, got: %q", got)
 	}
 }
+
+// --- timeout ---
+
+func TestRunSpaceExec_TimeoutStopsOnlyTheSlowRepo(t *testing.T) {
+	isolateState(t)
+	sp := execSpace(t, "feat", []string{"api", "svc"})
+	// Only api's worktree has the marker file, so only api's command sleeps.
+	if err := os.WriteFile(filepath.Join(sp.Repos[0].WorktreePath, "slow"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	script := "if [ -e slow ]; then sleep 30; fi; echo done-in-$(basename $PWD)"
+
+	var out bytes.Buffer
+	start := time.Now()
+	err := RunSpaceExecTimeout("feat", []string{"sh", "-c", script}, false, 300*time.Millisecond, &out)
+	if err == nil || !strings.Contains(err.Error(), "command failed in: api") || strings.Contains(err.Error(), "svc") {
+		t.Fatalf("error = %v, want failure in api only", err)
+	}
+	if elapsed := time.Since(start); elapsed > 15*time.Second {
+		t.Errorf("slow command was not stopped promptly: %s", elapsed)
+	}
+	got := out.String()
+	if !strings.Contains(got, "timed out after 300ms") {
+		t.Errorf("output should say the command timed out: %q", got)
+	}
+	if !strings.Contains(got, "done-in-svc") {
+		t.Errorf("other repos must still run: %q", got)
+	}
+	if ActiveProcesses(time.Now()) != "" {
+		t.Errorf("stopped command still tracked: %q", ActiveProcesses(time.Now()))
+	}
+}
+
+func TestRunSpaceExec_Parallel_TimeoutStopsOnlyTheSlowRepo(t *testing.T) {
+	isolateState(t)
+	orig := execTermWidthFn
+	execTermWidthFn = func() int { return 0 }
+	defer func() { execTermWidthFn = orig }()
+	sp := execSpace(t, "feat", []string{"api", "svc"})
+	if err := os.WriteFile(filepath.Join(sp.Repos[0].WorktreePath, "slow"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	script := "if [ -e slow ]; then sleep 30; fi; echo done-in-$(basename $PWD)"
+
+	var out bytes.Buffer
+	err := RunSpaceExecTimeout("feat", []string{"sh", "-c", script}, true, 300*time.Millisecond, &out)
+	if err == nil || !strings.Contains(err.Error(), "command failed in: api") || strings.Contains(err.Error(), "svc") {
+		t.Fatalf("error = %v, want failure in api only", err)
+	}
+	got := out.String()
+	if !strings.Contains(got, "timed out after 300ms") || !strings.Contains(got, "done-in-svc") {
+		t.Errorf("unexpected output: %q", got)
+	}
+}
+
+func TestRunSpaceExec_NoTimeoutByDefault(t *testing.T) {
+	isolateState(t)
+	execSpace(t, "feat", []string{"api"})
+	var out bytes.Buffer
+	if err := RunSpaceExec("feat", []string{"sh", "-c", "sleep 0.3; echo finished"}, false, &out); err != nil {
+		t.Fatalf("RunSpaceExec: %v", err)
+	}
+	if !strings.Contains(out.String(), "finished") {
+		t.Errorf("command should run to completion: %q", out.String())
+	}
+}
+
+// With every command stuck, the parallel bar names the slow repo.
+func TestRunSpaceExec_Parallel_ProgressNamesSlowRepo(t *testing.T) {
+	isolateState(t)
+	fastSlowTimers(t)
+	orig := execTermWidthFn
+	execTermWidthFn = func() int { return 0 }
+	defer func() { execTermWidthFn = orig }()
+	execSpace(t, "feat", []string{"api"})
+
+	var out syncBuf
+	done := make(chan error, 1)
+	go func() { done <- RunSpaceExec("feat", []string{"sleep", "3"}, true, &out) }()
+
+	deadline := time.Now().Add(10 * time.Second)
+	for !strings.Contains(out.String(), "slow: api") && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if got := out.String(); !strings.Contains(got, "(slow: api") {
+		t.Errorf("progress should name the slow repo, got %q", got)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
+// On a terminal the command is not moved to a group of its own (SIGTTIN would
+// stop an interactive command), so only the command itself is stopped; its
+// timeout is still reported.
+func TestRunSpaceExec_Timeout_OnTerminal(t *testing.T) {
+	isolateState(t)
+	execSpace(t, "feat", []string{"api"})
+	orig := stdinIsTerminal
+	stdinIsTerminal = func() bool { return true }
+	defer func() { stdinIsTerminal = orig }()
+
+	var out bytes.Buffer
+	err := RunSpaceExecTimeout("feat", []string{"sleep", "30"}, false, 200*time.Millisecond, &out)
+	if err == nil || !strings.Contains(out.String(), "timed out after 200ms") {
+		t.Errorf("err=%v out=%q, want a reported timeout", err, out.String())
+	}
+}
