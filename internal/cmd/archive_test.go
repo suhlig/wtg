@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -408,6 +409,9 @@ func TestRunRepoArchive_AmbiguousName(t *testing.T) {
 
 // fakeGH is a configurable remote.Runner for command unit tests. Reading an
 // unset map field is fine; it yields the zero value.
+//
+// `wtg land` creates PRs from one goroutine per repo, so the state CreatePR
+// records is guarded by mu; the other methods are called sequentially.
 type fakeGH struct {
 	availableErr   error
 	authErr        error
@@ -426,7 +430,8 @@ type fakeGH struct {
 	prStates     map[string]string // "ownerRepo/head" -> OPEN, MERGED, CLOSED
 	prHeadOIDs   map[string]string // "ownerRepo/head" -> head commit of that PR
 	findStateErr error
-	createBase   string // base branch of the last CreatePR call
+	mu           sync.Mutex
+	createBase   string // base branch of the last CreatePR call; guarded by mu
 }
 
 func (f *fakeGH) Available() error { return f.availableErr }
@@ -462,7 +467,9 @@ func (f *fakeGH) FindPR(_ context.Context, _, ownerRepo, head string) (remote.PR
 }
 
 func (f *fakeGH) CreatePR(_ context.Context, _, ownerRepo, head, base string, _ bool) (remote.PR, error) {
+	f.mu.Lock()
 	f.createBase = base
+	f.mu.Unlock()
 	if f.createPRErr != nil {
 		return remote.PR{}, f.createPRErr
 	}
