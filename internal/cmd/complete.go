@@ -39,13 +39,19 @@ func emitFlags(cmd *cli.Command) {
 	}
 }
 
-// completeSpaces outputs space names for shell completion.
+// completeSpaces outputs space names for shell completion, preceded by "." when
+// any space exists. Every position that completes spaces accepts "." (ADR 0025
+// D6, D7): the workspace containing the current directory for the workspace
+// commands, and the repo containing it in add and remove.
 func completeSpaces(_ context.Context, cmd *cli.Command) {
 	spaces, err := state.List()
 	if err != nil {
 		return
 	}
 	sort.Slice(spaces, func(i, j int) bool { return spaces[i].Name < spaces[j].Name })
+	if len(spaces) > 0 {
+		fmt.Println(dotArg)
+	}
 	for _, sp := range spaces {
 		fmt.Println(sp.Name)
 	}
@@ -79,7 +85,10 @@ func pathBase(p string) string {
 	return p
 }
 
-// completeRepos outputs discovered repo names for shell completion.
+// completeRepos outputs discovered repo names for shell completion, preceded by
+// "." (the repo containing the current directory, ADR 0025) when any repo is
+// discovered. Commands whose repo position rejects "." (repo unarchive) use
+// completeArchivedRepos instead.
 func completeRepos(_ context.Context, cmd *cli.Command) {
 	cfg, err := config.Load(cmd.Root().String("config"))
 	if err != nil {
@@ -94,6 +103,9 @@ func completeRepos(_ context.Context, cmd *cli.Command) {
 		return
 	}
 	sort.Strings(paths)
+	if len(paths) > 0 {
+		_, _ = fmt.Fprintln(os.Stdout, dotArg)
+	}
 	for _, p := range paths {
 		_, _ = fmt.Fprintln(os.Stdout, repoName(roots, p))
 	}
@@ -149,8 +161,9 @@ func completeSpaceThenRepos(ctx context.Context, cmd *cli.Command) {
 	}
 }
 
-// completeSpaceMembers completes a space name at position 0, then the names of
-// repos already in that space at position 1+. Used for space remove.
+// completeSpaceMembers completes a space name at position 0, then "." and the
+// names of repos already in that space at position 1+. Used for space remove,
+// where "." names the repo containing the current directory (ADR 0025 D7).
 func completeSpaceMembers(ctx context.Context, cmd *cli.Command) {
 	if cmd.NArg() <= 1 {
 		completeSpaces(ctx, cmd)
@@ -164,6 +177,9 @@ func completeSpaceMembers(ctx context.Context, cmd *cli.Command) {
 	names := make([]string, len(sp.Repos))
 	for i, r := range sp.Repos {
 		names[i] = r.Name
+	}
+	if len(names) > 0 {
+		fmt.Println(dotArg)
 	}
 	for _, n := range names {
 		fmt.Println(completionName(names, n))

@@ -31,6 +31,8 @@ if status is-interactive
 end
 ```
 
+Completion offers repo and workspace names, and `.` (see [Workspace commands](#workspace-commands)) wherever it is accepted: the repo or workspace you are in. It is listed first.
+
 ## Configuration
 
 Run `wtg config init` to scaffold a commented config file at `~/.config/wtg/config.toml`:
@@ -100,7 +102,7 @@ wtg delete my-feature --delete-branch
 
 `.` names the repo or workspace you are in. Every command that takes a repo or a workspace argument accepts it: `wtg new other-space .` adds the repo behind the current directory, `wtg remove .` removes it from the current workspace, and `wtg status .` shows the workspace containing it. It works from a subdirectory and from a linked worktree, and it is resolved before name matching, so it never becomes an ambiguous short name. In `add` and `remove`, `.` always means a repo, never the workspace.
 
-### `wtg new <workspace> <repo>...`
+### `wtg new <workspace> <repo>... [--read-only <repo>]...`
 
 Create a workspace. At least one repo must be specified. For each repo, `wtg`
 creates or checks out a branch named `<branch_prefix><workspace>` as a linked
@@ -112,9 +114,12 @@ its worktree when present (see [docs/always.md](docs/always.md)).
 wtg new my-feature api payments frontend
 wtg new my-feature api --branch yourname/main  # check out an existing branch
 wtg new my-feature api --base origin/develop   # branch from develop, and stay on it
+wtg new my-feature api --read-only config-lib --read-only codegen   # api is changed; the others are consumed
 ```
 
 `--base <commit-ish>` cuts a new branch from something other than `HEAD`. When it names a remote-tracking branch (`--base origin/develop`), that branch is also recorded as the repo's base: later `wtg rebase` and `wtg land` target it instead of the repo's default branch. A tag, a commit or a local branch is only a start point and records nothing.
+
+`--read-only <repo>` (repeatable) creates a mixed workspace in one step: the named repos become [read-only members](#read-only-members) — detached worktrees at a pinned ref, with no feature branch — while the positional repos get the workspace branch as usual. `--ref <ref>` applies to every `--read-only` repo and, as with `add`, a ref that does not resolve fails before anything is created. Without `--ref`, the ref is the version the positional repos' `go.mod` files select, else `origin/<default branch>`. At least one positional repo is still required, and a repo cannot be both. `.` works as a `--read-only` value too.
 
 Branch behaviour per repo:
 
@@ -160,7 +165,7 @@ wtg add infra logging             # workspace inferred from CWD
 wtg add .                         # the repo behind the current directory
 ```
 
-With `--read-only`, the repo is added as a member you *consume* rather than change: a detached worktree at a pinned ref, listed in `go.work` if it has a `go.mod`, with no feature branch of its own. See [Read-only members](#read-only-members).
+With `--read-only`, the repo is added as a member you *consume* rather than change: a detached worktree at a pinned ref, listed in `go.work` if it has a `go.mod`, with no feature branch of its own. See [Read-only members](#read-only-members). To create a workspace with read-only members from the start, use `wtg new --read-only <repo>`.
 
 ```sh
 wtg add --read-only config-lib                # what the workspace's consumers require
@@ -206,7 +211,7 @@ Where the ref comes from:
 | `--read-only --ref 1a2b3c4` | a commit, pinned |
 | `--read-only --ref origin/main` | a branch, followed by `wtg rebase` |
 
-`--ref` applies to every repo named in that invocation; add repos that need different refs in separate invocations. A ref that does not resolve fails before anything is created. Without `--ref`, consumers that require different versions are an error that lists each one, because `go.work` overrides `go.mod`: the member contributes exactly one version to the build and it has to be the right one.
+`--ref` applies to every repo named in that invocation (every `--read-only` repo, for `wtg new`); add repos that need different refs in separate invocations. A ref that does not resolve fails before anything is created. Without `--ref`, consumers that require different versions are an error that lists each one, because `go.work` overrides `go.mod`: the member contributes exactly one version to the build and it has to be the right one.
 
 What the commands do with a read-only member:
 

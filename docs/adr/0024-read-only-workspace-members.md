@@ -147,7 +147,7 @@ Steps 1 and 2 are what D8 gets from the Go toolchain instead of reimplementing; 
 | `exec` | Included. Unlike a symlink it is a worktree of its own, so running a build or a search there is unsurprising. |
 | `remove` | Removes the worktree. If the repo is in `always.repos`, the symlink is restored, as for any removed worktree. The uncommitted-changes warning and prompt remain, because the worktree is deleted; the unpushed-commit check is skipped, and `-d`/`-D` do nothing because there is no workspace branch to delete (see below). |
 | `delete` | Removes the worktree. `-d` and `-D` do not apply: no branch is looked up or deleted ([ADR 0009](0009-delete-and-branch-safety.md)). A modified worktree still produces the usual uncommitted-changes warning. |
-| `new` | Unchanged in v1: every named repo is a read-write member. See Follow-ups. |
+| `new` | Every positional repo is a read-write member; `--read-only <repo>` (repeatable) adds read-only ones in the same step. See Implemented later. |
 | `go.work` | Written for read-only members with a `go.mod`, like any worktree. Read-only members without one (docs, generated assets) are still members, just not listed. |
 
 **This needs code changes, not just a new skip.** Both commands assume every non-symlink member has the workspace branch:
@@ -253,6 +253,18 @@ Three places where the code differs from the text above, each deliberately:
 - **`detectGoMods` prefers an existing worktree to the main clone.** A read-only pin may predate its `go.mod`, or be a commit where the module was dropped, while the main clone says otherwise — `go.work` must follow the checkout. Repos whose worktree does not exist yet (during `new`, and for repos being added) still fall back to the main clone.
 - **`land` does not count a read-only skip as attention.** It reports `⚠ skipped — read-only member` but leaves the exit code alone, because a member that is skipped on purpose would otherwise make `wtg land` fail on every run — the un-actionable warning this ADR set out to remove. Symlink skips keep their existing behaviour.
 
+Implemented later, from this record's follow-ups:
+
+- **`wtg new --read-only <repo>`**, repeatable, so a mixed workspace is created in one step instead of `new` followed by `add --read-only`.
+  - `--ref` applies to every `--read-only` repo of the invocation, as in `add` (D3); `--ref` without `--read-only` is an error. `--base` keeps its meaning for the read-write repos and is ignored for read-only ones, which have no branch to cut and so record no base.
+  - The positional repos stay read-write, and at least one is still required: a workspace is one branch across repos, and a workspace of only consumed repos has no branch. `wtg new feat --read-only lib` fails with the usual "at least one repo" error.
+  - A repo named both positionally and with `--read-only` is an error before anything is created; it would be two worktrees at one path.
+  - `.` is accepted as a `--read-only` value and resolved before name matching, like any repo argument ([ADR 0025](0025-dot-repo-arguments.md) D4). A repo named with `--read-only` is *explicitly named*, so `always.repos` does not also symlink it (as for positional repos).
+  - The pre-flight is `add`'s: every ref is resolved (`prepareReadOnlyTarget`) before the first worktree exists, so an unresolvable `--ref` fails the whole invocation with nothing created (E1). The workspace has no worktrees yet, so D8 derives the default ref from the read-write repos' **main clones**: the consumer set is the positional repos, looked up where their `go.mod` is on disk now, which is also what the new branch is cut from by default. With no consumer that requires the module, the ref is `origin/<default branch>` as before.
+  - The saga order is the read-write worktrees, then the read-only ones, then symlinks, `always.files` and `go.work`. `go.work` lists a read-only member by the `go.mod` at its pinned commit (`applyReadOnlyGoMods`), not the main clone's, so a pin that predates its module is left out (D7).
+  - Rollback is unchanged: the saga removes whatever was created, including the branch it created in the read-write repos, and leaves the read-only members' repos without any new branch.
+  - Tests: `internal/cmd/new_readonly_test.go` (mock runner: mixed workspace, repeated flag with `--ref`, unresolvable ref, unknown repo, overlap, derived ref, `go.work` from the pinned commit, `always.repos`, `.`, rollback, no branch created in a read-only repo, `--ref` without `--read-only`, only-read-only rejected) and `new_readonly_git_test.go` (real git: the read-write repo on the branch, the read-only one detached at its tag with no new branch).
+
 ## Without wtg ([ADR 0022](0022-no-tool-dependency.md))
 
 - `read_only` and `ref` live only in the user-local state file. Nothing is written into any repository, committed or pushed.
@@ -282,7 +294,6 @@ Three places where the code differs from the text above, each deliberately:
 
 ## Follow-ups
 
-- `wtg new --read-only <repo>` (repeatable), so a mixed workspace can be created in one step.
 - An `adopt` path for existing detached members (E11).
 - Re-evaluate `go.work` membership on promotion: the decision is made, from the pinned checkout, before the branch checkout exists, so a branch that adds or drops a `go.mod` relative to the pin needs a manual `go work use`/`go work edit` (or a `wtg remove` + `wtg add` cycle) until then.
 - Teach the drift check the selected version rather than the literal `require` when that can be done offline. Today a consumer whose minimum version selection picks a newer version than its own `go.mod` states can be under-reported; the alternative — running `go list -m` in `wtg status` — trades that for a possible network round-trip per consumer, which E9 rules out.

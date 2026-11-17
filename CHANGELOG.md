@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `wtg new --read-only <repo>` (repeatable, with `--ref`) — create a workspace with read-only members in one step instead of `wtg new` followed by `wtg add --read-only`. The positional repos stay on the workspace branch, the named ones become detached worktrees at a pinned ref, and every ref is resolved before anything is created. At least one positional repo is still required, and a repo cannot be named both ways (ADR 0024)
+- Shell completion offers `.` — the repo or workspace you are in — first, wherever the position accepts it; it is left out where `.` is rejected (the workspace name of `wtg new`, `wtg repo unarchive`) (ADR 0025)
+
 ### Changed
 
 - `wtg add`, `remove` and `delete` edit an existing `go.work` instead of rewriting it: comments, `replace`, `toolchain` and `godebug` directives survive, only the `use` entries are reconciled with the workspace members, and the `go` directive is raised but never lowered. An unparseable `go.work` is still replaced (ADR 0008)
