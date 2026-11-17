@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-11-17
+
 ### Added
 
 - Path-like arguments (`./...`, `../...`, `..`, `/...`, `~...`) are accepted wherever a repo is named, resolving via their path prefix to the canonical short name of the repo containing the target path (or main clone for worktrees) before name matching (ADR 0025)
@@ -173,7 +175,8 @@ Initial public release.
 - XDG Base Directory-compliant config (`$XDG_CONFIG_HOME/wtg/config.yaml`) and state (`$XDG_DATA_HOME/wtg/spaces/`)
 - `--config` flag and `WTG_CONFIG` environment variable for config file override
 
-[Unreleased]: https://github.com/suhlig/wtg/compare/v1.9.0...HEAD
+[Unreleased]: https://github.com/suhlig/wtg/compare/v1.10.0...HEAD
+[1.10.0]: https://github.com/suhlig/wtg/compare/v1.9.0...v1.10.0
 [1.9.0]: https://github.com/suhlig/wtg/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/suhlig/wtg/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/suhlig/wtg/compare/v1.6.0...v1.7.0
