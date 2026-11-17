@@ -100,7 +100,7 @@ wtg delete my-feature --delete-branch
 
 ## Workspace commands
 
-`.` names the repo or workspace you are in. Every command that takes a repo or a workspace argument accepts it: `wtg new other-space .` adds the repo behind the current directory, `wtg remove .` removes it from the current workspace, and `wtg status .` shows the workspace containing it. It works from a subdirectory and from a linked worktree, and it is resolved before name matching, so it never becomes an ambiguous short name. In `add` and `remove`, `.` always means a repo, never the workspace.
+`.` names the repo or workspace you are in, and path-like arguments (`./...`, `../...`, `/...`, `~/...`) name the repo containing the target path. Every command that takes a repo or a workspace argument accepts them: `wtg new other-space .` or `wtg add ../other-repo` adds the repo behind the path, `wtg remove .` removes it from the current workspace, and `wtg status .` shows the workspace containing it. They work from a subdirectory and from a linked worktree, and are resolved before name matching, so they never collide with short names. In `add` and `remove`, `.` and paths always mean a repo, never the workspace.
 
 ### `wtg new <workspace> <repo>... [--read-only <repo>]...`
 

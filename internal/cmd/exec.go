@@ -100,9 +100,9 @@ func resolveSpaceAndRepos(runner git.Runner, cfg *config.Config, args []string) 
 		return "", nil, fmt.Errorf("no repos specified")
 	}
 
-	// Try treating the first argument as an explicit workspace name. "." never
-	// names a workspace, so it skips this stage.
-	if !isDotArg(args[0]) {
+	// Try treating the first argument as an explicit workspace name. A path-like
+	// argument never names a workspace, so it skips this stage.
+	if !isPathArg(args[0]) {
 		if _, loadErr := state.Load(args[0]); loadErr == nil {
 			if len(args) < 2 {
 				return "", nil, fmt.Errorf("no repos specified")

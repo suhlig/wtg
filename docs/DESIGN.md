@@ -32,13 +32,11 @@ Each decision below has its own record in [`adr/`](adr/), carrying the original 
 | [0022](adr/0022-no-tool-dependency.md) | Collaborators never need wtg: shared artefacts stay plain, wtg-only data stays user-local |
 | [0023](adr/0023-parallelism-policy.md) | Independent per-repo work runs in parallel; sequential only for real dependencies |
 | [0024](adr/0024-read-only-workspace-members.md) | Read-only workspace members: pinned detached worktrees in `go.work`, never branched; drift check in `wtg status` |
-| [0025](adr/0025-dot-repo-arguments.md) | `.` names the repo or workspace containing the current directory, resolved to a canonical short name before name matching |
+| [0025](adr/0025-dot-repo-arguments.md) | `.` and path-like arguments name the repo or workspace containing the target path, resolved to a canonical short name before name matching |
 
 ## Open work
 
-Work a decision deliberately left out, collected in one place instead of buried in the records. Each item links to the ADR that explains it; **the ADR is authoritative** — when an item is picked up, reshaped, or dropped, change the record first, then this list. This mirrors the `## Follow-ups` sections: ADR 0013's two follow-ups (v2 and v3), ADR 0019's three, and ADR 0024's follow-ups are done, as is ADR 0025's shell completion of `.`; no other record has one.
+Work a decision deliberately left out, collected in one place instead of buried in the records. Each item links to the ADR that explains it; **the ADR is authoritative** — when an item is picked up, reshaped, or dropped, change the record first, then this list. This mirrors the `## Follow-ups` sections: ADR 0013's two follow-ups (v2 and v3), ADR 0019's three, ADR 0024's follow-ups, and ADR 0025's follow-ups (`.` completion and path arguments) are done; no other record has one.
 
-### [ADR 0025](adr/0025-dot-repo-arguments.md) — `.` arguments
-
-- Path-like arguments (`./api`, `../api`, absolute paths) stay unsupported and are treated as names; supporting them needs a marker or its own decision, because a canonical short name already contains slashes (D8).
+There is currently no open work recorded across the architecture decision records.
 

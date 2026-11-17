@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Path-like arguments (`./...`, `../...`, `..`, `/...`, `~...`) are accepted wherever a repo is named, resolving via their path prefix to the canonical short name of the repo containing the target path (or main clone for worktrees) before name matching (ADR 0025)
 - `wtg add --read-only [<workspace>] <repo>` adopts an existing member whose worktree is currently on a detached HEAD into a read-only member, recording its ref in state and checking out the target ref (ADR 0024 E11)
 - `wtg new --read-only <repo>` (repeatable, with `--ref`) — create a workspace with read-only members in one step instead of `wtg new` followed by `wtg add --read-only`. The positional repos stay on the workspace branch, the named ones become detached worktrees at a pinned ref, and every ref is resolved before anything is created. At least one positional repo is still required, and a repo cannot be named both ways (ADR 0024)
 - Shell completion offers `.` — the repo or workspace you are in — first, wherever the position accepts it; it is left out where `.` is rejected (the workspace name of `wtg new`, `wtg repo unarchive`) (ADR 0025)

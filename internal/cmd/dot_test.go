@@ -189,9 +189,135 @@ func TestResolveSpaceAndRepos_DotIsAlwaysARepo(t *testing.T) {
 	}
 }
 
+func TestResolveRepoArgs_RelativePath(t *testing.T) {
+	root := t.TempDir()
+	repo := makeRepo(t, root, "github.com/example/api")
+	cfg := discoverCfg(root, 3)
+
+	t.Chdir(root)
+	got, err := resolveRepoArgs(inRepo(repo, ""), cfg, []string{"./github.com/example/api"})
+	if err != nil {
+		t.Fatalf("resolveRepoArgs: %v", err)
+	}
+	want := "github.com/example/api"
+	if got[0] != want {
+		t.Errorf("got[0] = %q, want %q", got[0], want)
+	}
+}
+
+func TestResolveRepoArgs_AbsolutePath(t *testing.T) {
+	root := t.TempDir()
+	repo := makeRepo(t, root, "github.com/example/api")
+	cfg := discoverCfg(root, 3)
+
+	got, err := resolveRepoArgs(inRepo(repo, ""), cfg, []string{repo})
+	if err != nil {
+		t.Fatalf("resolveRepoArgs: %v", err)
+	}
+	want := "github.com/example/api"
+	if got[0] != want {
+		t.Errorf("got[0] = %q, want %q", got[0], want)
+	}
+}
+
+func TestResolveRepoArgs_SubdirectoryPath(t *testing.T) {
+	root := t.TempDir()
+	repo := makeRepo(t, root, "github.com/example/api")
+	sub := filepath.Join(repo, "pkg", "client")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatalf("mkdir sub: %v", err)
+	}
+	cfg := discoverCfg(root, 3)
+
+	// Passing a subdirectory path resolves to the enclosing repo.
+	r := &testRunner{
+		toplevelFn: func(p string) (string, error) {
+			if strings.HasPrefix(p, repo) {
+				return repo, nil
+			}
+			return "", os.ErrNotExist
+		},
+		worktreeListFn: func(string) ([]git.WorktreeInfo, error) {
+			return []git.WorktreeInfo{{Path: repo}}, nil
+		},
+	}
+
+	got, err := resolveRepoArgs(r, cfg, []string{sub})
+	if err != nil {
+		t.Fatalf("resolveRepoArgs: %v", err)
+	}
+	want := "github.com/example/api"
+	if got[0] != want {
+		t.Errorf("got[0] = %q, want %q", got[0], want)
+	}
+}
+
+func TestResolveRepoArgs_WorktreePathResolvesToMainClone(t *testing.T) {
+	root := t.TempDir()
+	main := makeRepo(t, root, "api")
+	worktree := filepath.Join(t.TempDir(), "api-wt")
+	if err := os.MkdirAll(worktree, 0o755); err != nil {
+		t.Fatalf("mkdir worktree: %v", err)
+	}
+	cfg := discoverCfg(root, 2)
+
+	got, err := resolveRepoArgs(inRepo(worktree, main), cfg, []string{worktree})
+	if err != nil {
+		t.Fatalf("resolveRepoArgs: %v", err)
+	}
+	if got[0] != "api" {
+		t.Errorf("got = %v, want [api]", got)
+	}
+}
+
+func TestResolveRepoArgs_NonExistentPath(t *testing.T) {
+	cfg := discoverCfg(t.TempDir(), 2)
+	nonExistent := filepath.Join(t.TempDir(), "does-not-exist")
+
+	_, err := resolveRepoArgs(&testRunner{}, cfg, []string{nonExistent})
+	if err == nil {
+		t.Fatal("expected error for non-existent path")
+	}
+}
+
+func TestResolveRepoArgs_PathNotInRepository(t *testing.T) {
+	dir := t.TempDir()
+	cfg := discoverCfg(t.TempDir(), 2)
+	r := &testRunner{toplevelFn: func(string) (string, error) {
+		return "", os.ErrNotExist
+	}}
+
+	_, err := resolveRepoArgs(r, cfg, []string{dir})
+	if err == nil || !strings.Contains(err.Error(), "not inside a git repository") {
+		t.Fatalf("expected a not-inside-a-repository error, got %v", err)
+	}
+}
+
+func TestResolveRepoArgs_PathOutsideDiscoveryRoots(t *testing.T) {
+	root := t.TempDir()
+	cfg := discoverCfg(root, 2)
+	outside := makeRepo(t, t.TempDir(), "elsewhere/api")
+
+	_, err := resolveRepoArgs(inRepo(outside, ""), cfg, []string{outside})
+	if err == nil {
+		t.Fatal("expected an error for a repo outside every discovery root")
+	}
+	for _, want := range []string{"not under any discovery root", outside, root} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q should mention %q", err, want)
+		}
+	}
+}
+
 func TestRejectDotAsWorkspace(t *testing.T) {
 	if err := rejectDotAsWorkspace("."); err == nil {
 		t.Fatal("expected \".\" to be rejected as a workspace name")
+	}
+	if err := rejectDotAsWorkspace("./api"); err == nil {
+		t.Fatal("expected \"./api\" to be rejected as a workspace name")
+	}
+	if err := rejectDotAsWorkspace("/abs/path"); err == nil {
+		t.Fatal("expected \"/abs/path\" to be rejected as a workspace name")
 	}
 	if err := rejectDotAsWorkspace("my-feature"); err != nil {
 		t.Errorf("unexpected error for a normal name: %v", err)
@@ -203,6 +329,14 @@ func TestNewCommand_RejectsDotAsWorkspace(t *testing.T) {
 	err := newApp(&testRunner{}).Run(context.Background(), []string{"wtg", "new", ".", "api"})
 	if err == nil || !strings.Contains(err.Error(), "not a workspace name") {
 		t.Fatalf("expected \".\" to be rejected as a workspace name, got %v", err)
+	}
+}
+
+func TestNewCommand_RejectsPathAsWorkspace(t *testing.T) {
+	isolateState(t)
+	err := newApp(&testRunner{}).Run(context.Background(), []string{"wtg", "new", "./my-space", "api"})
+	if err == nil || !strings.Contains(err.Error(), "path") {
+		t.Fatalf("expected \"./my-space\" to be rejected as a workspace name, got %v", err)
 	}
 }
 
@@ -242,10 +376,15 @@ func TestRunSpaceNew_DotWinsOverAlwaysRepos(t *testing.T) {
 	}
 }
 
-func TestRunRepoUnarchive_RejectsDot(t *testing.T) {
+func TestRunRepoUnarchive_RejectsDotAndPaths(t *testing.T) {
 	isolateState(t)
 	err := RunRepoUnarchive(&config.Config{}, RepoUnarchiveArgs{Repos: []string{"."}}, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "archived") {
 		t.Fatalf("expected \".\" to be rejected with the archived-repo reason, got %v", err)
+	}
+
+	err = RunRepoUnarchive(&config.Config{}, RepoUnarchiveArgs{Repos: []string{"./repo"}}, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "cannot address an archived repo") {
+		t.Fatalf("expected \"./repo\" to be rejected with the archived-repo reason, got %v", err)
 	}
 }
