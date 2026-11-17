@@ -337,10 +337,226 @@ func TestRunSpaceAdd_ReadOnlyOnReadWriteMemberFails(t *testing.T) {
 	makeSpace(t, "feat", "geoff/feat", spacePath, []string{"api"}, root)
 	cfg := spaceCreateCfg(root, spacesRoot)
 
+	r := &testRunner{statusFn: func(string) (git.RepoStatus, error) {
+		return git.RepoStatus{Branch: "geoff/feat"}, nil
+	}}
 	args := SpaceAddArgs{Name: "feat", Repos: []string{"api"}, ReadOnly: true}
-	err := RunSpaceAdd(cfg, &testRunner{}, args, &bytes.Buffer{})
+	err := RunSpaceAdd(cfg, r, args, &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "wtg remove") {
 		t.Fatalf("expected an error naming `wtg remove`, got %v", err)
+	}
+}
+
+func TestRunSpaceAdd_ReadOnlyAdoptsDetachedWorktree(t *testing.T) {
+	root := t.TempDir()
+	spacesRoot := t.TempDir()
+	isolateState(t)
+	makeRepo(t, root, "config-lib")
+	spacePath := filepath.Join(spacesRoot, "feat")
+	// Space state was created before ADR 0024 without ReadOnly: true
+	makeSpace(t, "feat", "geoff/feat", spacePath, []string{"config-lib"}, root)
+	cfg := spaceCreateCfg(root, spacesRoot)
+
+	var checkedOut string
+	r := &testRunner{
+		fetchFn: func(string) error { return nil },
+		defaultBranchFn: func(string) (string, error) { return "main", nil },
+		showFileFn: func(_, _, _ string) ([]byte, error) { return nil, os.ErrNotExist },
+		statusFn: func(string) (git.RepoStatus, error) {
+			// Worktree is on detached HEAD
+			return git.RepoStatus{Branch: ""}, nil
+		},
+		resolveRefFn: func(_, ref string) (string, error) {
+			return "commit-" + ref, nil
+		},
+		checkoutDetachedFn: func(worktreePath, ref string) error {
+			checkedOut = worktreePath + "@" + ref
+			return nil
+		},
+	}
+
+	var out bytes.Buffer
+	args := SpaceAddArgs{Name: "feat", Repos: []string{"config-lib"}, ReadOnly: true}
+	if err := RunSpaceAdd(cfg, r, args, &out); err != nil {
+		t.Fatalf("RunSpaceAdd (adopt): %v", err)
+	}
+
+	if !strings.HasSuffix(checkedOut, "/config-lib@commit-origin/main") {
+		t.Errorf("expected checkout detached at commit-origin/main, got %q", checkedOut)
+	}
+
+	sp, err := state.Load("feat")
+	if err != nil {
+		t.Fatalf("state.Load: %v", err)
+	}
+	if len(sp.Repos) != 1 {
+		t.Fatalf("repos = %+v, want 1 repo", sp.Repos)
+	}
+	got := sp.Repos[0]
+	if !got.ReadOnly || got.Ref != "origin/main" {
+		t.Errorf("adopted repo state = %+v, want ReadOnly: true, Ref: origin/main", got)
+	}
+}
+
+func TestRunSpaceAdd_ReadOnlyAdoptsDetachedWorktreeWithRef(t *testing.T) {
+	root := t.TempDir()
+	spacesRoot := t.TempDir()
+	isolateState(t)
+	makeRepo(t, root, "config-lib")
+	spacePath := filepath.Join(spacesRoot, "feat")
+	makeSpace(t, "feat", "geoff/feat", spacePath, []string{"config-lib"}, root)
+	cfg := spaceCreateCfg(root, spacesRoot)
+
+	var checkedOut string
+	r := &testRunner{
+		fetchFn: func(string) error { return nil },
+		showFileFn: func(_, _, _ string) ([]byte, error) { return nil, os.ErrNotExist },
+		statusFn: func(string) (git.RepoStatus, error) {
+			return git.RepoStatus{Branch: ""}, nil
+		},
+		resolveRefFn: func(_, ref string) (string, error) {
+			return "commit-" + ref, nil
+		},
+		checkoutDetachedFn: func(worktreePath, ref string) error {
+			checkedOut = worktreePath + "@" + ref
+			return nil
+		},
+	}
+
+	var out bytes.Buffer
+	args := SpaceAddArgs{Name: "feat", Repos: []string{"config-lib"}, ReadOnly: true, Ref: "v1.2.3"}
+	if err := RunSpaceAdd(cfg, r, args, &out); err != nil {
+		t.Fatalf("RunSpaceAdd (adopt with ref): %v", err)
+	}
+
+	if !strings.HasSuffix(checkedOut, "/config-lib@commit-v1.2.3") {
+		t.Errorf("expected checkout detached at commit-v1.2.3, got %q", checkedOut)
+	}
+
+	sp, err := state.Load("feat")
+	if err != nil {
+		t.Fatalf("state.Load: %v", err)
+	}
+	got := sp.Repos[0]
+	if !got.ReadOnly || got.Ref != "v1.2.3" {
+		t.Errorf("adopted repo state = %+v, want ReadOnly: true, Ref: v1.2.3", got)
+	}
+}
+
+func TestRunSpaceAdd_ReadOnlyAdoptRefusedWhenModified(t *testing.T) {
+	root := t.TempDir()
+	spacesRoot := t.TempDir()
+	isolateState(t)
+	makeRepo(t, root, "config-lib")
+	spacePath := filepath.Join(spacesRoot, "feat")
+	makeSpace(t, "feat", "geoff/feat", spacePath, []string{"config-lib"}, root)
+	cfg := spaceCreateCfg(root, spacesRoot)
+
+	r := &testRunner{
+		statusFn: func(string) (git.RepoStatus, error) {
+			return git.RepoStatus{
+				Branch: "",
+				Files:  []git.FileStatus{{Path: "lib.go", Index: '.', Worktree: 'M'}},
+			}, nil
+		},
+	}
+
+	args := SpaceAddArgs{Name: "feat", Repos: []string{"config-lib"}, ReadOnly: true}
+	err := RunSpaceAdd(cfg, r, args, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "uncommitted changes") {
+		t.Fatalf("expected uncommitted changes error, got %v", err)
+	}
+}
+
+func TestRunSpaceAdd_PromoteReevaluatesGoWorkAddsGoMod(t *testing.T) {
+	root := t.TempDir()
+	spacesRoot := t.TempDir()
+	isolateState(t)
+	makeRepo(t, root, "api")
+	makeRepo(t, root, "config-lib")
+	spacePath := filepath.Join(spacesRoot, "feat")
+	readOnlySpace(t, "config-lib", root, spacePath, "v1.0.0")
+	cfg := spaceCreateCfg(root, spacesRoot)
+
+	// Worktree at v1.0.0 had no go.mod on disk
+	libWorktree := filepath.Join(spacePath, "config-lib")
+	if err := os.MkdirAll(libWorktree, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	r := &testRunner{
+		statusFn: func(string) (git.RepoStatus, error) { return git.RepoStatus{}, nil },
+		branchExistsFn: func(string, string) (bool, error) { return false, nil },
+		remoteBranchExistsFn: func(string, string) (bool, error) { return false, nil },
+		worktreeRemoveFn: func(string, string, bool) error { return nil },
+		worktreeAddFn: func(string, string, string, string, bool) error { return nil },
+		// When checking the branch, ShowFile reports go.mod exists on the branch!
+		showFileFn: func(_, _, path string) ([]byte, error) {
+			if path == "go.mod" {
+				return []byte("module " + constLib + "\n\ngo 1.21\n"), nil
+			}
+			return nil, os.ErrNotExist
+		},
+	}
+
+	// Promote config-lib to branch worktree
+	args := SpaceAddArgs{Name: "feat", Repos: []string{"config-lib"}}
+	if err := RunSpaceAdd(cfg, r, args, &bytes.Buffer{}); err != nil {
+		t.Fatalf("RunSpaceAdd (promote): %v", err)
+	}
+
+	goWorkBytes, err := os.ReadFile(filepath.Join(spacePath, "go.work"))
+	if err != nil {
+		t.Fatalf("go.work should be created when branch has go.mod: %v", err)
+	}
+	if !strings.Contains(string(goWorkBytes), "use (\n\t./config-lib\n)") && !strings.Contains(string(goWorkBytes), "use ./config-lib") {
+		t.Errorf("go.work should include config-lib:\n%s", goWorkBytes)
+	}
+}
+
+func TestRunSpaceAdd_PromoteReevaluatesGoWorkDropsGoMod(t *testing.T) {
+	root := t.TempDir()
+	spacesRoot := t.TempDir()
+	isolateState(t)
+	makeRepo(t, root, "config-lib")
+	spacePath := filepath.Join(spacesRoot, "feat")
+	readOnlySpace(t, "config-lib", root, spacePath, "v1.0.0")
+	cfg := spaceCreateCfg(root, spacesRoot)
+
+	// Worktree at v1.0.0 had a go.mod on disk
+	libWorktree := filepath.Join(spacePath, "config-lib")
+	if err := os.MkdirAll(libWorktree, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(libWorktree, "go.mod"), []byte("module "+constLib+"\n"), 0o644); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+	goWorkPath := filepath.Join(spacePath, "go.work")
+	if err := os.WriteFile(goWorkPath, []byte("go 1.21\n\nuse ./config-lib\n"), 0o644); err != nil {
+		t.Fatalf("write go.work: %v", err)
+	}
+
+	r := &testRunner{
+		statusFn: func(string) (git.RepoStatus, error) { return git.RepoStatus{}, nil },
+		branchExistsFn: func(string, string) (bool, error) { return false, nil },
+		remoteBranchExistsFn: func(string, string) (bool, error) { return false, nil },
+		worktreeRemoveFn: func(string, string, bool) error { return nil },
+		worktreeAddFn: func(string, string, string, string, bool) error { return nil },
+		// Branch dropped go.mod!
+		showFileFn: func(_, _, _ string) ([]byte, error) {
+			return nil, os.ErrNotExist
+		},
+	}
+
+	// Promote config-lib to branch worktree
+	args := SpaceAddArgs{Name: "feat", Repos: []string{"config-lib"}}
+	if err := RunSpaceAdd(cfg, r, args, &bytes.Buffer{}); err != nil {
+		t.Fatalf("RunSpaceAdd (promote): %v", err)
+	}
+
+	// go.work should be removed because no member in the workspace has a go.mod
+	if _, err := os.Stat(goWorkPath); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("go.work should be removed when all members drop go.mod, got err: %v", err)
 	}
 }
 

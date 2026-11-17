@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -245,6 +246,78 @@ func TestReadOnlyGit_Promote_ModifiedMemberIsRefused(t *testing.T) {
 	}
 	if got := e.entry(t); !got.ReadOnly {
 		t.Errorf("state entry = %+v, want still read-only", got)
+	}
+}
+
+func TestReadOnlyGit_Adopt_CleanDetachedWorktreeBecomesReadOnlyMember(t *testing.T) {
+	e := newReadOnlyEnv(t)
+	e.repo.GitCmd("tag", "v1.0.0")
+	spacePath := filepath.Join(e.cfg.Spaces.RootDir, "feat")
+
+	// Create normal space with e.name as a read-write member in state
+	sp := &state.Space{Name: "feat", Branch: "feat", Path: spacePath}
+	sp.Repos = append(sp.Repos, state.RepoEntry{
+		Name:         e.name,
+		RepoPath:     e.repo.Path,
+		WorktreePath: e.worktree,
+		ReadOnly:     false,
+	})
+	if err := state.Save(sp); err != nil {
+		t.Fatalf("state.Save: %v", err)
+	}
+	// Create detached worktree on disk
+	if err := e.runner.WorktreeAddDetached(e.repo.Path, e.worktree, "v1.0.0"); err != nil {
+		t.Fatalf("WorktreeAddDetached: %v", err)
+	}
+
+	var out bytes.Buffer
+	if err := RunSpaceAdd(e.cfg, e.runner, SpaceAddArgs{Name: "feat", Repos: []string{e.name}, ReadOnly: true, Ref: "v1.0.0"}, &out); err != nil {
+		t.Fatalf("RunSpaceAdd (adopt): %v\n%s", err, out.String())
+	}
+
+	if got := e.entry(t); !got.ReadOnly || got.Ref != "v1.0.0" {
+		t.Errorf("state entry = %+v, want ReadOnly: true, Ref: v1.0.0", got)
+	}
+	if got := gitOut(t, e.worktree, "branch", "--show-current"); got != "" {
+		t.Errorf("worktree should be detached, got branch %q", got)
+	}
+}
+
+func TestReadOnlyGit_Promote_ReevaluatesGoWork(t *testing.T) {
+	e := newReadOnlyEnv(t)
+	// Initial commit on main has no go.mod
+	e.repo.GitCmd("tag", "v1.0.0")
+
+	// Add go.mod on main
+	if err := os.WriteFile(filepath.Join(e.repo.Path, "go.mod"), []byte("module example.com/lib\n\ngo 1.21\n"), 0o600); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+	e.repo.GitCmd("add", "go.mod")
+	e.repo.GitCmd("commit", "-m", "add go.mod")
+
+	// Add as read-only pinned to v1.0.0 (where go.mod did not exist)
+	e.addReadOnly(t, "v1.0.0")
+
+	// go.work should not exist yet
+	spacePath := filepath.Join(e.cfg.Spaces.RootDir, "feat")
+	goWorkPath := filepath.Join(spacePath, "go.work")
+	if _, err := os.Stat(goWorkPath); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("go.work should not exist before promotion when pin had no go.mod")
+	}
+
+	// Promote: branch is cut from main (which has go.mod)
+	var out bytes.Buffer
+	if err := RunSpaceAdd(e.cfg, e.runner, SpaceAddArgs{Name: "feat", Repos: []string{e.name}}, &out); err != nil {
+		t.Fatalf("promote: %v\n%s", err, out.String())
+	}
+
+	// go.work should now exist and include the promoted repo
+	data, err := os.ReadFile(goWorkPath)
+	if err != nil {
+		t.Fatalf("go.work should exist after promotion: %v", err)
+	}
+	if !strings.Contains(string(data), "use ./"+e.name) && !strings.Contains(string(data), "use (\n\t./"+e.name+"\n)") {
+		t.Errorf("go.work should include %s:\n%s", e.name, data)
 	}
 }
 

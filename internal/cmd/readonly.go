@@ -185,6 +185,25 @@ func detachedWorktreeStep(runner git.Runner, t *repoTarget, fsys ...trace.FS) sa
 	}
 }
 
+// adoptSteps returns the saga steps to adopt an existing detached worktree
+// into a read-only member (ADR 0024 E11). It checks out the resolved ref
+// and records undo back to the previous HEAD.
+func adoptSteps(runner git.Runner, t *repoTarget) []saga.Step {
+	oldHead, _ := runner.ResolveRef(t.worktreePath, "HEAD")
+	return []saga.Step{{
+		Name: fmt.Sprintf("adopt detached worktree %s", t.name),
+		Do: func(_ context.Context) error {
+			return runner.CheckoutDetached(t.worktreePath, t.detachAt)
+		},
+		Undo: func(_ context.Context) error {
+			if oldHead != "" {
+				return runner.CheckoutDetached(t.worktreePath, oldHead)
+			}
+			return nil
+		},
+	}}
+}
+
 // promotionSteps returns the steps that turn a read-only member into a normal
 // worktree on the space's branch (ADR 0024 D5): remove the detached worktree,
 // create the branch worktree through the ordinary path (so ADR 0007's branch

@@ -37,10 +37,11 @@ type repoTarget struct {
 
 	// Read-only members (ADR 0024): a detached worktree at detachAt, recorded
 	// in state as read_only with the user's intent ref.
-	readOnly bool
-	ref      string // the ref as the user gave it, or origin/<default branch>
-	detachAt string // the commit ref resolved to, used for the detached checkout
-	hasGoMod bool   // whether the pinned commit has a go.mod (read-only members only)
+	readOnly   bool
+	ref        string // the ref as the user gave it, or origin/<default branch>
+	detachAt   string // the commit ref resolved to, used for the detached checkout
+	hasGoMod   bool   // whether the pinned commit has a go.mod (read-only members only)
+	isPromoted bool   // true if target is being promoted from read-only to branch worktree
 }
 
 // targetsFromState converts existing state repo entries back into repoTargets.
@@ -286,8 +287,10 @@ func detectGoMods(targets []*repoTarget) (hasGoMod []bool, anyGoMod bool) {
 			continue
 		}
 		dir := t.repoPath
-		if _, err := os.Stat(t.worktreePath); err == nil {
-			dir = t.worktreePath
+		if !t.isPromoted {
+			if _, err := os.Stat(t.worktreePath); err == nil {
+				dir = t.worktreePath
+			}
 		}
 		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
 			hasGoMod[i] = true
@@ -295,6 +298,37 @@ func detectGoMods(targets []*repoTarget) (hasGoMod []bool, anyGoMod bool) {
 		}
 	}
 	return
+}
+
+// applyPromotedGoMods evaluates go.mod existence for promoted members: the
+// go.mod that matters is the one on the target branch or base commit, not in
+// the pinned checkout that is about to be replaced (ADR 0024).
+func applyPromotedGoMods(runner git.Runner, branch string, targets []*repoTarget, hasGoMod []bool) (anyGoMod bool) {
+	for i, t := range targets {
+		if t.isPromoted {
+			ref := branch
+			if t.createBranch {
+				ref = t.remoteBase
+				if ref == "" {
+					ref = t.base
+				}
+				if ref == "" {
+					ref = "HEAD"
+				}
+			}
+			if _, err := runner.ShowFile(t.repoPath, ref, "go.mod"); err == nil {
+				hasGoMod[i] = true
+			} else if _, err := os.Stat(filepath.Join(t.repoPath, "go.mod")); err == nil {
+				hasGoMod[i] = true
+			} else {
+				hasGoMod[i] = false
+			}
+		}
+		if hasGoMod[i] {
+			anyGoMod = true
+		}
+	}
+	return anyGoMod
 }
 
 // goWorkFallbackVersion is used when no go.mod declares a go directive.

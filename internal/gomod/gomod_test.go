@@ -122,6 +122,68 @@ func TestRequirements_InvalidGoMod(t *testing.T) {
 	}
 }
 
+func TestSelectedRequirements(t *testing.T) {
+	consumerGoMod := []byte(`module example.com/app
+
+go 1.21
+
+require (
+	example.com/org/a v1.0.0
+	example.com/org/b v1.0.0
+	example.com/org/c v1.0.0
+)
+
+replace example.com/org/c => ../c
+`)
+
+	modA := []byte(`module example.com/org/a
+
+go 1.21
+
+require (
+	example.com/org/b v1.3.0
+	example.com/org/d v1.1.0
+)
+`)
+
+	modD := []byte(`module example.com/org/d
+
+go 1.21
+
+require (
+	example.com/org/b v1.5.0
+)
+`)
+
+	workspaceGoMods := map[string][]byte{
+		"example.com/org/a": modA,
+		"example.com/org/d": modD,
+	}
+
+	reqs := SelectedRequirements(consumerGoMod, workspaceGoMods)
+	reqMap := make(map[string]Requirement, len(reqs))
+	for _, r := range reqs {
+		reqMap[r.Path] = r
+	}
+
+	// a is required at v1.0.0
+	if reqMap["example.com/org/a"].Version != "v1.0.0" {
+		t.Errorf("org/a version = %q, want v1.0.0", reqMap["example.com/org/a"].Version)
+	}
+	// b is selected at v1.5.0 (max among direct v1.0.0, a's v1.3.0, and d's v1.5.0)
+	if reqMap["example.com/org/b"].Version != "v1.5.0" {
+		t.Errorf("org/b version = %q, want v1.5.0", reqMap["example.com/org/b"].Version)
+	}
+	// c is replaced
+	if !reqMap["example.com/org/c"].Replaced {
+		t.Errorf("org/c should be marked as replaced")
+	}
+	// d is discovered transitively at v1.1.0
+	if reqMap["example.com/org/d"].Version != "v1.1.0" {
+		t.Errorf("org/d version = %q, want v1.1.0", reqMap["example.com/org/d"].Version)
+	}
+}
+
 func TestRefForVersion(t *testing.T) {
 	tests := []struct {
 		version string

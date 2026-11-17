@@ -264,6 +264,13 @@ Implemented later, from this record's follow-ups:
   - The saga order is the read-write worktrees, then the read-only ones, then symlinks, `always.files` and `go.work`. `go.work` lists a read-only member by the `go.mod` at its pinned commit (`applyReadOnlyGoMods`), not the main clone's, so a pin that predates its module is left out (D7).
   - Rollback is unchanged: the saga removes whatever was created, including the branch it created in the read-write repos, and leaves the read-only members' repos without any new branch.
   - Tests: `internal/cmd/new_readonly_test.go` (mock runner: mixed workspace, repeated flag with `--ref`, unresolvable ref, unknown repo, overlap, derived ref, `go.work` from the pinned commit, `always.repos`, `.`, rollback, no branch created in a read-only repo, `--ref` without `--read-only`, only-read-only rejected) and `new_readonly_git_test.go` (real git: the read-write repo on the branch, the read-only one detached at its tag with no new branch).
+- **`adopt` path for existing detached members** (E11).
+  - Running `wtg add --read-only [--ref <ref>] <repo>` on an existing workspace member whose worktree is currently on a detached HEAD adopts it as a read-only member in state and checks out the resolved ref.
+  - Pre-flight verifies the worktree is clean and the ref resolves. Read-write members on the workspace branch continue to error with the reminder to use `wtg remove`.
+- **Re-evaluate `go.work` membership on promotion**.
+  - On promotion (`wtg add <repo>`), `go.mod` existence is checked against the target branch or base commit instead of inspecting the stale pinned checkout on disk. If the branch adds a `go.mod`, it is added to `go.work`; if the branch dropped `go.mod`, it is excluded (and `go.work` is removed if no members remain).
+- **Offline selected-version drift check**.
+  - `wtg status` computes minimum version selection (MVS) requirements across all workspace members' `go.mod` files on disk, selecting the maximum semver version among direct and transitive requirements across workspace members while remaining completely offline.
 
 ## Without wtg ([ADR 0022](0022-no-tool-dependency.md))
 
@@ -294,9 +301,7 @@ Implemented later, from this record's follow-ups:
 
 ## Follow-ups
 
-- An `adopt` path for existing detached members (E11).
-- Re-evaluate `go.work` membership on promotion: the decision is made, from the pinned checkout, before the branch checkout exists, so a branch that adds or drops a `go.mod` relative to the pin needs a manual `go work use`/`go work edit` (or a `wtg remove` + `wtg add` cycle) until then.
-- Teach the drift check the selected version rather than the literal `require` when that can be done offline. Today a consumer whose minimum version selection picks a newer version than its own `go.mod` states can be under-reported; the alternative — running `go list -m` in `wtg status` — trades that for a possible network round-trip per consumer, which E9 rules out.
+None; the initial follow-ups (mixed creation in `wtg new --read-only`, `adopt` for detached worktrees, `go.work` re-evaluation on promotion, and offline selected-version drift check) are implemented above.
 
 ## Decisions summary
 

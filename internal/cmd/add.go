@@ -2,11 +2,14 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/urfave/cli/v3"
 
@@ -145,6 +148,7 @@ func RunSpaceAdd(cfg *config.Config, runner git.Runner, args SpaceAddArgs, out i
 	}
 	var toUpgrade []state.RepoEntry // currently symlinks; will become checkouts
 	var toPromote []state.RepoEntry // currently read-only; will become branch worktrees
+	var toAdopt []state.RepoEntry   // currently detached read-write in state; will become read-only
 	var toAdd []string              // repos not yet in the space
 	for _, name := range args.Repos {
 		canonical, ok, err := repoInSet(stateNames, name)
@@ -169,6 +173,20 @@ func RunSpaceAdd(cfg *config.Config, runner git.Runner, args SpaceAddArgs, out i
 			}
 			toPromote = append(toPromote, r)
 		case args.ReadOnly:
+			// If the worktree is already on a detached HEAD, adopt it as a read-only member (ADR 0024 E11).
+			st, err := runner.Status(r.WorktreePath)
+			if err == nil && st.Branch == "" {
+				if len(st.Files) > 0 {
+					lines := make([]string, len(st.Files))
+					for i, f := range st.Files {
+						lines[i] = "    " + f.Path
+					}
+					return fmt.Errorf("%s is a detached member with uncommitted changes; commit or stash them first, or discard them with `git -C %s checkout -- .`:\n%s",
+						r.Name, r.WorktreePath, strings.Join(lines, "\n"))
+				}
+				toAdopt = append(toAdopt, r)
+				continue
+			}
 			return fmt.Errorf("repo %q is already a read-write member of space %q; use `wtg remove %s` first",
 				canonical, args.Name, canonical)
 		default:
@@ -209,13 +227,24 @@ func RunSpaceAdd(cfg *config.Config, runner git.Runner, args SpaceAddArgs, out i
 			name:         r.Name,
 			repoPath:     r.RepoPath,
 			worktreePath: r.WorktreePath,
+			isPromoted:   true,
+		}
+	}
+
+	// Build repoTargets for adopting detached members.
+	adoptTargets := make([]*repoTarget, len(toAdopt))
+	for i, r := range toAdopt {
+		adoptTargets[i] = &repoTarget{
+			name:         r.Name,
+			repoPath:     r.RepoPath,
+			worktreePath: r.WorktreePath,
 		}
 	}
 
 	// Pre-flight, before anything is created: resolve every read-only ref (E1)
 	// and, for the read-write targets, let ADR 0007's branch rules run.
 	if args.ReadOnly {
-		readOnlyTargets := append(append([]*repoTarget{}, upgradeTargets...), newTargets...)
+		readOnlyTargets := append(append(append([]*repoTarget{}, upgradeTargets...), adoptTargets...), newTargets...)
 		for _, t := range readOnlyTargets {
 			if err := prepareReadOnlyTarget(runner, goRunner, sp, t, args.Ref, out); err != nil {
 				return err
@@ -229,9 +258,10 @@ func RunSpaceAdd(cfg *config.Config, runner git.Runner, args SpaceAddArgs, out i
 		}
 	}
 
-	allNew := make([]*repoTarget, 0, len(upgradeTargets)+len(promotionTargets)+len(newTargets))
+	allNew := make([]*repoTarget, 0, len(upgradeTargets)+len(promotionTargets)+len(adoptTargets)+len(newTargets))
 	allNew = append(allNew, upgradeTargets...)
 	allNew = append(allNew, promotionTargets...)
+	allNew = append(allNew, adoptTargets...)
 	allNew = append(allNew, newTargets...)
 
 	// A base of origin/<branch> is recorded per repo, so rebase and land know
@@ -253,6 +283,7 @@ func RunSpaceAdd(cfg *config.Config, runner git.Runner, args SpaceAddArgs, out i
 	allTargets := append(keepFromState, allNew...)
 	hasGoMod, _ := detectGoMods(allTargets)
 	anyGoMod := applyReadOnlyGoMods(allTargets, hasGoMod)
+	anyGoMod = applyPromotedGoMods(runner, sp.Branch, allTargets, hasGoMod) || anyGoMod
 
 	var steps []saga.Step
 	// For each symlink being upgraded: remove the symlink, then add the checkout.
@@ -280,6 +311,9 @@ func RunSpaceAdd(cfg *config.Config, runner git.Runner, args SpaceAddArgs, out i
 		}
 		steps = append(steps, ps...)
 	}
+	for _, t := range adoptTargets {
+		steps = append(steps, adoptSteps(runner, t)...)
+	}
 	for _, t := range newTargets {
 		if t.readOnly {
 			steps = append(steps, detachedWorktreeStep(runner, t, f))
@@ -297,6 +331,31 @@ func RunSpaceAdd(cfg *config.Config, runner git.Runner, args SpaceAddArgs, out i
 	if anyGoMod {
 		goVersion := detectGoVersion(allTargets, hasGoMod)
 		steps = append(steps, goWorkStep(goWorkPath, sp.Path, allTargets, hasGoMod, goVersion, f))
+	} else if _, err := os.Stat(goWorkPath); err == nil || sp.GoWorkspace {
+		oldContent, _ := os.ReadFile(goWorkPath)
+		goWorkSumPath := filepath.Join(sp.Path, "go.work.sum")
+		oldSumContent, _ := os.ReadFile(goWorkSumPath)
+		steps = append(steps, saga.Step{
+			Name: "remove go.work",
+			Do: func(_ context.Context) error {
+				if err := f.Remove(goWorkPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
+					return err
+				}
+				_ = f.Remove(goWorkSumPath)
+				return nil
+			},
+			Undo: func(_ context.Context) error {
+				if oldContent != nil {
+					if err := f.WriteFile(goWorkPath, oldContent, 0o644); err != nil {
+						return err
+					}
+				}
+				if oldSumContent != nil {
+					_ = f.WriteFile(goWorkSumPath, oldSumContent, 0o644)
+				}
+				return nil
+			},
+		})
 	}
 
 	oldState := *sp

@@ -13,8 +13,11 @@ import (
 	"os/exec"
 	"strings"
 
+	"sort"
+
 	"golang.org/x/mod/modfile"
 	"golang.org/x/mod/module"
+	"golang.org/x/mod/semver"
 
 	"github.com/suhlig/wtg/internal/trace"
 )
@@ -128,6 +131,96 @@ func replaces(f *modfile.File, modulePath string) bool {
 		}
 	}
 	return false
+}
+
+// SelectedRequirements computes the offline minimum version selection (MVS)
+// requirements for consumerGoMod across the available workspaceGoMods.
+//
+// For each module required directly or transitively by workspace members, the
+// selected version is the highest semver version among all requirements.
+// Replaced modules in the consumer are preserved with Replaced: true.
+func SelectedRequirements(consumerGoMod []byte, workspaceGoMods map[string][]byte) []Requirement {
+	direct := Requirements(consumerGoMod)
+	if len(direct) == 0 {
+		return nil
+	}
+
+	selected := make(map[string]string)
+	replaced := make(map[string]bool)
+	visited := make(map[string]bool)
+	var queue []string
+
+	for _, req := range direct {
+		if req.Replaced {
+			replaced[req.Path] = true
+			continue
+		}
+		selected[req.Path] = maxVersion(selected[req.Path], req.Version)
+		if _, ok := workspaceGoMods[req.Path]; ok && !visited[req.Path] {
+			visited[req.Path] = true
+			queue = append(queue, req.Path)
+		}
+	}
+
+	for len(queue) > 0 {
+		curr := queue[0]
+		queue = queue[1:]
+		modBytes, ok := workspaceGoMods[curr]
+		if !ok {
+			continue
+		}
+		for _, req := range Requirements(modBytes) {
+			if replaced[req.Path] {
+				continue
+			}
+			selected[req.Path] = maxVersion(selected[req.Path], req.Version)
+			if _, inWs := workspaceGoMods[req.Path]; inWs && !visited[req.Path] {
+				visited[req.Path] = true
+				queue = append(queue, req.Path)
+			}
+		}
+	}
+
+	reqs := make([]Requirement, 0, len(selected)+len(replaced))
+	for path, ver := range selected {
+		reqs = append(reqs, Requirement{
+			Path:     path,
+			Version:  ver,
+			Replaced: replaced[path],
+		})
+	}
+	for path := range replaced {
+		if _, ok := selected[path]; !ok {
+			reqs = append(reqs, Requirement{
+				Path:     path,
+				Replaced: true,
+			})
+		}
+	}
+	sort.Slice(reqs, func(i, j int) bool {
+		return reqs[i].Path < reqs[j].Path
+	})
+	return reqs
+}
+
+// maxVersion returns the higher semver version between v1 and v2.
+func maxVersion(v1, v2 string) string {
+	if v1 == "" {
+		return v2
+	}
+	if v2 == "" {
+		return v1
+	}
+	if semver.IsValid(v1) && semver.IsValid(v2) {
+		if semver.Compare(v2, v1) > 0 {
+			return v2
+		}
+		return v1
+	}
+	if semver.IsValid(v2) {
+		return v2
+	}
+	return v1
 }
 
 // RefForVersion turns a version into the git revision that names it: a

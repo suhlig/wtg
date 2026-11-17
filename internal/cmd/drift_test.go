@@ -191,3 +191,68 @@ func TestRunSpaceStatus_ReadOnlyPseudoVersionDrift(t *testing.T) {
 		t.Errorf("pseudo-version drift not reported: %q", out.String())
 	}
 }
+
+func TestRunSpaceStatus_DriftSelectedVersionThroughTransitiveWorkspaceMember(t *testing.T) {
+	isolateState(t)
+	root := t.TempDir()
+	spacePath := filepath.Join(t.TempDir(), "feat")
+	sp := makeSpace(t, "feat", "geoff/feat", spacePath, []string{"api", "service-a"}, root)
+	sp.Repos = append(sp.Repos, state.RepoEntry{
+		Name:         "config-lib",
+		RepoPath:     filepath.Join(root, "config-lib"),
+		WorktreePath: filepath.Join(spacePath, "config-lib"),
+		ReadOnly:     true,
+		Ref:          "v2.1.0",
+	})
+	if err := state.Save(sp); err != nil {
+		t.Fatalf("state.Save: %v", err)
+	}
+
+	// api requires config-lib at v2.0.0 directly.
+	// But api also requires service-a at v1.0.0, and service-a requires config-lib at v2.1.0.
+	// Under MVS, api's selected version of config-lib is v2.1.0.
+	apiGoMod := "module example.com/api\n\ngo 1.24\n\nrequire (\n\texample.com/service-a v1.0.0\n\t" + constLib + " v2.0.0\n)\n"
+	serviceAGoMod := "module example.com/service-a\n\ngo 1.24\n\nrequire " + constLib + " v2.1.0\n"
+	libGoMod := "module " + constLib + "\n\ngo 1.24\n"
+
+	for name, content := range map[string]string{"api": apiGoMod, "service-a": serviceAGoMod, "config-lib": libGoMod} {
+		dir := filepath.Join(spacePath, name)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(content), 0o644); err != nil {
+			t.Fatalf("write go.mod: %v", err)
+		}
+	}
+
+	r := &testRunner{
+		statusFn: func(string) (git.RepoStatus, error) { return git.RepoStatus{Branch: "geoff/feat"}, nil },
+		resolveRefFn: func(_, ref string) (string, error) {
+			if ref != "refs/tags/v2.1.0" {
+				return "", os.ErrNotExist
+			}
+			return "tagcommit-v2.1.0", nil
+		},
+		revListCountFn: func(_, a, b string) (int, int, error) {
+			if a == "refs/tags/v2.1.0" && b == "HEAD" {
+				return 4, 0, nil
+			}
+			return 0, 0, nil
+		},
+	}
+
+	var out bytes.Buffer
+	if err := RunSpaceStatus(r, []string{"feat"}, false, &out); err != nil {
+		t.Fatalf("RunSpaceStatus: %v", err)
+	}
+	// Both api and service-a should report config-lib is 4 commits behind v2.1.0
+	// (api because MVS raised v2.0.0 -> v2.1.0 via service-a).
+	wantAPI := "config-lib is 4 commits behind v2.1.0, which api requires"
+	wantService := "config-lib is 4 commits behind v2.1.0, which service-a requires"
+	if !strings.Contains(out.String(), wantAPI) {
+		t.Errorf("output should report drift for api against selected v2.1.0: %q", out.String())
+	}
+	if !strings.Contains(out.String(), wantService) {
+		t.Errorf("output should report drift for service-a against v2.1.0: %q", out.String())
+	}
+}

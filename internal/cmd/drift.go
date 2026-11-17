@@ -40,16 +40,18 @@ func driftFindings(runner git.Runner, entries []state.RepoEntry) []driftFinding 
 		return nil
 	}
 	byModule := make(map[string]*goWorkMember, len(members))
+	workspaceGoMods := make(map[string][]byte, len(members))
 	for i := range members {
 		if members[i].module != "" {
 			byModule[members[i].module] = &members[i]
+			workspaceGoMods[members[i].module] = members[i].goMod
 		}
 	}
 
 	var findings []driftFinding
 	for i := range members {
 		consumer := &members[i]
-		for _, req := range gomod.Requirements(consumer.goMod) {
+		for _, req := range gomod.SelectedRequirements(consumer.goMod, workspaceGoMods) {
 			required, ok := byModule[req.Path]
 			if !ok || required.entry.Name == consumer.entry.Name {
 				continue // no other member provides that module
