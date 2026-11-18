@@ -1,6 +1,6 @@
 # ADR 0017: `always.run` is a best-effort post-operation hook
 
-> Derived from the feature guide [`docs/always.md`](../always.md), which remains the user-facing reference for usage.
+> Derived from the feature guide [`site/content/guides/always.md`](../../site/content/guides/always.md), which remains the user-facing reference for usage.
 
 - Status: Accepted
 - Date: 2026-06-21

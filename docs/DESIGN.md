@@ -46,6 +46,6 @@ Work a decision deliberately left out, collected in one place instead of buried 
 - **Per-release versions of the site** ([ADR 0027](adr/0027-scenario-docs-site.md) D13).
 - **Man pages** from the command-tree walker ([ADR 0027](adr/0027-scenario-docs-site.md) D9).
 - **Scenarios 5, 8, 9, 11, 12, 13, 15** beyond the covered scenarios ([ADR 0027](adr/0027-scenario-docs-site.md) D10).
-- **The `gh` remote-host question** for PR scenarios ([ADR 0027](adr/0027-scenario-docs-site.md) D7), settled in acceptance harness via global insteadOf and remote.url config.
+- **PR scenarios and the `gh` remote-host question** ([ADR 0027](adr/0027-scenario-docs-site.md) D7): `land --strategy pr` with the fake `gh` and its visible note; the remote host must be solved without a product-code seam.
 - **Zola licence and maintenance check** before pinning ([ADR 0027](adr/0027-scenario-docs-site.md) D13).
 

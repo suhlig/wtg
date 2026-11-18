@@ -243,7 +243,7 @@ Implemented, as two independently shippable steps. The first is useful on its ow
    - `Runner`: `WorktreeAddDetached(repoPath, worktreePath, ref)` and `CheckoutDetached(worktreePath, ref)`.
    - `internal/cmd/add.go`, `readonly.go`: `--read-only` and `--ref`, ref derivation (D8), the promotion branch next to the symlink upgrade, and the detached-worktree saga step with its undo. `internal/cmd/rebase.go`: replaced the E7 skip for read-only members by D4. `push.go` and `land.go`: `ReadOnly` next to the `Symlink` skips. `status.go`: renders the new kind. `delete.go` and `workspace.go` (`deleteOne`): skip the branch logic for read-only entries (D7).
 3. Tests with the implementation (AGENTS.md): unit tests with the mock runner for E1–E18, real-git tests for the new `Runner` methods, and the drift cases (behind, ahead, replaced, unresolvable, pseudo-version). `gomod` has a test that runs the real `go` on a tiny fixture module and asserts `go.mod` and `go.sum` are unchanged afterwards; it skips when `go` is absent.
-4. Docs: README section for `--read-only`, a note in [`docs/always.md`](../always.md) on how this differs from `always.repos`, a `CHANGELOG.md` entry under *Unreleased → Added*, and the index row in [`DESIGN.md`](../DESIGN.md).
+4. Docs: README section for `--read-only`, a note in [`site/content/guides/always.md`](../../site/content/guides/always.md) on how this differs from `always.repos`, a `CHANGELOG.md` entry under *Unreleased → Added*, and the index row in [`DESIGN.md`](../DESIGN.md).
 
 ### Implementation notes
 

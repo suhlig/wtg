@@ -75,11 +75,11 @@ const configTemplate = `# wtg configuration. Every setting is shown commented ou
 
 # Relative paths looked up in each source repo and copied into that repo's
 # worktree when present (e.g. local .env files). Missing files are skipped.
-# See docs/always.md. Default is none; example:
+# See site/content/guides/always.md. Default is none; example:
 # secrets = [".env", "config/local.env"]
 
 # Executable run after a space is created, changed, or deleted. It receives the
-# event type and the space path through environment variables. See docs/always.md.
+# event type and the space path through environment variables. See site/content/guides/always.md.
 # Default is none; example:
 # run = "~/.config/wtg/on-event.sh"
 

@@ -1,5 +1,7 @@
 name: Documentation Site
 
+# ADR 0027 D13: pull requests and pushes to main build and check the site;
+# only release tags and manual dispatch deploy it.
 on:
   push:
     branches: [main]
@@ -11,47 +13,43 @@ on:
 permissions:
   contents: read
 
+env:
+  ZOLA_VERSION: v0.23.6
+  ZOLA_SHA256: 8f5132b3522412d04e395e0b25f6d68613ad272a873e54a2b3ebf664873024a4
+
 jobs:
   build:
     name: Build & Verify Documentation
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
 
-      - name: Generate transcripts and verify documentation
-        run: |
-          make docs
+      - name: Generate transcripts, reference and verify documentation
+        run: make docs
 
-      - name: Install Zola (pinned v0.23.6)
+      - name: Install Zola (pinned, checksum verified)
         run: |
-          ZOLA_VERSION="v0.23.6"
-          ZOLA_SHA256="7cbca56ffbce0e28fdfd42c38561725b871f08e4bbdb34cb8bf305fa414a66bb"
-          curl -sSL -o zola.tar.gz "https://github.com/getzola/zola/releases/download/${ZOLA_VERSION}/zola-${ZOLA_VERSION}-x86_64-unknown-linux-gnu.tar.gz"
-          echo "${ZOLA_SHA256}  zola.tar.gz" | sha256sum -c - || (echo "Checksum verification failed, using extracted binary" && tar -xzf zola.tar.gz && mv zola /usr/local/bin/)
-          tar -xzf zola.tar.gz 2>/dev/null || true
-          if [ -f zola ]; then sudo mv zola /usr/local/bin/; fi
+          curl -sSfL -o zola.tar.gz "https://github.com/getzola/zola/releases/download/${ZOLA_VERSION}/zola-${ZOLA_VERSION}-x86_64-unknown-linux-gnu.tar.gz"
+          echo "${ZOLA_SHA256}  zola.tar.gz" | sha256sum -c -
+          tar -xzf zola.tar.gz zola
+          sudo mv zola /usr/local/bin/zola
+          zola --version
 
-      - name: Build site with Zola
+      - name: Check and build site
         working-directory: site
         run: |
-          if command -v zola >/dev/null; then
-            zola check
-            zola build -o public
-          else
-            echo "Zola build skipped in environment without zola binary"
-            mkdir -p public
-            cp -r content static public/ || true
-          fi
+          zola check
+          zola build -o public
 
       - name: Upload Artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: site/public
 
@@ -69,4 +67,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

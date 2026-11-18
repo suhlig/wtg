@@ -1,6 +1,6 @@
 # ADR 0016: `always.secrets` are repo-relative copies
 
-> Derived from the feature guide [`docs/always.md`](../always.md), which remains the user-facing reference for usage.
+> Derived from the feature guide [`site/content/guides/always.md`](../../site/content/guides/always.md), which remains the user-facing reference for usage.
 
 - Status: Accepted
 - Date: 2026-07-22

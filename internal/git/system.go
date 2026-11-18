@@ -612,9 +612,6 @@ func (r *SystemRunner) ShowFile(repoPath, rev, path string) ([]byte, error) {
 // --- Info ---
 
 func (r *SystemRunner) RemoteURL(repoPath, remote string) (string, error) {
-	if url, found, _ := r.ConfigGet(repoPath, "remote."+remote+".url"); found && url != "" {
-		return url, nil
-	}
 	return r.run(repoPath, "remote", "get-url", remote)
 }
 

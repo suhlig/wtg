@@ -1,6 +1,6 @@
 # ADR 0015: `always.files` are copied, not symlinked
 
-> Derived from the feature guide [`docs/always.md`](../always.md), which remains the user-facing reference for usage.
+> Derived from the feature guide [`site/content/guides/always.md`](../../site/content/guides/always.md), which remains the user-facing reference for usage.
 
 - Status: Accepted
 - Date: 2026-06-21

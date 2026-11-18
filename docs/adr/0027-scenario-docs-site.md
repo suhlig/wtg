@@ -251,7 +251,7 @@ This ADR changes documentation, tests and CI only. No command, file format, git 
 - Per-release versions of the site, so that documentation for an older release stays reachable (D13).
 - Man pages from the same command-tree walker as the reference (D9).
 - Scenarios 5 to 15 of D10 beyond the first four, in priority order.
-- Settle the `gh` and remote-host question of D7 (spike in phase 1).
+- Settle the `gh` and remote-host question of D7, and use the fake `gh` (`acceptance/cmd/fakegh`, built by the suite but not yet used by a scenario) for the `land --strategy pr` part of scenario 4, with the visible "`gh` is simulated here; git is real" note. The harness's `insteadOf` rule expands to a local path, so `ParseGitHubRemote` rejects it; reading `remote.origin.url` directly in `RemoteURL` would work but changes behaviour for every user and is not wanted (D7).
 - Confirm the Zola licence against the project's policy before pinning (D13).
 
 ## Decisions summary
