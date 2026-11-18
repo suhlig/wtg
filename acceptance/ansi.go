@@ -63,7 +63,7 @@ func AnsiToHTML(input string) string {
 		}
 
 		if len(classes) > 0 {
-			b.WriteString(fmt.Sprintf(`<span class="%s">`, strings.Join(classes, " ")))
+			fmt.Fprintf(&b, `<span class="%s">`, strings.Join(classes, " "))
 			openSpans++
 		}
 	}

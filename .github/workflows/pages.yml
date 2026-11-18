@@ -46,7 +46,7 @@ jobs:
         working-directory: site
         run: |
           zola check
-          zola build -o public
+          zola build --force -o public
 
       - name: Upload Artifact
         uses: actions/upload-pages-artifact@v5

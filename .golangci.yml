@@ -36,3 +36,12 @@ linters:
         linters: [forbidigo]
       - path: _test\.go$
         linters: [forbidigo]
+      # ADR 0027: the acceptance harness and its fake gh are test
+      # infrastructure that drives the built binary; they are not product code.
+      - path: ^acceptance/
+        linters: [forbidigo]
+      - path: ^acceptance/
+        text: ST1001
+        linters: [staticcheck]
+      - path: ^tools/
+        linters: [forbidigo]
