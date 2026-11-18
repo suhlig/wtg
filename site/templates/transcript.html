@@ -1,0 +1,20 @@
+{% set data_path = "data/transcripts/" ~ id ~ ".json" %}
+{% set transcript = load_data(path=data_path, format="json", required=false) %}
+{% if transcript and transcript.steps %}
+{% for s in transcript.steps %}
+{% if s.index == step %}
+<div class="transcript-container">
+<div class="transcript-command">
+<span class="prompt">$</span> <code>{{ s.command }}</code>
+</div>
+{% if s.output_raw %}
+<pre class="transcript-output"><code>{{ s.output_html | safe }}</code></pre>
+{% endif %}
+</div>
+{% endif %}
+{% endfor %}
+{% else %}
+<div class="transcript-missing">
+<p><em>Transcript not generated. Run <code>go test ./acceptance</code> to produce transcripts for <code>{{ id }}</code>.</em></p>
+</div>
+{% endif %}

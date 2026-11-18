@@ -217,7 +217,7 @@ set `always.run` to its path. The script receives its context (event type, space
 path, branch, repos) through environment variables. Don't reproduce the variable list
 here — it drifts. Read the authoritative reference before writing the script:
 
-https://raw.githubusercontent.com/suhlig/wtg/main/docs/always.md
+https://raw.githubusercontent.com/suhlig/wtg/main/site/content/guides/always.md
 
 That doc names every variable and its format and shows how to dispatch on the event type.
 If the user isn't sure they want a hook, leave `always.run` unset — it's easy to add

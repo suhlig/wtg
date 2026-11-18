@@ -19,6 +19,11 @@ import (
 	"github.com/suhlig/wtg/internal/ui"
 )
 
+// ConfigTemplate returns the commented config scaffold written by `wtg config init`.
+func ConfigTemplate() string {
+	return configTemplate
+}
+
 // configTemplate is the commented config scaffold written by `wtg config init`.
 // Every parameter is shown commented out with its default; commented means the
 // built-in default applies, so future default changes still reach users.

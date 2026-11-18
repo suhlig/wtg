@@ -34,19 +34,18 @@ Each decision below has its own record in [`adr/`](adr/), carrying the original 
 | [0024](adr/0024-read-only-workspace-members.md) | Read-only workspace members: pinned detached worktrees in `go.work`, never branched; drift check in `wtg status` |
 | [0025](adr/0025-dot-repo-arguments.md) | `.` and path-like arguments name the repo or workspace containing the target path, resolved to a canonical short name before name matching |
 | [0026](adr/0026-network-timeout-and-slow-repo-visibility.md) | Network git and gh calls time out (`git.network_timeout`); `exec --timeout` is opt-in; slow repos are named in progress output, and Ctrl-C reports what it was waiting for |
-| [0027](adr/0027-scenario-docs-site.md) | Scenario-based documentation generated from the real binary by a Ginkgo acceptance suite, a generated reference, and a Zola site on GitHub Pages; ADRs stay in `docs/` on `main` (proposed) |
+| [0027](adr/0027-scenario-docs-site.md) | Scenario-based documentation generated from the real binary by a Ginkgo acceptance suite, a generated reference, and a Zola site on GitHub Pages; ADRs stay in `docs/` on `main` |
 
 ## Open work
 
-Work a decision deliberately left out, collected in one place instead of buried in the records. Each item links to the ADR that explains it; **the ADR is authoritative** — when an item is picked up, reshaped, or dropped, change the record first, then this list. This mirrors the `## Follow-ups` sections: ADR 0013's two follow-ups (v2 and v3), ADR 0019's three, ADR 0024's follow-ups, and ADR 0025's follow-ups (`.` completion and path arguments) are done. ADR 0026 has none. ADR 0027 is proposed and its implementation plan is open; its follow-ups are listed below.
+Work a decision deliberately left out, collected in one place instead of buried in the records. Each item links to the ADR that explains it; **the ADR is authoritative** — when an item is picked up, reshaped, or dropped, change the record first, then this list. This mirrors the `## Follow-ups` sections: ADR 0013's two follow-ups (v2 and v3), ADR 0019's three, ADR 0024's follow-ups, and ADR 0025's follow-ups (`.` completion and path arguments) are done. ADR 0026 has none. ADR 0027's implementation plan is delivered; its follow-ups are listed below.
 
-- **Scenario documentation site** ([ADR 0027](adr/0027-scenario-docs-site.md), Implementation plan): phases 1 to 6, from the Ginkgo harness and the first two scenarios to the `AGENTS.md` convention.
 - **`NO_COLOR` and `TERM=dumb`**: wtg colours piped output today ([ADR 0027](adr/0027-scenario-docs-site.md) D6, Follow-ups). User-facing; needs a `CHANGELOG.md` entry.
 - **Committed golden transcripts**, if reviewing output changes through the site artefact proves too weak ([ADR 0027](adr/0027-scenario-docs-site.md) D5).
 - **Migrating the unit tests to Ginkgo**, as a separate decision ([ADR 0027](adr/0027-scenario-docs-site.md) D8).
 - **Per-release versions of the site** ([ADR 0027](adr/0027-scenario-docs-site.md) D13).
 - **Man pages** from the command-tree walker ([ADR 0027](adr/0027-scenario-docs-site.md) D9).
-- **Scenarios 5 to 15** beyond the first four ([ADR 0027](adr/0027-scenario-docs-site.md) D10).
-- **The `gh` remote-host question** for PR scenarios ([ADR 0027](adr/0027-scenario-docs-site.md) D7), settled by a phase 1 spike.
+- **Scenarios 5, 8, 9, 11, 12, 13, 15** beyond the covered scenarios ([ADR 0027](adr/0027-scenario-docs-site.md) D10).
+- **The `gh` remote-host question** for PR scenarios ([ADR 0027](adr/0027-scenario-docs-site.md) D7), settled in acceptance harness via global insteadOf and remote.url config.
 - **Zola licence and maintenance check** before pinning ([ADR 0027](adr/0027-scenario-docs-site.md) D13).
 

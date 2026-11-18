@@ -1,0 +1,27 @@
+{
+  "id": "add-and-remove",
+  "title": "Adding and removing repositories",
+  "description": "The feature needs a third repo, or one is no longer needed",
+  "steps": [
+    {
+      "id": "step",
+      "index": 1,
+      "command": "wtg add my-feature payments",
+      "cwd": "~",
+      "exit_code": 0,
+      "output_raw": "✓ added to space \"my-feature\"\n  payments  ~/spaces/my-feature/payments  \nWorkspace root: ~/spaces/my-feature\n",
+      "output_plain": "✓ added to space \"my-feature\"\n  payments  ~/spaces/my-feature/payments  \nWorkspace root: ~/spaces/my-feature\n",
+      "output_html": "✓ added to space \u0026#34;my-feature\u0026#34;\n  payments  ~/spaces/my-feature/payments  \nWorkspace root: ~/spaces/my-feature\n"
+    },
+    {
+      "id": "step",
+      "index": 2,
+      "command": "wtg remove my-feature web",
+      "cwd": "~",
+      "exit_code": 0,
+      "output_raw": "web  ✓ worktree removed  \n✓ removed from space \"my-feature\"\nWorkspace root: ~/spaces/my-feature\n",
+      "output_plain": "web  ✓ worktree removed  \n✓ removed from space \"my-feature\"\nWorkspace root: ~/spaces/my-feature\n",
+      "output_html": "web  ✓ worktree removed  \n✓ removed from space \u0026#34;my-feature\u0026#34;\nWorkspace root: ~/spaces/my-feature\n"
+    }
+  ]
+}

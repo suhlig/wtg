@@ -1,3 +1,9 @@
++++
+title = "Always-Included Repos, Files, and Hooks"
+description = "Configure shared repos, files, secrets, and lifecycle hooks for every new space."
+weight = 80
++++
+
 # `always`: shared repos, files, secrets, and event hooks
 
 The `always` section of your config lets you say "every space should have these
@@ -66,7 +72,7 @@ have two ways to get a real worktree for it:
 | Shared across spaces | yes, one working copy | no, one checkout per space |
 | `wtg repo sync` / your edits | change every space at once | change this space only |
 
-Use `always.repos` for something every space should simply have — tooling, schemas, notes. Use `--read-only` for a dependency the build reads, because only a member in `go.work` takes part in the build, and only a worktree can be pinned (see [ADR 0024](adr/0024-read-only-workspace-members.md)).
+Use `always.repos` for something every space should simply have — tooling, schemas, notes. Use `--read-only` for a dependency the build reads, because only a member in `go.work` takes part in the build, and only a worktree can be pinned (see [ADR 0024](../../../docs/adr/0024-read-only-workspace-members.md)).
 
 A repo can move between the two: `wtg add --read-only <repo>` replaces the symlink of an `always.repos` entry with a pinned worktree, and `wtg remove` puts the symlink back if the repo is still configured in `always.repos`.
 

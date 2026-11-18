@@ -1,0 +1,27 @@
+{
+  "id": "read-only-member",
+  "title": "Consuming a library as a read-only member",
+  "description": "I only consume a library; keep it pinned and separate from the feature branch",
+  "steps": [
+    {
+      "id": "step",
+      "index": 1,
+      "command": "wtg add my-feature --read-only config-lib",
+      "cwd": "~",
+      "exit_code": 0,
+      "output_raw": "✓ added to space \"my-feature\"\n  config-lib  \u001b[90m◇ read-only @ origin/main\u001b[m  ~/spaces/my-feature/config-lib  \nWorkspace root: ~/spaces/my-feature\n",
+      "output_plain": "✓ added to space \"my-feature\"\n  config-lib  ◇ read-only @ origin/main  ~/spaces/my-feature/config-lib  \nWorkspace root: ~/spaces/my-feature\n",
+      "output_html": "✓ added to space \u0026#34;my-feature\u0026#34;\n  config-lib  \u003cspan class=\"ansi-fg-bright-black\"\u003e◇ read-only @ origin/main\u003c/span\u003e  ~/spaces/my-feature/config-lib  \nWorkspace root: ~/spaces/my-feature\n"
+    },
+    {
+      "id": "step",
+      "index": 2,
+      "command": "wtg status my-feature",
+      "cwd": "~",
+      "exit_code": 0,
+      "output_raw": "\u001b[1mmy-feature\u001b[m  \u001b[90m~/spaces/my-feature\u001b[m\n  api         \u001b[90m[my-feature]\u001b[m               \u001b[32m✓ clean\u001b[m  \u001b[90m(local)\u001b[m  \n  config-lib  \u001b[90m◇ read-only @ origin/main\u001b[m  \u001b[32m✓ clean\u001b[m           \n",
+      "output_plain": "my-feature  ~/spaces/my-feature\n  api         [my-feature]               ✓ clean  (local)  \n  config-lib  ◇ read-only @ origin/main  ✓ clean           \n",
+      "output_html": "\u003cspan class=\"ansi-bold\"\u003emy-feature\u003c/span\u003e  \u003cspan class=\"ansi-fg-bright-black\"\u003e~/spaces/my-feature\u003c/span\u003e\n  api         \u003cspan class=\"ansi-fg-bright-black\"\u003e[my-feature]\u003c/span\u003e               \u003cspan class=\"ansi-fg-green\"\u003e✓ clean\u003c/span\u003e  \u003cspan class=\"ansi-fg-bright-black\"\u003e(local)\u003c/span\u003e  \n  config-lib  \u003cspan class=\"ansi-fg-bright-black\"\u003e◇ read-only @ origin/main\u003c/span\u003e  \u003cspan class=\"ansi-fg-green\"\u003e✓ clean\u003c/span\u003e           \n"
+    }
+  ]
+}

@@ -1,3 +1,9 @@
++++
+title = "Archiving and Restoring Repo Clones"
+description = "Retire and restore main repo clones safely without data loss."
+weight = 90
++++
+
 # `archive`: retiring and restoring repo clones
 
 `wtg repo archive` retires a main repo clone without deleting it: it moves the clone out of the discovery area into `archive.root_dir`, keeps it intact, and records where it came from. `wtg repo unarchive` reverses that, putting the clone back exactly where it was. Both are safe, batchable, and scriptable — there is no interactive prompt, so refusal is the default and flags are the override.
@@ -126,7 +132,7 @@ It **refuses** if the recorded origin path already exists, or if the archived cl
 ```
 github.com/something/foo  ✓ restored to ~/repos/github.com/something/foo
 
-Upstream repos were not modified. To unarchive them on GitHub:
+Upstream repos were not modified. To archive them on GitHub:
   gh repo unarchive something/foo --yes
 ```
 
@@ -155,4 +161,4 @@ wtg repo archive old-service spike-repo --remote
 wtg repo unarchive old-service --remote
 ```
 
-See [ADR 0013](adr/0013-repo-archive.md) for the decisions and trade-offs (why a move rather than a delete, why provenance lives in XDG state, why stale worktrees are refused rather than pruned).
+See [ADR 0013](../../../docs/adr/0013-repo-archive.md) for the decisions and trade-offs.

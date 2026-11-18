@@ -1,3 +1,9 @@
++++
+title = "Repository Sync State & Progress Indicators"
+description = "Understanding wtg repo sync progress symbols and state transitions."
+weight = 100
++++
+
 # `wtg repo sync` — progress symbols and state diagram
 
 ## Progress bar symbols
@@ -47,27 +53,3 @@ stateDiagram-v2
     ↑ --> [*]
     ! --> [*]
 ```
-
-The diagram renders natively on GitHub. To export a PNG locally:
-
-```sh
-npx --yes @mermaid-js/mermaid-cli mmdc \
-  -i docs/repo-sync.md \
-  -o docs/repo-sync.png \
-  --outputFormat png
-```
-
-## Where the transitions live in the code
-
-The state machine is not an explicit struct — it is encoded in the
-[`RunSync`](../internal/cmd/repo.go) goroutine and the
-[`syncOne`](../internal/cmd/repo.go) helper:
-
-| Transition  | Location |
-|-------------|----------|
-| `· → ~`     | goroutine start, before calling `syncOne`; `inFlight` counter incremented |
-| `~ → ø`     | `syncOne` returns `("", "")` — repo has no remotes; `inFlight` decremented |
-| `~ → ⚠`     | `syncOne`: branch check or dirty check; `inFlight` decremented |
-| `~ → ✓`     | `syncOne`: fetch succeeded, `Behind == 0`; `inFlight` decremented |
-| `~ → ↑`     | `syncOne`: fetch succeeded, fast-forward succeeded; `inFlight` decremented |
-| `~ → !`     | `syncOne`: any `error` return from runner calls; `inFlight` decremented |

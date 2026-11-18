@@ -1,0 +1,14 @@
+title = "wtg"
+description = "Manage multi-repo feature workflows using git worktrees and Go workspaces"
+base_url = "https://suhlig.github.io/wtg"
+
+# Build configuration
+build_search_index = true
+generate_feeds = false
+
+[markdown.highlighting]
+style = "inline"
+theme = "monokai"
+
+[extra]
+github_url = "https://github.com/suhlig/wtg"

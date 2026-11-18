@@ -1,0 +1,27 @@
+{
+  "id": "preview-and-audit",
+  "title": "Previewing and auditing operations",
+  "description": "Preview and audit what wtg does with --dry-run and --summary",
+  "steps": [
+    {
+      "id": "step",
+      "index": 1,
+      "command": "wtg --dry-run new my-feature api web",
+      "cwd": "~",
+      "exit_code": 0,
+      "output_raw": "DRY RUN — nothing was changed; the plan is based on the last fetch\n\n→ would create space \"my-feature\" on branch my-feature\n  api  → would create worktree ~/spaces/my-feature/api  \n  web  → would create worktree ~/spaces/my-feature/web  \nWorkspace root: ~/spaces/my-feature\n\nWould run:\n  git -C ~/repos/api worktree add -b my-feature ~/spaces/my-feature/api\n  git -C ~/repos/web worktree add -b my-feature ~/spaces/my-feature/web\n  (wtg) mkdir ~/.local/share/wtg/spaces\n  (wtg) write ~/.local/share/wtg/spaces/my-feature.yaml\n  (wtg) mkdir ~/spaces/my-feature\n  (wtg) mkdir ~/spaces/my-feature\n  (wtg) write ~/spaces/my-feature/go.work\n",
+      "output_plain": "DRY RUN — nothing was changed; the plan is based on the last fetch\n\n→ would create space \"my-feature\" on branch my-feature\n  api  → would create worktree ~/spaces/my-feature/api  \n  web  → would create worktree ~/spaces/my-feature/web  \nWorkspace root: ~/spaces/my-feature\n\nWould run:\n  git -C ~/repos/api worktree add -b my-feature ~/spaces/my-feature/api\n  git -C ~/repos/web worktree add -b my-feature ~/spaces/my-feature/web\n  (wtg) mkdir ~/.local/share/wtg/spaces\n  (wtg) write ~/.local/share/wtg/spaces/my-feature.yaml\n  (wtg) mkdir ~/spaces/my-feature\n  (wtg) mkdir ~/spaces/my-feature\n  (wtg) write ~/spaces/my-feature/go.work\n",
+      "output_html": "DRY RUN — nothing was changed; the plan is based on the last fetch\n\n→ would create space \u0026#34;my-feature\u0026#34; on branch my-feature\n  api  → would create worktree ~/spaces/my-feature/api  \n  web  → would create worktree ~/spaces/my-feature/web  \nWorkspace root: ~/spaces/my-feature\n\nWould run:\n  git -C ~/repos/api worktree add -b my-feature ~/spaces/my-feature/api\n  git -C ~/repos/web worktree add -b my-feature ~/spaces/my-feature/web\n  (wtg) mkdir ~/.local/share/wtg/spaces\n  (wtg) write ~/.local/share/wtg/spaces/my-feature.yaml\n  (wtg) mkdir ~/spaces/my-feature\n  (wtg) mkdir ~/spaces/my-feature\n  (wtg) write ~/spaces/my-feature/go.work\n"
+    },
+    {
+      "id": "step",
+      "index": 2,
+      "command": "wtg --summary new my-feature api web",
+      "cwd": "~",
+      "exit_code": 0,
+      "output_raw": "✓ created space \"my-feature\" on branch my-feature\n  api  ~/spaces/my-feature/api  \n  web  ~/spaces/my-feature/web  \nWorkspace root: ~/spaces/my-feature\n\nCommands run:\n  git -C ~/repos/api worktree add -b my-feature ~/spaces/my-feature/api\n  git -C ~/repos/web worktree add -b my-feature ~/spaces/my-feature/web\n  (wtg) mkdir ~/.local/share/wtg/spaces\n  (wtg) write ~/.local/share/wtg/spaces/my-feature.yaml\n  (wtg) mkdir ~/spaces/my-feature\n  (wtg) mkdir ~/spaces/my-feature\n  (wtg) write ~/spaces/my-feature/go.work\n",
+      "output_plain": "✓ created space \"my-feature\" on branch my-feature\n  api  ~/spaces/my-feature/api  \n  web  ~/spaces/my-feature/web  \nWorkspace root: ~/spaces/my-feature\n\nCommands run:\n  git -C ~/repos/api worktree add -b my-feature ~/spaces/my-feature/api\n  git -C ~/repos/web worktree add -b my-feature ~/spaces/my-feature/web\n  (wtg) mkdir ~/.local/share/wtg/spaces\n  (wtg) write ~/.local/share/wtg/spaces/my-feature.yaml\n  (wtg) mkdir ~/spaces/my-feature\n  (wtg) mkdir ~/spaces/my-feature\n  (wtg) write ~/spaces/my-feature/go.work\n",
+      "output_html": "✓ created space \u0026#34;my-feature\u0026#34; on branch my-feature\n  api  ~/spaces/my-feature/api  \n  web  ~/spaces/my-feature/web  \nWorkspace root: ~/spaces/my-feature\n\nCommands run:\n  git -C ~/repos/api worktree add -b my-feature ~/spaces/my-feature/api\n  git -C ~/repos/web worktree add -b my-feature ~/spaces/my-feature/web\n  (wtg) mkdir ~/.local/share/wtg/spaces\n  (wtg) write ~/.local/share/wtg/spaces/my-feature.yaml\n  (wtg) mkdir ~/spaces/my-feature\n  (wtg) mkdir ~/spaces/my-feature\n  (wtg) write ~/spaces/my-feature/go.work\n"
+    }
+  ]
+}

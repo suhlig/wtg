@@ -1,0 +1,37 @@
+{
+  "id": "land-and-delete",
+  "title": "Landing changes and cleaning up",
+  "description": "I am done; how do I get it into main, and which strategy?",
+  "steps": [
+    {
+      "id": "step",
+      "index": 1,
+      "command": "wtg land --dry-run --strategy merge",
+      "cwd": "~/spaces/my-feature",
+      "exit_code": 0,
+      "output_raw": "DRY RUN — nothing was changed; the plan is based on the last fetch\n\napi  → would push my-feature to origin/main  \nweb  ø nothing to land                       \n\nWould run:\n  git -C ~/spaces/my-feature/api push origin my-feature:main\n  git -C ~/repos/api merge --ff-only origin/main\n",
+      "output_plain": "DRY RUN — nothing was changed; the plan is based on the last fetch\n\napi  → would push my-feature to origin/main  \nweb  ø nothing to land                       \n\nWould run:\n  git -C ~/spaces/my-feature/api push origin my-feature:main\n  git -C ~/repos/api merge --ff-only origin/main\n",
+      "output_html": "DRY RUN — nothing was changed; the plan is based on the last fetch\n\napi  → would push my-feature to origin/main  \nweb  ø nothing to land                       \n\nWould run:\n  git -C ~/spaces/my-feature/api push origin my-feature:main\n  git -C ~/repos/api merge --ff-only origin/main\n"
+    },
+    {
+      "id": "step",
+      "index": 2,
+      "command": "wtg land --strategy merge",
+      "cwd": "~/spaces/my-feature",
+      "exit_code": 0,
+      "output_raw": "api  \u001b[32m✓\u001b[m landed (merge)   \nweb  ø nothing to land  \n",
+      "output_plain": "api  ✓ landed (merge)   \nweb  ø nothing to land  \n",
+      "output_html": "api  \u003cspan class=\"ansi-fg-green\"\u003e✓\u003c/span\u003e landed (merge)   \nweb  ø nothing to land  \n"
+    },
+    {
+      "id": "step",
+      "index": 3,
+      "command": "wtg delete -d --yes",
+      "cwd": "~/spaces/my-feature",
+      "exit_code": 0,
+      "output_raw": "api  ✓ worktree removed, branch deleted  \nweb  ✓ worktree removed, branch deleted  \nDeleting workspace root: ~/spaces/my-feature\n  ⚠ your working directory is inside the space; cd elsewhere after deletion\n",
+      "output_plain": "api  ✓ worktree removed, branch deleted  \nweb  ✓ worktree removed, branch deleted  \nDeleting workspace root: ~/spaces/my-feature\n  ⚠ your working directory is inside the space; cd elsewhere after deletion\n",
+      "output_html": "api  ✓ worktree removed, branch deleted  \nweb  ✓ worktree removed, branch deleted  \nDeleting workspace root: ~/spaces/my-feature\n  ⚠ your working directory is inside the space; cd elsewhere after deletion\n"
+    }
+  ]
+}

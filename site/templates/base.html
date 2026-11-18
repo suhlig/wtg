@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% if page is defined and page.title %}{{ page.title }} | {% elif section is defined and section.title %}{{ section.title }} | {% endif %}{{ config.title }}</title>
+  <meta name="description" content="{% if page is defined and page.description %}{{ page.description }}{% elif section is defined and section.description %}{{ section.description }}{% else %}{{ config.description }}{% endif %}">
+  <link rel="stylesheet" href="{{ get_url(path='style.css') }}">
+</head>
+<body>
+  <div class="layout">
+    <header class="header">
+      <div class="header-inner">
+        <a class="site-title" href="{{ config.base_url }}"><strong>wtg</strong></a>
+        <nav class="nav">
+          <a href="{{ get_url(path='@/guides/_index.md') }}">Guides</a>
+          <a href="{{ get_url(path='@/reference/_index.md') }}">Reference</a>
+          <a href="{{ get_url(path='@/faq/_index.md') }}">FAQ</a>
+          <a href="{{ config.extra.github_url }}" target="_blank" rel="noopener">GitHub</a>
+        </nav>
+      </div>
+    </header>
+
+    <div class="container">
+      <aside class="sidebar">
+        <div class="sidebar-section">
+          <h3><a href="{{ get_url(path='@/guides/_index.md') }}">Guides &amp; Scenarios</a></h3>
+          <ul>
+            <li><a href="{{ get_url(path='@/guides/first-steps.md') }}">1. First Steps</a></li>
+            <li><a href="{{ get_url(path='@/guides/new-workspace.md') }}">2. New Workspace</a></li>
+            <li><a href="{{ get_url(path='@/guides/sync-and-rebase.md') }}">3. Sync &amp; Rebase</a></li>
+            <li><a href="{{ get_url(path='@/guides/land-and-delete.md') }}">4. Land &amp; Clean up</a></li>
+            <li><a href="{{ get_url(path='@/guides/add-and-remove.md') }}">6. Add &amp; Remove Repos</a></li>
+            <li><a href="{{ get_url(path='@/guides/read-only.md') }}">7. Read-Only Members</a></li>
+            <li><a href="{{ get_url(path='@/guides/preview-and-audit.md') }}">10. Preview &amp; Audit</a></li>
+            <li><a href="{{ get_url(path='@/guides/always.md') }}">Always Repos &amp; Hooks</a></li>
+            <li><a href="{{ get_url(path='@/guides/archive.md') }}">Archive Clones</a></li>
+            <li><a href="{{ get_url(path='@/guides/repo-sync.md') }}">Repo Sync Details</a></li>
+          </ul>
+        </div>
+        <div class="sidebar-section">
+          <h3><a href="{{ get_url(path='@/reference/_index.md') }}">Reference</a></h3>
+          <ul>
+            <li><a href="{{ get_url(path='@/reference/cli.md') }}">CLI Commands</a></li>
+            <li><a href="{{ get_url(path='@/reference/config.md') }}">Configuration</a></li>
+            <li><a href="{{ get_url(path='@/reference/read-only.md') }}">Read-Only Members</a></li>
+          </ul>
+        </div>
+        <div class="sidebar-section">
+          <h3><a href="{{ get_url(path='@/faq/_index.md') }}">FAQ</a></h3>
+          <ul>
+            <li><a href="{{ get_url(path='@/faq/_index.md') }}">Frequently Asked Questions</a></li>
+          </ul>
+        </div>
+      </aside>
+
+      <main class="content">
+        {% block content %}{% endblock content %}
+      </main>
+    </div>
+
+    <footer class="footer">
+      <p>wtg &mdash; WorkTrees for Go &middot; Built with Zola</p>
+    </footer>
+  </div>
+</body>
+</html>

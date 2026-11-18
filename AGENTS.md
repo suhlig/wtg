@@ -1,12 +1,14 @@
 # wtg
 
-- `README.md` — user-facing docs: install, usage, and configuration. Start here.
-- `docs/` — longer-form docs. `DESIGN.md` indexes the architecture decision records in `docs/adr/`; feature guides (e.g. `always.md`) explain individual features in depth for users.
+- `README.md` — user-facing docs: overview, install, configuration overview, and links to the documentation site. Start here.
+- `docs/` — design and architecture docs. `DESIGN.md` indexes the architecture decision records in `docs/adr/`.
+- `site/content/` — user-facing documentation, scenario guides, FAQ, and reference pages for the static documentation site.
 
 ## Conventions
 
 - Conventional commits (`feat:`, `fix:`, `docs:`, `test:`, `refactor:`)
 - Each command implementation includes its unit tests in the same session/PR
+- A change to user-visible behaviour updates the affected scenarios in `acceptance/` and `site/content/guides/`, and a new command or flag needs its reference entry (generated via `tools/gendocs`) and, where a user story exists, a scenario
 - Ambiguous repo names → error with suggestions, not interactive prompt (keep scriptable)
 - Work a decision leaves out goes in that ADR's `## Follow-ups` section, and into `Open work` in `docs/DESIGN.md` in the same change — one place to look for what is deliberately not done yet. Picking an item up or dropping it means editing both, ADR first.
 - Update `CHANGELOG.md` as you add features: user-facing changes go under `## [Unreleased]` (Added/Changed/Fixed/Removed per Keep a Changelog). Skip dependency bumps, CI, and pure refactors.

@@ -1,0 +1,27 @@
+{
+  "id": "archive-and-unarchive",
+  "title": "Archiving and restoring retired repositories",
+  "description": "Retire old clones out of discovery area into archive storage without losing uncommitted work or provenance",
+  "steps": [
+    {
+      "id": "step",
+      "index": 1,
+      "command": "wtg repo archive old-service",
+      "cwd": "~",
+      "exit_code": 0,
+      "output_raw": "old-service  ✓ moved to ~/repos-archived/old-service  \n\n\u001b[90mUpstream repos were not modified. To archive them on GitHub:\u001b[m\n  gh repo archive example/old-service --yes\n",
+      "output_plain": "old-service  ✓ moved to ~/repos-archived/old-service  \n\nUpstream repos were not modified. To archive them on GitHub:\n  gh repo archive example/old-service --yes\n",
+      "output_html": "old-service  ✓ moved to ~/repos-archived/old-service  \n\n\u003cspan class=\"ansi-fg-bright-black\"\u003eUpstream repos were not modified. To archive them on GitHub:\u003c/span\u003e\n  gh repo archive example/old-service --yes\n"
+    },
+    {
+      "id": "step",
+      "index": 2,
+      "command": "wtg repo unarchive old-service",
+      "cwd": "~",
+      "exit_code": 0,
+      "output_raw": "old-service  ✓ restored to ~/repos/old-service  \n\n\u001b[90mUpstream repos were not modified. To unarchive them on GitHub:\u001b[m\n  gh repo unarchive example/old-service --yes\n",
+      "output_plain": "old-service  ✓ restored to ~/repos/old-service  \n\nUpstream repos were not modified. To unarchive them on GitHub:\n  gh repo unarchive example/old-service --yes\n",
+      "output_html": "old-service  ✓ restored to ~/repos/old-service  \n\n\u003cspan class=\"ansi-fg-bright-black\"\u003eUpstream repos were not modified. To unarchive them on GitHub:\u003c/span\u003e\n  gh repo unarchive example/old-service --yes\n"
+    }
+  ]
+}

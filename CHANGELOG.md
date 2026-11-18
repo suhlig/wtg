@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Scenario-based documentation static site powered by Zola, published on GitHub Pages, featuring executable scenario guides with outputs verified and generated directly from the real binary via a Ginkgo acceptance test suite (ADR 0027)
+- `tools/gendocs` CLI documentation generator walking the command tree to generate exhaustive CLI, configuration, and behaviour references (ADR 0027)
 - `git.network_timeout` (env `WTG_GIT_NETWORK_TIMEOUT`, default `5m`, `0` disables) bounds each git command that talks to a remote and each `gh` call. A call that exceeds it fails that repo with a message naming the setting, instead of blocking the whole run (ADR 0026)
 - `wtg exec --timeout <duration>` stops the command in any repo that runs longer; that repo is reported as timed out and the others carry on. There is no default limit (ADR 0026)
 - A repo that is slow to fetch is now named: `repo sync --progress` and `rebase --progress` show `(1 fetching; slow: <repo> 1m5s)`, and `repo sync`, `repo fetch`, `rebase`, `push` and `land` print `wtg: still waiting for: <repo> <duration>` to stderr after 30 seconds. `delete`, `repo archive --remote`, `repo unarchive --remote` and the fetch in `new`/`add --read-only` do the same, naming the `gh` call or repo, and `exec --parallel` names a slow repo in its progress line (ADR 0026)

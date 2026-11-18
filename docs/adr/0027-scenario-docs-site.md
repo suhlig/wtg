@@ -1,6 +1,6 @@
 # ADR 0027: Scenario-based documentation, built from the real binary, published as a static site
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-18
 - Author: Steffen Uhlig
 
