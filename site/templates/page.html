@@ -9,5 +9,11 @@
     {% endif %}
   </header>
   {{ page.content | safe }}
+  {% if "guides/_index.md" in page.ancestors %}
+  <nav class="pager" aria-label="Guides">
+    {% if page.lower %}<a class="pager-prev" href="{{ page.lower.permalink }}"><span>Previous</span>{{ page.lower.title }}</a>{% else %}<span></span>{% endif %}
+    {% if page.higher %}<a class="pager-next" href="{{ page.higher.permalink }}"><span>Next</span>{{ page.higher.title }}</a>{% else %}<span></span>{% endif %}
+  </nav>
+  {% endif %}
 </article>
 {% endblock content %}
