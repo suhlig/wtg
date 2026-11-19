@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-11-19
+
 ### Added
 
 - Scenario-based documentation static site powered by Zola, published on GitHub Pages, featuring executable scenario guides with outputs verified and generated directly from the real binary via a Ginkgo acceptance test suite (ADR 0027)
@@ -193,7 +195,8 @@ Initial public release.
 - XDG Base Directory-compliant config (`$XDG_CONFIG_HOME/wtg/config.yaml`) and state (`$XDG_DATA_HOME/wtg/spaces/`)
 - `--config` flag and `WTG_CONFIG` environment variable for config file override
 
-[Unreleased]: https://github.com/suhlig/wtg/compare/v1.10.0...HEAD
+[Unreleased]: https://github.com/suhlig/wtg/compare/v1.11.0...HEAD
+[1.11.0]: https://github.com/suhlig/wtg/compare/v1.10.0...v1.11.0
 [1.10.0]: https://github.com/suhlig/wtg/compare/v1.9.0...v1.10.0
 [1.9.0]: https://github.com/suhlig/wtg/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/suhlig/wtg/compare/v1.7.0...v1.8.0
