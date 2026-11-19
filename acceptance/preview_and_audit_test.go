@@ -5,7 +5,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("Scenario 10: Previewing and auditing operations", Ordered, func() {
+var _ = Describe("Previewing and auditing operations", Ordered, func() {
 	var sb *Sandbox
 
 	BeforeAll(func() {

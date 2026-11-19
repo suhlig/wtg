@@ -7,7 +7,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("Scenario 2: Creating a new multi-repo workspace", Ordered, func() {
+var _ = Describe("Creating a new multi-repo workspace", Ordered, func() {
 	var sb *Sandbox
 
 	BeforeAll(func() {

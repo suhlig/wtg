@@ -163,6 +163,8 @@ func (s *Sandbox) Env() []string {
 		"GIT_COMMITTER_NAME=" + PinnedCommitterName,
 		"GIT_COMMITTER_EMAIL=" + PinnedCommitterEmail,
 		"GIT_COMMITTER_DATE=" + PinnedCommitterDate,
+		// A step must never wait for an editor, e.g. `git rebase --continue`.
+		"GIT_EDITOR=true",
 		"WTG_ACCEPTANCE_REMOTES=" + s.BareOriginDir,
 		"PATH=" + pathEnv,
 		"FAKE_GH_STATE_DIR=" + s.HomeDir,
@@ -324,7 +326,27 @@ func (s *Sandbox) Normalize(str string) string {
 	str = strings.ReplaceAll(str, parentPrivate, "~")
 	str = strings.ReplaceAll(str, parent, "~")
 
-	return trailingPadding.ReplaceAllString(str, "$1")
+	return trailingPadding.ReplaceAllString(collapseCarriageReturns(str), "$1")
+}
+
+// collapseCarriageReturns keeps, for each line, what a terminal would show
+// after the carriage returns: git's "Rebasing (1/1)\r" and wtg's progress bar
+// redraw a line in place, and printing every frame one after another is not
+// what the reader sees.
+func collapseCarriageReturns(s string) string {
+	if !strings.Contains(s, "\r") {
+		return s
+	}
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		frames := strings.Split(line, "\r")
+		last := frames[len(frames)-1]
+		for j := len(frames) - 1; j >= 0 && StripANSI(last) == ""; j-- {
+			last = frames[j]
+		}
+		lines[i] = last
+	}
+	return strings.Join(lines, "\n")
 }
 
 // trailingPadding matches the spaces wtg pads table cells with at the end of a

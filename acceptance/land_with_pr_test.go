@@ -8,10 +8,10 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-// Scenario 4, second half: the default "pr" strategy. gh is simulated by
+// Second half of landing: the default "pr" strategy. gh is simulated by
 // acceptance/cmd/fakegh (ADR 0027 D7); git and the github.com remote are real
 // as far as wtg can tell (see the ssh shim in harness.go).
-var _ = Describe("Scenario 4b: Landing changes through pull requests", Ordered, func() {
+var _ = Describe("Landing changes through pull requests", Ordered, func() {
 	var sb *Sandbox
 
 	BeforeAll(func() {

@@ -8,7 +8,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("Scenario 14: Archiving and restoring retired repositories", Ordered, func() {
+var _ = Describe("Archiving and restoring retired repositories", Ordered, func() {
 	var sb *Sandbox
 
 	BeforeAll(func() {

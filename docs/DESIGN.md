@@ -45,6 +45,5 @@ Work a decision deliberately left out, collected in one place instead of buried 
 - **Migrating the unit tests to Ginkgo**, as a separate decision ([ADR 0027](adr/0027-scenario-docs-site.md) D8).
 - **Per-release versions of the site** ([ADR 0027](adr/0027-scenario-docs-site.md) D13).
 - **Man pages** from the command-tree walker ([ADR 0027](adr/0027-scenario-docs-site.md) D9).
-- **Scenarios 5, 8, 9, 11 and 15** ([ADR 0027](adr/0027-scenario-docs-site.md) D10, Follow-ups).
 - **A scenario for `wtg delete -d` with a merged pull request**, which needs a `MERGED` state in the fake `gh` ([ADR 0027](adr/0027-scenario-docs-site.md) Follow-ups).
 

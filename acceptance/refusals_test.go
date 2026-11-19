@@ -8,10 +8,10 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-// Scenario 13 backs the FAQ: the refusals and errors people ask about, with the
+// This scenario backs the FAQ: the refusals and errors people ask about, with the
 // real text wtg prints. Every step here exits non-zero on purpose or changes
 // nothing, so it is safe to run in any order.
-var _ = Describe("Scenario 13: When wtg refuses", Ordered, func() {
+var _ = Describe("When wtg refuses", Ordered, func() {
 	var sb *Sandbox
 
 	BeforeAll(func() {

@@ -8,7 +8,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("Scenario 12: Every workspace gets my shared repos, files and hook", Ordered, func() {
+var _ = Describe("Every workspace gets my shared repos, files and hook", Ordered, func() {
 	var sb *Sandbox
 
 	BeforeAll(func() {

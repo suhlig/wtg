@@ -8,7 +8,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("Scenario 4: Landing changes and cleaning up", Ordered, func() {
+var _ = Describe("Landing changes and cleaning up", Ordered, func() {
 	var sb *Sandbox
 
 	BeforeAll(func() {

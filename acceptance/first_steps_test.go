@@ -5,7 +5,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("Scenario 1: First steps after installation", Ordered, func() {
+var _ = Describe("First steps after installation", Ordered, func() {
 	var sb *Sandbox
 
 	BeforeAll(func() {

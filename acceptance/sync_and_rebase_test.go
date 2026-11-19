@@ -8,7 +8,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("Scenario 3: Keeping a feature branch up to date", Ordered, func() {
+var _ = Describe("Keeping a feature branch up to date", Ordered, func() {
 	var sb *Sandbox
 	var apiBare string
 

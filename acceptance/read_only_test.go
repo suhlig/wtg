@@ -5,7 +5,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("Scenario 7: Consuming a library as a read-only member", Ordered, func() {
+var _ = Describe("Consuming a library as a read-only member", Ordered, func() {
 	var sb *Sandbox
 
 	BeforeAll(func() {

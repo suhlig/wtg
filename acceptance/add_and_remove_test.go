@@ -5,7 +5,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("Scenario 6: Adding and removing repositories", Ordered, func() {
+var _ = Describe("Adding and removing repositories", Ordered, func() {
 	var sb *Sandbox
 
 	BeforeAll(func() {
