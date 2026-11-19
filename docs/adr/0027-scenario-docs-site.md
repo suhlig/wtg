@@ -255,7 +255,7 @@ This ADR changes documentation, tests and CI only. No command, file format, git 
 
 ## Follow-ups
 
-- Make wtg itself honour `NO_COLOR` (and `TERM=dumb`); today it colours piped output (D6). User-facing, so it needs its own change and a `CHANGELOG.md` entry.
+- Make wtg itself honour `NO_COLOR` (and `TERM=dumb` or when running in a pipe); today it colours piped output (D6). User-facing, so it needs its own change and a `CHANGELOG.md` entry.
 - Committed golden transcripts, if reviewing output changes through the site artefact turns out to be too weak (D5).
 - Migrating the unit tests to Ginkgo, if wanted, as a separate decision (D8).
 - Per-release versions of the site, so that documentation for an older release stays reachable (D13).
