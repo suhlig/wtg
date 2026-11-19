@@ -79,6 +79,11 @@ a:hover {
   text-decoration: none;
 }
 
+.nav a.active {
+  color: var(--text);
+  font-weight: 700;
+}
+
 .container {
   max-width: 1200px;
   margin: 0 auto;
@@ -105,7 +110,17 @@ a:hover {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-muted);
+  font-weight: 500;
   margin-bottom: 0.75rem;
+}
+
+.sidebar-section.current h3 {
+  font-weight: 700;
+  color: var(--text);
+}
+
+.sidebar-section a.active {
+  font-weight: 700;
 }
 
 .sidebar-section h3 a {

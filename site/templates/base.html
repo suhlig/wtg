@@ -12,10 +12,16 @@
     <header class="header">
       <div class="header-inner">
         <a class="site-title" href="{{ config.base_url }}"><strong>wtg</strong></a>
+        {% set guides = get_section(path="guides/_index.md") %}
+        {% set reference = get_section(path="reference/_index.md") %}
+        {% set faq = get_section(path="faq/_index.md") %}
+        {% set in_guides = "/guides/" in current_path %}
+        {% set in_reference = "/reference/" in current_path %}
+        {% set in_faq = "/faq/" in current_path %}
         <nav class="nav">
-          <a href="{{ get_url(path='@/guides/_index.md') }}">Guides</a>
-          <a href="{{ get_url(path='@/reference/_index.md') }}">Reference</a>
-          <a href="{{ get_url(path='@/faq/_index.md') }}">FAQ</a>
+          <a href="{{ guides.permalink }}"{% if in_guides %} class="active" aria-current="true"{% endif %}>Guides</a>
+          <a href="{{ reference.permalink }}"{% if in_reference %} class="active" aria-current="true"{% endif %}>Reference</a>
+          <a href="{{ faq.permalink }}"{% if in_faq %} class="active" aria-current="true"{% endif %}>FAQ</a>
           <a href="{{ config.extra.github_url }}" target="_blank" rel="noopener">GitHub</a>
         </nav>
       </div>
@@ -23,29 +29,33 @@
 
     <div class="container">
       <aside class="sidebar">
-        {% set guides = get_section(path="guides/_index.md") %}
-        <div class="sidebar-section">
+        <div class="sidebar-section{% if in_guides %} current{% endif %}">
           <h3><a href="{{ guides.permalink }}">{{ guides.title }}</a></h3>
           <ul>
             {% for p in guides.pages %}
-            <li><a href="{{ p.permalink }}">{% if p.extra.nav_title %}{{ p.extra.nav_title }}{% else %}{{ p.title }}{% endif %}</a></li>
+            <li><a href="{{ p.permalink }}"{% if current_url == p.permalink %} class="active" aria-current="page"{% endif %}>{% if p.extra.nav_title %}{{ p.extra.nav_title }}{% else %}{{ p.title }}{% endif %}</a></li>
             {% endfor %}
           </ul>
         </div>
-        <div class="sidebar-section">
-          <h3><a href="{{ get_url(path='@/reference/_index.md') }}">Reference</a></h3>
+        <div class="sidebar-section{% if in_reference %} current{% endif %}">
+          <h3><a href="{{ reference.permalink }}">{{ reference.title }}</a></h3>
           <ul>
-            <li><a href="{{ get_url(path='@/reference/cli.md') }}">CLI Commands</a></li>
-            <li><a href="{{ get_url(path='@/reference/config.md') }}">Configuration</a></li>
-            <li><a href="{{ get_url(path='@/reference/read-only.md') }}">Read-Only Members</a></li>
+            {% set ref_pages = [
+              {"path": "reference/cli.md", "title": "CLI Commands"},
+              {"path": "reference/config.md", "title": "Configuration"},
+              {"path": "reference/read-only.md", "title": "Read-Only Members"}
+            ] %}
+            {% for rp in ref_pages %}
+            {% set url = get_url(path="@/" ~ rp.path) %}
+            <li><a href="{{ url }}"{% if current_url == url %} class="active" aria-current="page"{% endif %}>{{ rp.title }}</a></li>
+            {% endfor %}
           </ul>
         </div>
-        {% set faq = get_section(path="faq/_index.md") %}
-        <div class="sidebar-section">
+        <div class="sidebar-section{% if in_faq %} current{% endif %}">
           <h3><a href="{{ faq.permalink }}">{{ faq.title }}</a></h3>
           <ul>
             {% for p in faq.pages %}
-            <li><a href="{{ p.permalink }}">{{ p.title }}</a></li>
+            <li><a href="{{ p.permalink }}"{% if current_url == p.permalink %} class="active" aria-current="page"{% endif %}>{{ p.title }}</a></li>
             {% endfor %}
           </ul>
         </div>
