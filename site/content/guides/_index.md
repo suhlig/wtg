@@ -1,5 +1,5 @@
 +++
-title = "Guides & Scenarios"
+title = "Guides"
 description = "Scenario-based walkthroughs with examples verified by real binary execution."
 sort_by = "weight"
 template = "section.html"

@@ -8,7 +8,7 @@
 
 Full documentation, scenario guides, and reference material are published at **[suhlig.github.io/wtg](https://suhlig.github.io/wtg/)**:
 
-- **[Guides & Scenarios](https://suhlig.github.io/wtg/guides/)**: Real walkthroughs covering setup, rebasing, landing, and read-only dependencies with output generated from the binary.
+- **[Guides](https://suhlig.github.io/wtg/guides/)**: Real walkthroughs covering setup, rebasing, landing, and read-only dependencies with output generated from the binary.
 - **[CLI Reference](https://suhlig.github.io/wtg/reference/cli/)**: Exhaustive reference for all commands and flags.
 - **[Configuration Reference](https://suhlig.github.io/wtg/reference/config/)**: Detailed config settings, discovery roots, and lifecycle hooks.
 - **[FAQ & Troubleshooting](https://suhlig.github.io/wtg/faq/)**: Answers to common questions.

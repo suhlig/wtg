@@ -9,7 +9,7 @@ template = "index.html"
 
 ## Documentation Structure
 
-- **[Guides &amp; Scenarios](guides/)**: Step-by-step walkthroughs for common situations, backed by verified transcripts directly from the real binary.
+- **[Guides](guides/)**: Step-by-step walkthroughs for common situations, backed by verified transcripts directly from the real binary.
 - **[CLI Reference](reference/cli/)**: Exhaustive documentation for every command and flag.
 - **[Configuration Reference](reference/config/)**: Format and default settings for `config.toml`.
 - **[FAQ &amp; Troubleshooting](faq/)**: Answers to common questions and edge cases.
