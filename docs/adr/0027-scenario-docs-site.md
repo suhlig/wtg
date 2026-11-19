@@ -101,7 +101,7 @@ The transcript keeps wtg's ANSI colour and the site renders it as styled spans (
 - wtg starts git with `GIT_SSH_COMMAND=ssh -o BatchMode=yes` (see `internal/git/system.go`), so setting `GIT_SSH_COMMAND` in the sandbox has no effect. A shim named `ssh` on `PATH` does.
 - `exec.Command` resolves a bare name such as `gh` or `ssh` against the test process's own `PATH`, not against the `Env` given to the child. The harness therefore resolves bare names in the sandbox `bin/` directory first (E7), or a real `gh` could be called from a developer machine.
 
-`acceptance/cmd/fakegh` keeps its state per repository, because GitHub counts pull request numbers per repository and wtg calls `gh` for several repositories at once. It also tracks the archived state of a repository, so `--remote` scenarios are idempotent like the real thing.
+`acceptance/cmd/fakegh` keeps its state per repository, because GitHub counts pull request numbers per repository and wtg calls `gh` for several repositories at once. It also tracks the archived state of a repository, so `--remote` scenarios are idempotent like the real thing. It records the real head commit of the branch as `headRefOid`, and `gh pr merge` marks a pull request `MERGED` (nothing else: the squash commit on the base branch is made with git by the scenario). That is what `wtg delete -d` needs to recognise a merged pull request (ADR 0019 D12), because it only trusts one whose head is the branch tip.
 
 ### D8. Ginkgo: used for the new acceptance suite only; the existing tests are not migrated (decided)
 
@@ -218,7 +218,7 @@ Implemented. The phases were delivered together on `main` rather than as separat
 2. **Site skeleton.** Done: `site/`, the transcript template, and the Pages workflow (build and check on every push and pull request; deploy on `v*` tags and manual dispatch). Zola is pinned at v0.23.6 and verified by SHA-256; a mismatch fails the build (an early draft carried on after a mismatch).
 3. **Sync and rebase, and landing,** the strategy decision table, and the FAQ seed. Done, including the PR half of landing with the fake `gh` (D7) and the refusals scenario the FAQ quotes. Writing the PR scenario found a real bug: `wtg land` matched sibling pull requests by number alone, so two repos that both got `#1` linked no siblings. Fixed in `linkSiblings`, with a regression test and a `CHANGELOG.md` entry.
 4. **Reference.** Done: `tools/gendocs`, the config scaffold embed, the three feature guides moved, the README slimmed, links updated (including the raw URL in `skills/wtg-setup/SKILL.md` and the references in ADRs 0014 to 0017 and 0024).
-5. **Remaining scenarios.** Done: every row of D10 has a guide and an acceptance test. The last five written were the rebase conflict, `new --base` and `--branch`, `exec`, review feedback after the workspace is gone, and carrying on without wtg. Two things came out of writing them: the harness sets `GIT_EDITOR=true` so a step such as `git rebase --continue` can never wait for an editor, and it collapses carriage-return redraws to the final frame (git's `Rebasing (1/1)` line, wtg's progress bar), which is what a terminal shows. Left open: see Follow-ups.
+5. **Remaining scenarios.** Done: every row of D10 has a guide and an acceptance test. The cleanup after a squash merge (`delete -d` with a merged pull request) followed. The five written before it were the rebase conflict, `new --base` and `--branch`, `exec`, review feedback after the workspace is gone, and carrying on without wtg. Two things came out of writing them: the harness sets `GIT_EDITOR=true` so a step such as `git rebase --continue` can never wait for an editor, and it collapses carriage-return redraws to the final frame (git's `Rebasing (1/1)` line, wtg's progress bar), which is what a terminal shows. Left open: see Follow-ups.
 6. **`AGENTS.md` convention** of D14, and the `DESIGN.md` update. Done.
 
 Two things the plan did not foresee:
@@ -260,7 +260,6 @@ This ADR changes documentation, tests and CI only. No command, file format, git 
 - Migrating the unit tests to Ginkgo, if wanted, as a separate decision (D8).
 - Per-release versions of the site, so that documentation for an older release stays reachable (D13).
 - Man pages from the same command-tree walker as the reference (D9).
-- `wtg delete -d` with a merged pull request consults `gh` (ADR 0019 D12); no scenario shows it yet. The fake `gh` would need a `MERGED` state.
 
 ## Decisions summary
 

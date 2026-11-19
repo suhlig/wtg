@@ -4,10 +4,28 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 )
+
+// headOid returns the commit that branch points to in the sandbox's bare copy
+// of ownerRepo (see the ssh shim in acceptance/harness.go), as GitHub reports
+// it in headRefOid. Without a sandbox it falls back to a fixed value.
+func headOid(ownerRepo, branch string) string {
+	const fallback = "1111111111111111111111111111111111111111"
+	remotes := os.Getenv("WTG_ACCEPTANCE_REMOTES")
+	if remotes == "" {
+		return fallback
+	}
+	bare := filepath.Join(remotes, filepath.Base(ownerRepo)+".git")
+	out, err := exec.Command("git", "--git-dir", bare, "rev-parse", "refs/heads/"+branch).Output()
+	if err != nil {
+		return fallback
+	}
+	return strings.TrimSpace(string(out))
+}
 
 type PRRecord struct {
 	Number     int    `json:"number"`
@@ -169,12 +187,32 @@ func main() {
 				State:      "OPEN",
 				Head:       head,
 				Base:       base,
-				HeadRefOid: "1111111111111111111111111111111111111111",
+				HeadRefOid: headOid(repo, head),
 				Body:       "",
 				Repo:       repo,
 			}
 			saveState(repo, st)
 			fmt.Println(url)
+			return
+
+		case "merge":
+			// Only the PR's state changes. What a merge does to the base
+			// branch is done with git by whoever sets the scene.
+			numStr := ""
+			if len(subArgs) > 0 && !strings.HasPrefix(subArgs[0], "--") {
+				numStr = subArgs[0]
+			}
+			repo := flagVal(subArgs, "--repo")
+			num, _ := strconv.Atoi(numStr)
+			key := fmt.Sprintf("%s#%d", repo, num)
+			pr, ok := st.PRs[key]
+			if !ok {
+				fmt.Fprintf(os.Stderr, "fake gh: no pull request #%d in %s\n", num, repo)
+				os.Exit(1)
+			}
+			pr.State = "MERGED"
+			st.PRs[key] = pr
+			saveState(repo, st)
 			return
 
 		case "view":
