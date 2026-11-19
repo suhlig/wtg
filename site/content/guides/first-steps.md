@@ -2,6 +2,9 @@
 title = "First Steps after Installation"
 description = "I just installed wtg; what are the first steps?"
 weight = 10
+
+[extra]
+nav_title = "First Steps"
 +++
 
 You have just installed `wtg` on your machine. This guide walks you through setting up your configuration file, inspecting discovered repositories, and enabling shell completion.

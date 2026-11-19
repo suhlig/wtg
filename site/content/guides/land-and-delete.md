@@ -2,6 +2,9 @@
 title = "Landing Changes and Cleaning Up"
 description = "I am done; how do I get it into main, and which strategy?"
 weight = 40
+
+[extra]
+nav_title = "Land & Clean Up"
 +++
 
 Your feature is finished and tested. This guide explains how to preview and land your changes using the `merge` or `pr` strategy, and safely clean up the workspace.

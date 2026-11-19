@@ -2,6 +2,9 @@
 title = "Branching from develop, or Continuing a Branch"
 description = "The work starts from develop, or a colleague's branch already exists."
 weight = 25
+
+[extra]
+nav_title = "Base & Branch"
 +++
 
 By default a new workspace branches from the repo's current `HEAD`, on a new branch named after the workspace. Two flags change that: `--base` picks where the branch starts, and `--branch` names a branch that may already exist.

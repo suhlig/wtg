@@ -2,6 +2,9 @@
 title = "Carrying on without wtg"
 description = "I stopped using wtg, or lost its state; is my work still there?"
 weight = 110
+
+[extra]
+nav_title = "Without wtg"
 +++
 
 wtg is a convenience, not a home for your work. Everything it creates is plain git: ordinary branches and linked worktrees. Nothing is stored in your repositories that only wtg can read, and your collaborators never need it. This guide shows that by losing wtg's state on purpose and carrying on with git alone.
@@ -36,7 +39,7 @@ Remove the worktree and the branch when you are done:
 
 {% set id = "without-wtg" %}{% set step = 6 %}{% include "transcript.html" %}
 
-If you delete a workspace directory by hand instead, `git worktree prune` removes the stale entry (see the [FAQ](@/faq/_index.md)). The branch stays.
+If you delete a workspace directory by hand instead, `git worktree prune` removes the stale entry (see the [FAQ](@/faq/rm-rf.md)). The branch stays.
 
 ### What you have now
 

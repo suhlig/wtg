@@ -2,6 +2,9 @@
 title = "Previewing and Auditing Operations"
 description = "Preview and audit what wtg does with --dry-run and --summary."
 weight = 70
+
+[extra]
+nav_title = "Preview & Audit"
 +++
 
 `wtg` provides two global flags that work with any mutating command to help you understand and audit its actions.

@@ -2,6 +2,9 @@
 title = "Adding and Removing Repositories"
 description = "The feature needs a third repo, or one is no longer needed."
 weight = 50
+
+[extra]
+nav_title = "Add & Remove Repos"
 +++
 
 During the course of feature development, you may discover that your work needs an additional repository, or that a repository added initially is no longer required.

@@ -2,6 +2,9 @@
 title = "Consuming Read-Only Dependencies"
 description = "I only consume a library; keep it pinned and separate from the feature branch."
 weight = 60
+
+[extra]
+nav_title = "Read-Only Members"
 +++
 
 When a workspace only consumes a library or schema repository rather than modifying it, you can add it as a read-only member.

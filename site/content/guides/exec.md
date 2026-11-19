@@ -2,6 +2,9 @@
 title = "Running a Command in Every Repo"
 description = "Run the tests, or any other command, in every repo of the workspace."
 weight = 55
+
+[extra]
+nav_title = "Run a Command Everywhere"
 +++
 
 `wtg exec` runs one command in each repo's worktree. Put `--` between wtg's own arguments and your command. Inside a workspace the workspace name can be left out.

@@ -2,6 +2,9 @@
 title = "Always-Included Repos, Files, and Hooks"
 description = "Configure shared repos, files, secrets, and lifecycle hooks for every new space."
 weight = 80
+
+[extra]
+nav_title = "Always Repos & Hooks"
 +++
 
 # `always`: shared repos, files, secrets, and event hooks

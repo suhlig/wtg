@@ -2,6 +2,9 @@
 title = "Creating a New Workspace"
 description = "I want a new workspace with two projects; where is my stuff?"
 weight = 20
+
+[extra]
+nav_title = "New Workspace"
 +++
 
 You are starting work on a new feature that spans multiple repositories (such as `api` and `web`). This guide explains how to create the workspace, where the files live on disk, and how `go.work` connects them.

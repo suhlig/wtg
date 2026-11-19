@@ -2,6 +2,9 @@
 title = "Review Feedback after the Workspace Is Gone"
 description = "The pull requests are open and I cleaned up; now the reviewer asks for a change."
 weight = 45
+
+[extra]
+nav_title = "Review Feedback"
 +++
 
 You opened the pull requests with `wtg land`, deleted the workspace to keep your disk tidy, and now a reviewer asks for a change. The workspace is gone, but the branch is on `origin`, and that is all you need.

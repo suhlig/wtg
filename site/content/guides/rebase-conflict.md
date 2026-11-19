@@ -2,6 +2,9 @@
 title = "Resolving a Rebase Conflict"
 description = "A rebase conflicts; what happened to my work, and how do I finish by hand?"
 weight = 35
+
+[extra]
+nav_title = "Rebase Conflict"
 +++
 
 You ran `wtg rebase`, and your branch and `main` both changed the same lines in `api`. This guide shows what wtg does about it, and how to finish the rebase yourself.

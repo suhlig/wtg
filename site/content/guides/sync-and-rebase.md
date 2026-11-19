@@ -2,6 +2,9 @@
 title = "Keeping Feature Branches Up to Date"
 description = "I am mid-feature; how do I pick up changes in main?"
 weight = 30
+
+[extra]
+nav_title = "Sync & Rebase"
 +++
 
 While developing your feature across multiple repositories, other team members merged new changes into `main`. This guide shows how to pull upstream changes into your main clones and rebase your workspace branches concurrently.

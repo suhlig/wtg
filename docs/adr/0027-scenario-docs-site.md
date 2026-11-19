@@ -152,7 +152,7 @@ The first four scenarios (first steps, new workspace, sync and rebase, land) are
 
 ### D11. FAQ (decided)
 
-Seeded from real error and result text so that answers quote transcripts instead of pasted text:
+Seeded from real error and result text so that answers quote transcripts instead of pasted text. Each question is a page of its own under `site/content/faq/`, linked from the sidebar, so that a question can be linked to and the sidebar is the table of contents:
 
 - Does wtg modify my clones? (No; branch and worktree entries only, [ADR 0022](0022-no-tool-dependency.md).)
 - Do my teammates need wtg? (No.)

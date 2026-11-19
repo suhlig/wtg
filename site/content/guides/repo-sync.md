@@ -2,6 +2,9 @@
 title = "Repository Sync State & Progress Indicators"
 description = "Understanding wtg repo sync progress symbols and state transitions."
 weight = 100
+
+[extra]
+nav_title = "Repo Sync Details"
 +++
 
 # `wtg repo sync` — progress symbols and state diagram

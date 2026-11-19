@@ -2,6 +2,9 @@
 title = "Cleaning Up after a Squash Merge"
 description = "My pull requests were squash-merged on GitHub; why can wtg delete the branches?"
 weight = 47
+
+[extra]
+nav_title = "After a Squash Merge"
 +++
 
 Your reviewer merged the pull requests with GitHub's squash button, and GitHub deleted the branches on `origin`. This guide shows why `wtg delete -d` still removes your local branches, and when it would not.

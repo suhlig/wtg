@@ -2,6 +2,9 @@
 title = "Archiving and Restoring Repo Clones"
 description = "Retire and restore main repo clones safely without data loss."
 weight = 90
+
+[extra]
+nav_title = "Archive Clones"
 +++
 
 # `archive`: retiring and restoring repo clones
