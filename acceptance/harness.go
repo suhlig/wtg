@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	. "github.com/onsi/gomega"
@@ -323,5 +324,13 @@ func (s *Sandbox) Normalize(str string) string {
 	str = strings.ReplaceAll(str, parentPrivate, "~")
 	str = strings.ReplaceAll(str, parent, "~")
 
-	return str
+	return trailingPadding.ReplaceAllString(str, "$1")
 }
+
+// trailingPadding matches the spaces wtg pads table cells with at the end of a
+// line (optionally followed by ANSI resets). The padding width is that of the
+// longest cell, measured before the sandbox path is replaced by "~", so it
+// depends on where the sandbox lives (/private/var/folders on macOS, /tmp on
+// Linux). It is invisible, so it is dropped to keep transcripts identical on
+// every machine.
+var trailingPadding = regexp.MustCompile(`(?m)[ ]+((?:\x1b\[[0-9;]*m)*)$`)
