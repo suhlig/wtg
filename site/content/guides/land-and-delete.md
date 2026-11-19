@@ -27,6 +27,20 @@ Publish the feature branch to `main`:
 
 {% set id = "land-and-delete" %}{% set step = 2 %}{% include "transcript.html" %}
 
+## Landing through pull requests
+
+With the default `pr` strategy, `wtg land` pushes each branch and opens a pull request per repo. Running it again finds the existing pull requests instead of creating new ones. Because the repos belong together, wtg also adds a block to each PR description that links its siblings; pass `--no-link` to suppress it.
+
+<p class="note"><strong>Note:</strong> <code>gh</code> is simulated here; git is real. The pull request URLs below come from a stand-in for the GitHub CLI, so no pull request was actually opened.</p>
+
+{% set id = "land-with-pr" %}{% set step = 1 %}{% include "transcript.html" %}
+
+Run it again and the same pull requests are found:
+
+{% set id = "land-with-pr" %}{% set step = 2 %}{% include "transcript.html" %}
+
+If `land` says a branch is not a fast-forward, run `wtg rebase` first (see [Sync & Rebase](@/guides/sync-and-rebase.md)).
+
 ## 3. Deleting the Workspace
 
 Once changes are landed, delete the workspace and remove the feature branches:

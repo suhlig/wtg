@@ -444,7 +444,7 @@ func linkSiblings(ctx context.Context, gh remote.Runner, spaceName string, resul
 	for _, entry := range prs {
 		var siblings []string
 		for _, other := range prs {
-			if other.pr.Number == entry.pr.Number || other.host != entry.host {
+			if other.ownerRepo == entry.ownerRepo || other.host != entry.host {
 				continue
 			}
 			siblings = append(siblings, fmt.Sprintf("%s#%d", other.ownerRepo, other.pr.Number))

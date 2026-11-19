@@ -33,12 +33,13 @@ always:
   repos: [shared-tooling]
 ```
 
-```sh
-wtg new my-feature api
-# my-feature/
-#   api/             ← worktree on branch <prefix>my-feature
-#   shared-tooling/  → symlink to ~/repos/shared-tooling
-#   go.work
+A new space then has the worktree for `api` next to a symlink to `shared-tooling`, plus `go.work` (see [See it run](#see-it-run)):
+
+```
+my-feature/
+  api/             ← worktree on branch <prefix>my-feature
+  shared-tooling/  → symlink to ~/repos/shared-tooling
+  go.work
 ```
 
 What the symlink means in practice:
@@ -88,13 +89,14 @@ always:
     - ~/.config/wtg/.envrc         # direnv config
 ```
 
-```sh
-wtg new my-feature api
-# my-feature/
-#   api/
-#   CLAUDE.md        ← copy of ~/.config/wtg/CLAUDE.md
-#   .envrc           ← copy of ~/.config/wtg/.envrc
-#   go.work
+A new space then has the copies in its root:
+
+```
+my-feature/
+  api/
+  CLAUDE.md        ← copy of ~/.config/wtg/CLAUDE.md
+  .envrc           ← copy of ~/.config/wtg/.envrc
+  go.work
 ```
 
 Notes:
@@ -118,13 +120,12 @@ and similar.
 secrets = [".env", "config/local.env"]
 ```
 
-```sh
-# In ~/repos/api:  .env exists
-# In ~/repos/docs: .env does not
-wtg new my-feature api docs
-# my-feature/
-#   api/.env         ← copy of ~/repos/api/.env
-#   docs/            ← no .env (missing in source; skipped)
+If `~/repos/api` has a `.env` and `~/repos/docs` does not, a new space with both gets:
+
+```
+my-feature/
+  api/.env         ← copy of ~/repos/api/.env
+  docs/            ← no .env (missing in source; skipped)
 ```
 
 Notes:
@@ -239,6 +240,36 @@ Each hook in `hooks.d` sees the full environment and does its own
 `case "$WTG_SPACE_EVENT"` branching. Name them `10-direnv`, `20-editor`, etc. to
 control order. The `|| echo` keeps it best-effort, so one failing hook does not
 stop the rest — matching how wtg treats the top-level script.
+
+## See it run
+
+The config below sets all four keys. `api` has a local `.env` that is not on any branch; `docs` has none. The hook is a one-line script that prints the event and the space name.
+
+```toml
+[always]
+repos = ["shared-tooling"]
+files = ["~/.config/wtg/CLAUDE.md"]
+secrets = [".env"]
+run = "~/.config/wtg/on-event"
+```
+
+Create a workspace with two repos. `shared-tooling` comes along as a symlink, and the hook runs once the space exists:
+
+{% set id = "always" %}{% set step = 1 %}{% include "transcript.html" %}
+
+The agent file was copied into the space root, and `shared-tooling` is a symlink next to the worktrees:
+
+{% set id = "always" %}{% set step = 2 %}{% include "transcript.html" %}
+
+The secret was copied into the worktree of the repo that has it, and skipped for the one that does not:
+
+{% set id = "always" %}{% set step = 3 %}{% include "transcript.html" %}
+
+{% set id = "always" %}{% set step = 4 %}{% include "transcript.html" %}
+
+Deleting the workspace removes the copies and the symlink, and the hook runs again with the `delete` event:
+
+{% set id = "always" %}{% set step = 5 %}{% include "transcript.html" %}
 
 ## Putting it together
 

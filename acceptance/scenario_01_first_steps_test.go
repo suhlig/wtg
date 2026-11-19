@@ -19,7 +19,7 @@ var _ = Describe("Scenario 1: First steps after installation", Ordered, func() {
 
 		// Set up two repositories under discovery root ~/repos
 		sb.InitRepo("api", map[string]string{
-			"go.mod": "module example.com/api\n\ngo 1.22\n",
+			"go.mod":  "module example.com/api\n\ngo 1.22\n",
 			"main.go": "package main\n\nfunc main() {}\n",
 		})
 		sb.InitRepo("web", map[string]string{

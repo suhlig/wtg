@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `wtg land` now links sibling pull requests when two repos happen to have the same PR number. Siblings were matched by number alone, but numbers are counted per repository, so with `#1` in both repos neither PR got the sibling block
 - A timed-out or interrupted `git fetch` no longer leaves `git-remote-https` and `index-pack` processes running, nor a partial `tmp_pack_*` file behind (ADR 0026)
 
 ## [1.10.0] - 2026-11-17

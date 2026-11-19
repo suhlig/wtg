@@ -36,18 +36,25 @@ root_dir = "~/repos-archived"   # where `wtg repo archive` moves retired clones
 
 ## `wtg repo archive <repo>...`
 
-```sh
-wtg repo archive old-service spike-repo   # move the clones aside
-wtg repo archive old-service --dry-run    # show the plan, change nothing
-wtg repo archive old-service --force      # proceed despite pending work
-wtg repo archive old-service --remote     # also archive it on GitHub
-```
+Name one or more repos; they are moved out of the discovery area:
+
+{% set id = "archive-and-unarchive" %}{% set step = 1 %}{% include "transcript.html" %}
+
+Useful flags: `--dry-run` shows the plan and changes nothing, `--force` proceeds despite pending work, `--remote` also archives the repo on GitHub, and `--archive-dir DIR` overrides `archive.root_dir` for one run.
 
 Repos are resolved by the same staged matching as the other commands: exact short name, then unique basename, then a unique substring of any path segment. An ambiguous name errors and lists the candidates; it never prompts.
 
 ### What it checks
 
 Every requested repo is checked **before any filesystem change**. If any check fails, the whole invocation aborts and nothing moves (all-or-nothing).
+
+Pending work is a **warning**: it aborts the run unless you pass `--force`. Here `spike-repo` has an untracked file:
+
+{% set id = "archive-and-unarchive" %}{% set step = 3 %}{% include "transcript.html" %}
+
+With `--force` and `--dry-run` you can see what would happen without moving anything:
+
+{% set id = "archive-and-unarchive" %}{% set step = 4 %}{% include "transcript.html" %}
 
 Pending work is a **warning**: it aborts the run unless you pass `--force`. Archiving does not lose this work (it moves with the clone), but the warning keeps out-of-sight work from being forgotten — and, once a repo is archived upstream, that work cannot be pushed without unarchiving first.
 
@@ -87,16 +94,7 @@ entries:
 
 ### Output
 
-```
-github.com/something/foo  ✓ moved to ~/repos-archived/github.com/something/foo
-github.com/something/bar  ✓ moved to ~/repos-archived/github.com/something/bar
-
-Upstream repos were not modified. To archive them on GitHub:
-  gh repo archive something/foo --yes
-  gh repo archive something/bar --yes
-```
-
-The `gh` block appears only when at least one repo's `origin` is on github.com; other forges are simply omitted in the local (no `--remote`) flow.
+The `gh` block in the output above appears only when at least one repo's `origin` is on github.com; other forges are simply omitted in the local (no `--remote`) flow.
 
 ## `--remote`: archive upstream on GitHub
 
@@ -107,45 +105,29 @@ The `gh` block appears only when at least one repo's `origin` is on github.com; 
 - **Idempotent.** `wtg` checks each repo's upstream archive state first; one that is already archived is a no-op and reported as such.
 - **Remote changes roll back with the local ones.** The local moves and the upstream archival are one saga: if an upstream archival fails, the moved clones are restored and the provenance records are removed, so nothing is left half-archived.
 
-```sh
-wtg repo archive old-service --remote
-# github.com/something/foo  ✓ moved to ~/repos-archived/github.com/something/foo
-#
-# Archived on GitHub:
-#   something/foo
-```
+<p class="note"><strong>Note:</strong> <code>gh</code> is simulated here; git is real. Nothing was archived on GitHub.</p>
+
+{% set id = "archive-and-unarchive" %}{% set step = 5 %}{% include "transcript.html" %}
 
 `gh` targets github.com explicitly (via `GH_HOST`), so a GitHub Enterprise default in your `gh` config cannot redirect an archival.
 
 ## `wtg repo unarchive <repo>...`
 
-```sh
-wtg repo unarchive old-service spike-repo   # restore the clones
-wtg repo unarchive old-service --dry-run    # show the plan, change nothing
-wtg repo unarchive old-service --remote     # also unarchive on GitHub
-```
+Name the repos to restore:
+
+{% set id = "archive-and-unarchive" %}{% set step = 2 %}{% include "transcript.html" %}
+
+Useful flags: `--dry-run` shows the plan, `--remote` also unarchives on GitHub, and `--archive-dir DIR` points at a changed archive root.
 
 `unarchive` looks the repo up in `archived.yaml`, moves the clone from `<archive.root_dir>/<name>` back to its recorded `origin`, and removes the provenance record. It never deletes anything.
 
 It **refuses** if the recorded origin path already exists, or if the archived clone is missing from `archive.root_dir` — the latter happens if you changed your archive root, in which case pass `--archive-dir DIR`. Restoration is non-destructive, so every finding is a hard error (there is no `--force`).
 
-```
-github.com/something/foo  ✓ restored to ~/repos/github.com/something/foo
-
-Upstream repos were not modified. To archive them on GitHub:
-  gh repo unarchive something/foo --yes
-```
-
 ### `--remote`
 
 `wtg repo unarchive --remote` also unarchives each repo on GitHub, under the same rules as `--remote` on archive: `gh` 2.32+ and github.com auth, a github.com origin for every named repo, idempotency (a repo that is already unarchived upstream is a no-op), and the same all-or-nothing saga — if an upstream unarchive fails, the restores are rolled back and the provenance records are restored.
 
-```
-github.com/something/foo  ✓ restored to ~/repos/github.com/something/foo
-
-Unarchived on GitHub:
-  something/foo
-```
+{% set id = "archive-and-unarchive" %}{% set step = 6 %}{% include "transcript.html" %}
 
 ## Releasing an archived clone by hand
 
@@ -153,12 +135,6 @@ The archive tree is plain directories, and the provenance file is plain YAML, so
 
 ## Putting it together
 
-```sh
-# Retire two finished repos, archiving them upstream too.
-wtg repo archive old-service spike-repo --remote
+Retire the repos you no longer work on with `wtg repo archive <repo>... --remote`, and bring one back later with `wtg repo unarchive <repo> --remote`. Without `--remote`, both only touch your local clones and print the `gh` command you would run yourself.
 
-# Later, bring one back, locally and upstream.
-wtg repo unarchive old-service --remote
-```
-
-See [ADR 0013](../../../docs/adr/0013-repo-archive.md) for the decisions and trade-offs.
+See [ADR 0013](https://github.com/suhlig/wtg/blob/main/docs/adr/0013-repo-archive.md) for the decisions and trade-offs.

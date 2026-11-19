@@ -22,6 +22,17 @@ type TranscriptData struct {
 var shortcodeRegex = regexp.MustCompile(`(?:\{\{\s*transcript\(\s*id="([^"]+)",\s*step=(\d+)\s*\)\s*\}\}|<transcript\s+id="([^"]+)"\s+step=(\d+)\s*/>|\{%\s*set\s+id\s*=\s*"([^"]+)"\s*%\}\s*\{%\s*set\s+step\s*=\s*(\d+)\s*%\}\s*\{%\s*include\s+"transcript\.html"\s*%\})`)
 var forbiddenBlockRegex = regexp.MustCompile("(?s)```(?:sh|bash|zsh)?\n(.*?)```")
 
+// handTypedAllowed lists the pages that may show a `wtg` command that no
+// transcript produced. Keep it empty unless a page has a reason that is written
+// down here; each entry is a place where the ADR 0027 D2 guarantee does not hold.
+var handTypedAllowed = map[string]bool{}
+
+// allowedHandTypedCommand covers commands that cannot run in the sandbox:
+// shell integration is installed into the user's own shell, not run by wtg.
+func allowedHandTypedCommand(line string) bool {
+	return strings.Contains(line, "completion")
+}
+
 func main() {
 	contentDir := "site/content"
 	dataDir := "site/data/transcripts"
@@ -138,22 +149,16 @@ func checkContent(contentDir, dataDir string) error {
 			}
 		}
 
-		// Check for hand-typed wtg command blocks in scenario guides
-		// Allowed in reference/ or install/shell integration blocks
-		if strings.Contains(path, "guides/first-steps") ||
-			strings.Contains(path, "guides/new-workspace") ||
-			strings.Contains(path, "guides/sync-and-rebase") ||
-			strings.Contains(path, "guides/land-and-delete") ||
-			strings.Contains(path, "guides/add-and-remove") ||
-			strings.Contains(path, "guides/read-only") ||
-			strings.Contains(path, "guides/preview-and-audit") {
-			blocks := forbiddenBlockRegex.FindAllStringSubmatch(content, -1)
-			for _, b := range blocks {
-				blockContent := b[1]
-				lines := strings.Split(blockContent, "\n")
-				for _, line := range lines {
-					line = strings.TrimSpace(line)
-					if strings.HasPrefix(line, "wtg ") && !strings.Contains(line, "completion") && !strings.Contains(line, "path") {
+		// D2: commands and output on the site come from transcripts. Every
+		// guide and the FAQ is checked; only the pages in handTypedAllowed may
+		// show a hand-typed `wtg` command.
+		rel, _ := filepath.Rel(contentDir, path)
+		rel = filepath.ToSlash(rel)
+		if (strings.HasPrefix(rel, "guides/") || strings.HasPrefix(rel, "faq/")) && !handTypedAllowed[rel] {
+			for _, b := range forbiddenBlockRegex.FindAllStringSubmatch(content, -1) {
+				for _, line := range strings.Split(b[1], "\n") {
+					line = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "$ "))
+					if strings.HasPrefix(line, "wtg ") && !allowedHandTypedCommand(line) {
 						errors = append(errors, fmt.Sprintf("%s: found hand-typed command block %q instead of transcript shortcode", path, line))
 					}
 				}

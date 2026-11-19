@@ -34,6 +34,9 @@ jobs:
       - name: Generate transcripts, reference and verify documentation
         run: make docs
 
+      - name: Check transcripts are reproducible (ADR 0027 D5)
+        run: make check-determinism
+
       - name: Install Zola (pinned, checksum verified)
         run: |
           curl -sSfL -o zola.tar.gz "https://github.com/getzola/zola/releases/download/${ZOLA_VERSION}/zola-${ZOLA_VERSION}-x86_64-unknown-linux-gnu.tar.gz"

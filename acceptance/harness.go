@@ -2,6 +2,8 @@ package acceptance
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
@@ -51,9 +53,28 @@ type Sandbox struct {
 	ScenarioDesc  string
 }
 
+// sshShimScript stands in for ssh. git runs `ssh [options] git@github.com
+// "git-upload-pack 'example/api.git'"`; the last argument is the remote command.
+// It is served from the bare repository of the same name in $WTG_ACCEPTANCE_REMOTES.
+const sshShimScript = `#!/bin/sh
+for cmd; do :; done
+prog=${cmd%% *}
+path=${cmd#* }
+path=${path#\'}
+path=${path%\'}
+exec git "${prog#git-}" "$WTG_ACCEPTANCE_REMOTES/$(basename "$path")"
+`
+
 func NewSandbox(scenarioID, title, desc, wtgBin, fakeGHBin string) *Sandbox {
-	tmpDir, err := os.MkdirTemp("", "wtg-acceptance-*")
+	// The sandbox path must have a fixed length: wtg pads table cells to the
+	// widest value, and that width is measured before the path is replaced by
+	// "~" in the transcript. os.MkdirTemp's numeric suffix varies in length,
+	// which made the padding, and so the transcript, differ between runs.
+	suffix := make([]byte, 4)
+	_, err := rand.Read(suffix)
 	Expect(err).NotTo(HaveOccurred())
+	tmpDir := filepath.Join(os.TempDir(), "wtg-acceptance-"+hex.EncodeToString(suffix))
+	Expect(os.MkdirAll(tmpDir, 0755)).To(Succeed())
 	tmpDir, err = filepath.EvalSymlinks(tmpDir)
 	Expect(err).NotTo(HaveOccurred())
 
@@ -81,10 +102,16 @@ func NewSandbox(scenarioID, title, desc, wtgBin, fakeGHBin string) *Sandbox {
 	email = %s
 [init]
 	defaultBranch = main
-[url "%s/"]
-	insteadOf = "git@github.com:example/"
-`, PinnedAuthorName, PinnedAuthorEmail, bareOriginDir)
+`, PinnedAuthorName, PinnedAuthorEmail)
 	Expect(os.WriteFile(gitConfigGlobal, []byte(gitConfigContent), 0644)).To(Succeed())
+
+	// ADR 0027 D7: the fixtures' origin is a real github.com URL, so wtg sees
+	// what a user sees (no insteadOf rewrite, no seam in product code). git
+	// reaches it over ssh, and wtg runs plain `ssh` from PATH, so a shim named ssh
+	// in the sandbox bin directory (first on PATH) answers that call from the local bare
+	// repositories.
+	sshShim := filepath.Join(binDir, "ssh")
+	Expect(os.WriteFile(sshShim, []byte(sshShimScript), 0755)).To(Succeed())
 
 	// Copy fake gh if provided
 	if fakeGHBin != "" {
@@ -135,6 +162,7 @@ func (s *Sandbox) Env() []string {
 		"GIT_COMMITTER_NAME=" + PinnedCommitterName,
 		"GIT_COMMITTER_EMAIL=" + PinnedCommitterEmail,
 		"GIT_COMMITTER_DATE=" + PinnedCommitterDate,
+		"WTG_ACCEPTANCE_REMOTES=" + s.BareOriginDir,
 		"PATH=" + pathEnv,
 		"FAKE_GH_STATE_DIR=" + s.HomeDir,
 	}
@@ -153,7 +181,10 @@ func (s *Sandbox) WriteConfig(content string) {
 }
 
 func (s *Sandbox) InitRepo(shortName string, files map[string]string) (clonePath, barePath string) {
-	barePath = filepath.Join(s.BareOriginDir, shortName+".git")
+	// shortName may be nested (github.com/example/api) to mirror a real
+	// discovery layout; the origin is always example/<base>.git.
+	base := filepath.Base(shortName)
+	barePath = filepath.Join(s.BareOriginDir, base+".git")
 	Expect(os.MkdirAll(barePath, 0755)).To(Succeed())
 
 	cmd := exec.Command("git", "init", "--bare", "-b", "main", barePath)
@@ -165,7 +196,7 @@ func (s *Sandbox) InitRepo(shortName string, files map[string]string) (clonePath
 	Expect(os.MkdirAll(clonePath, 0755)).To(Succeed())
 
 	s.runGit(clonePath, "init", "-b", "main")
-	remoteURL := fmt.Sprintf("git@github.com:example/%s.git", shortName)
+	remoteURL := fmt.Sprintf("git@github.com:example/%s.git", base)
 	s.runGit(clonePath, "remote", "add", "origin", remoteURL)
 
 	for relPath, content := range files {
@@ -211,7 +242,16 @@ func (s *Sandbox) RunWtg(args ...string) StepResult {
 }
 
 func (s *Sandbox) execute(record bool, name string, args ...string) StepResult {
-	cmd := exec.Command(name, args...)
+	// exec.Command resolves a bare name against this process's PATH, not
+	// cmd.Env, so a real gh (or ssh) would win over the sandbox's. Resolve
+	// bare names in the sandbox bin directory first (ADR 0027 E7).
+	exe := name
+	if !strings.ContainsRune(name, filepath.Separator) {
+		if _, err := os.Stat(filepath.Join(s.BinDir, name)); err == nil {
+			exe = filepath.Join(s.BinDir, name)
+		}
+	}
+	cmd := exec.Command(exe, args...)
 	cmd.Dir = s.Cwd
 	cmd.Env = s.Env()
 

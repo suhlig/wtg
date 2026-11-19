@@ -35,21 +35,23 @@ prints the git commands that were still running.
 `⚠` slots flip noticeably faster than the others because the branch and
 dirty checks are local and run before any network call.
 
-## State transition diagram
+## State transitions
 
-```mermaid
-stateDiagram-v2
-    [*] --> · : slot initialised
-    · --> ~ : goroutine starts
-    ~ --> ø : no remotes (omitted from table)
-    ~ --> ⚠ : skipped — wrong branch
-    ~ --> ⚠ : skipped — uncommitted changes
-    ~ --> ✓ : fetched, already up to date
-    ~ --> ↑ : fetched, fast-forwarded
-    ~ --> ! : any error (fetch / ff / status / default branch)
-    ø --> [*] : omitted
-    ⚠ --> [*]
-    ✓ --> [*]
-    ↑ --> [*]
-    ! --> [*]
-```
+Every slot starts as `·` (waiting) and becomes `~` (fetch in flight) when its goroutine starts. From `~` it ends in exactly one of these states:
+
+| From | To | Why |
+|------|----|-----|
+| `~` | `ø` | No remote is configured; the repo is omitted from the table |
+| `~` | `⚠` | Skipped because the repo is on the wrong branch |
+| `~` | `⚠` | Skipped because it has uncommitted changes |
+| `~` | `✓` | Fetched; already up to date |
+| `~` | `↑` | Fetched and fast-forwarded |
+| `~` | `!` | Any error: fetch, fast-forward, status, or default-branch lookup |
+
+All of `ø`, `⚠`, `✓`, `↑` and `!` are final.
+
+## See it run
+
+Without `--progress` the symbols appear in the result table. This is the output of `wtg repo sync` in the [Sync & Rebase](@/guides/sync-and-rebase.md) scenario, where `api` was fast-forwarded (`↑`) and `web` was already up to date (`✓`):
+
+{% set id = "sync-and-rebase" %}{% set step = 1 %}{% include "transcript.html" %}

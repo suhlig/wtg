@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/suhlig/wtg/internal/git"
+	"github.com/suhlig/wtg/internal/remote"
 	"github.com/suhlig/wtg/internal/state"
 )
 
@@ -321,5 +322,26 @@ func TestLandCommand_DeleteStaysPutWhenLandNeedsAttention(t *testing.T) {
 	}
 	if _, statErr := state.Load("feat"); statErr != nil {
 		t.Errorf("a failed land must not delete the workspace: %v", statErr)
+	}
+}
+
+// PR numbers are counted per repository, so two repos in one workspace will
+// often both get #1. Each PR must still list the other as a sibling.
+func TestLinkSiblings_SamePRNumberInDifferentRepos(t *testing.T) {
+	gh := &fakeGH{}
+	results := []landResult{
+		{opResult: opResult{name: "github.com/owner/api"}, pr: remote.PR{Number: 1}},
+		{opResult: opResult{name: "github.com/owner/web"}, pr: remote.PR{Number: 1}},
+	}
+
+	if err := linkSiblings(t.Context(), gh, "my-feature", results, io.Discard); err != nil {
+		t.Fatalf("linkSiblings: %v", err)
+	}
+
+	if body := gh.prBodies["owner/api/1"]; !strings.Contains(body, "- owner/web#1") {
+		t.Errorf("api PR body must list web as sibling, got %q", body)
+	}
+	if body := gh.prBodies["owner/web/1"]; !strings.Contains(body, "- owner/api#1") {
+		t.Errorf("web PR body must list api as sibling, got %q", body)
 	}
 }

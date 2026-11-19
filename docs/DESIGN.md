@@ -38,14 +38,13 @@ Each decision below has its own record in [`adr/`](adr/), carrying the original 
 
 ## Open work
 
-Work a decision deliberately left out, collected in one place instead of buried in the records. Each item links to the ADR that explains it; **the ADR is authoritative** — when an item is picked up, reshaped, or dropped, change the record first, then this list. This mirrors the `## Follow-ups` sections: ADR 0013's two follow-ups (v2 and v3), ADR 0019's three, ADR 0024's follow-ups, and ADR 0025's follow-ups (`.` completion and path arguments) are done. ADR 0026 has none. ADR 0027's implementation plan is delivered; its follow-ups are listed below.
+Work a decision deliberately left out, collected in one place instead of buried in the records. Each item links to the ADR that explains it; **the ADR is authoritative** — when an item is picked up, reshaped, or dropped, change the record first, then this list. This mirrors the `## Follow-ups` sections: ADR 0013's two follow-ups (v2 and v3), ADR 0019's three, ADR 0024's follow-ups, and ADR 0025's follow-ups (`.` completion and path arguments) are done. ADR 0026 has none. ADR 0027 is implemented; its follow-ups are listed below.
 
 - **`NO_COLOR` and `TERM=dumb`**: wtg colours piped output today ([ADR 0027](adr/0027-scenario-docs-site.md) D6, Follow-ups). User-facing; needs a `CHANGELOG.md` entry.
 - **Committed golden transcripts**, if reviewing output changes through the site artefact proves too weak ([ADR 0027](adr/0027-scenario-docs-site.md) D5).
 - **Migrating the unit tests to Ginkgo**, as a separate decision ([ADR 0027](adr/0027-scenario-docs-site.md) D8).
 - **Per-release versions of the site** ([ADR 0027](adr/0027-scenario-docs-site.md) D13).
 - **Man pages** from the command-tree walker ([ADR 0027](adr/0027-scenario-docs-site.md) D9).
-- **Scenarios 5, 8, 9, 11, 12, 13, 15** beyond the covered scenarios ([ADR 0027](adr/0027-scenario-docs-site.md) D10).
-- **PR scenarios and the `gh` remote-host question** ([ADR 0027](adr/0027-scenario-docs-site.md) D7): `land --strategy pr` with the fake `gh` and its visible note; the remote host must be solved without a product-code seam.
-- **Zola licence and maintenance check** before pinning ([ADR 0027](adr/0027-scenario-docs-site.md) D13).
+- **Scenarios 5, 8, 9, 11 and 15** ([ADR 0027](adr/0027-scenario-docs-site.md) D10, Follow-ups).
+- **A scenario for `wtg delete -d` with a merged pull request**, which needs a `MERGED` state in the fake `gh` ([ADR 0027](adr/0027-scenario-docs-site.md) Follow-ups).
 

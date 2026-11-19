@@ -21,29 +21,40 @@ No. Collaborators never need `wtg` installed. `wtg` creates standard Git branche
 3. A local copy of an **`always.secrets`** file was edited and differs from the source clone.
 4. It is running in a non-interactive script / pipeline without `--yes`.
 
+Here the workspace has one commit that exists on no remote, and the command runs without a terminal:
+
+{% set id = "refusals" %}{% set step = 2 %}{% include "transcript.html" %}
+
+`--dry-run` shows what would be removed without asking or changing anything:
+
+{% set id = "refusals" %}{% set step = 3 %}{% include "transcript.html" %}
+
 To force-delete branches and ignore unmerged commits, use `wtg delete -D` (or `--yes` in scripts).
 
 ### Why does wtg never force-push?
 
 `wtg` is designed to never overwrite remote history automatically. If a branch has diverged (for example after a `wtg rebase`), `wtg push` reports the divergence and shows you the explicit command to run if you wish to overwrite:
-```
-git push --force-with-lease origin <branch>
-```
+
+{% set id = "sync-and-rebase" %}{% set step = 3 %}{% include "transcript.html" %}
 
 ### What does the ambiguous repo name error mean?
 
-When you pass a short name like `api` or `infra` and multiple discovered repositories share that name (e.g. `github.com/myorg/api` and `github.com/client/api`), `wtg` refuses to guess. It lists all matching candidates so you can provide the disambiguated path segment or full path.
+When you pass a short name like `api` or `infra` and multiple discovered repositories share that name (e.g. `example-org/api` and `client/api`), `wtg` refuses to guess. It lists all matching candidates so you can provide the disambiguated path segment or full path:
+
+{% set id = "refusals" %}{% set step = 1 %}{% include "transcript.html" %}
 
 ### What is the sibling block in my pull request description?
 
-When you land a workspace using `wtg land` with the `pr` strategy, `wtg` links related pull requests together by adding a markdown block:
-```markdown
-<!-- wtg:siblings:start -->
-**Part of workspace `my-feature`.** These pull requests belong together:
-- example/api#12
-- example/web#34
-<!-- wtg:siblings:end -->
-```
+When you land a workspace using `wtg land` with the `pr` strategy, `wtg` opens one pull request per repo:
+
+{% set id = "land-with-pr" %}{% set step = 1 %}{% include "transcript.html" %}
+
+and then updates each description with a markdown block that links its siblings. Here is the description of the `api` pull request afterwards:
+
+<p class="note"><strong>Note:</strong> <code>gh</code> is simulated here; git is real.</p>
+
+{% set id = "land-with-pr" %}{% set step = 3 %}{% include "transcript.html" %}
+
 Pass `--no-link` to `wtg land` if you want to suppress this sibling block.
 
 ### What if I delete a workspace directory by hand with `rm -rf`?

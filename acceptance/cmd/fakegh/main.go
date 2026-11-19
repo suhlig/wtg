@@ -25,16 +25,20 @@ type GHState struct {
 	PRs    map[string]PRRecord `json:"prs"` // key: repo#number
 }
 
-func getStatePath() string {
+// getStatePath keeps one state file per repository. Like GitHub, PR numbers are
+// counted per repository, and wtg calls gh for several repositories in
+// parallel: a shared file would make the numbers depend on scheduling and lose
+// updates.
+func getStatePath(repo string) string {
 	stateDir := os.Getenv("FAKE_GH_STATE_DIR")
 	if stateDir == "" {
 		stateDir = os.Getenv("HOME")
 	}
-	return filepath.Join(stateDir, ".fake_gh_state.json")
+	return filepath.Join(stateDir, ".fake_gh_state_"+strings.ReplaceAll(repo, "/", "_")+".json")
 }
 
-func loadState() GHState {
-	p := getStatePath()
+func loadState(repo string) GHState {
+	p := getStatePath(repo)
 	var st GHState
 	st.PRs = make(map[string]PRRecord)
 	st.NextPR = 1
@@ -51,12 +55,34 @@ func loadState() GHState {
 	return st
 }
 
-func saveState(st GHState) {
-	p := getStatePath()
+func saveState(repo string, st GHState) {
+	p := getStatePath(repo)
 	data, err := json.MarshalIndent(st, "", "  ")
 	if err == nil {
 		_ = os.WriteFile(p, data, 0644)
 	}
+}
+
+// archivedMarker is the file whose presence means the repository is archived.
+func archivedMarker(repo string) string {
+	stateDir := os.Getenv("FAKE_GH_STATE_DIR")
+	if stateDir == "" {
+		stateDir = os.Getenv("HOME")
+	}
+	return filepath.Join(stateDir, ".fake_gh_archived_"+strings.ReplaceAll(repo, "/", "_"))
+}
+
+func isArchived(repo string) bool {
+	_, err := os.Stat(archivedMarker(repo))
+	return err == nil
+}
+
+func setArchived(repo string, archived bool) {
+	if archived {
+		_ = os.WriteFile(archivedMarker(repo), nil, 0644)
+		return
+	}
+	_ = os.Remove(archivedMarker(repo))
 }
 
 func main() {
@@ -65,9 +91,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	st := loadState()
 	cmd := os.Args[1]
 	args := os.Args[2:]
+	st := loadState(flagVal(args, "--repo"))
 
 	switch cmd {
 	case "auth":
@@ -77,18 +103,20 @@ func main() {
 		}
 
 	case "repo":
-		if len(args) == 0 {
+		if len(args) < 2 {
 			os.Exit(1)
 		}
-		sub := args[0]
+		sub, repo := args[0], args[1]
 		switch sub {
 		case "view":
-			fmt.Println(`{"isArchived": false}`)
+			fmt.Printf("{\"isArchived\": %t}\n", isArchived(repo))
 			return
 		case "archive":
+			setArchived(repo, true)
 			fmt.Println("✓ Archived repository")
 			return
 		case "unarchive":
+			setArchived(repo, false)
 			fmt.Println("✓ Unarchived repository")
 			return
 		}
@@ -145,7 +173,7 @@ func main() {
 				Body:       "",
 				Repo:       repo,
 			}
-			saveState(st)
+			saveState(repo, st)
 			fmt.Println(url)
 			return
 
@@ -160,6 +188,10 @@ func main() {
 			pr, ok := st.PRs[key]
 			if !ok {
 				pr = PRRecord{Number: num, Repo: repo, Body: ""}
+			}
+			if flagVal(subArgs, "--jq") == ".body" {
+				fmt.Println(pr.Body)
+				return
 			}
 			out, _ := json.Marshal(map[string]string{
 				"body": pr.Body,
@@ -179,7 +211,7 @@ func main() {
 			pr := st.PRs[key]
 			pr.Body = body
 			st.PRs[key] = pr
-			saveState(st)
+			saveState(repo, st)
 			return
 		}
 	}

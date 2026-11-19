@@ -46,8 +46,8 @@ func main() {
 
 func buildApp() *cli.Command {
 	return &cli.Command{
-		Name:                  "wtg",
-		Usage:                 "manage multi-repo feature workflows using git worktrees and Go workspaces",
+		Name:  "wtg",
+		Usage: "manage multi-repo feature workflows using git worktrees and Go workspaces",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:    "config",
