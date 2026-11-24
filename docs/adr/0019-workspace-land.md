@@ -140,7 +140,7 @@ For each repo to land:
 Details:
 
 - wtg shells out to `gh`, as [ADR 0013](0013-repo-archive.md) does for archiving. That reuses the user's authentication, keeps wtg free of HTTP clients, and mirrors the "use system git" choice.
-- `GH_HOST` is pinned to the remote's host for every call (as in `internal/remote/gh.go`). `remote.ParseGitHubRemote` currently accepts only `github.com`. For `land`, a GitHub Enterprise host is accepted when `gh auth status --hostname <host>` succeeds. Non-GitHub remotes fail with `! pr strategy needs a GitHub remote` after the push has succeeded, so the work is still published.
+- `GH_HOST` is pinned to the remote's host for every call (as in `internal/remote/gh.go`). `remote.ParseGitHubRemote` accepts `github.com` and GitHub Enterprise hosts (any host starting with `github.`, see `remote.IsGitHubHost`); `archive` and `unarchive` still restrict themselves to `github.com`. For `land`, a GitHub Enterprise host additionally requires `gh auth status --hostname <host>` to succeed. Non-GitHub remotes fail with `! pr strategy needs a GitHub remote` after the push has succeeded, so the work is still published.
 - If the push works and PR creation fails, the row says `⚠ pushed, PR not created: …`. A retry skips the push (nothing to push) and creates the PR.
 - Once every `pr` repo has a PR (created now or found), the PRs are linked to each other in a second pass (D7).
 

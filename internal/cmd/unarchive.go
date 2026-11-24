@@ -212,7 +212,9 @@ func resolveUnarchiveTargets(cfg *config.Config, archiveRoot string, names []str
 		seen[canonical] = true
 
 		rec := byName[canonical]
-		slug, _, ghOK := remote.ParseGitHubRemote(rec.Remote)
+		slug, host, ghOK := remote.ParseGitHubRemote(rec.Remote)
+		// unarchive only supports github.com, not GitHub Enterprise hosts.
+		ghOK = ghOK && host == remote.GitHubHost
 		targets = append(targets, &unarchiveTarget{
 			name:   canonical,
 			record: rec,

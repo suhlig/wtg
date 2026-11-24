@@ -246,6 +246,8 @@ func resolveArchiveTargets(runner git.Runner, roots, names []string, byName map[
 		clone := byName[canonical]
 		remoteURL, _ := runner.RemoteURL(clone, "origin")
 		slug, host, ghOK := remote.ParseGitHubRemote(remoteURL)
+		// archive only supports github.com, not GitHub Enterprise hosts.
+		ghOK = ghOK && host == remote.GitHubHost
 		targets = append(targets, &archiveTarget{
 			name:      canonical,
 			clone:     clone,
