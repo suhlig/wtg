@@ -25,7 +25,7 @@ func TestParseGitHubRemote(t *testing.T) {
 
 		{"gitlab scp is not github", "git@gitlab.com:group/repo.git", "group/repo", "gitlab.com", false},
 		{"gitlab https is not github", "https://gitlab.com/group/repo.git", "group/repo", "gitlab.com", false},
-		{"github enterprise is not github.com", "git@github.mycompany.com:owner/repo.git", "owner/repo", "github.mycompany.com", false},
+		{"github enterprise", "git@github.mycompany.com:owner/repo.git", "owner/repo", "github.mycompany.com", true},
 		{"bitbucket is not github", "https://bitbucket.org/owner/repo.git", "owner/repo", "bitbucket.org", false},
 
 		{"empty", "", "", "", false},

@@ -12,10 +12,16 @@ import (
 	"strings"
 )
 
-// GitHubHost is the host v1 recognizes for archival. GitHub Enterprise and
-// other forges are intentionally excluded for now, so a remote on any other
-// host yields ok == false and no GitHub action is suggested.
+// GitHubHost is the host recognized for archival. Callers that only support
+// github.com (archive, unarchive) compare the parsed host against it; GitHub
+// Enterprise hosts are accepted by ParseGitHubRemote but are not GitHubHost.
 const GitHubHost = "github.com"
+
+// IsGitHubHost reports whether host is github.com or looks like a GitHub
+// Enterprise instance (any host whose name starts with "github.").
+func IsGitHubHost(host string) bool {
+	return host == GitHubHost || strings.HasPrefix(host, "github.")
+}
 
 // ParseGitHubRemote extracts the "owner/repo" slug and the hostname from a git
 // remote URL.
@@ -30,11 +36,12 @@ const GitHubHost = "github.com"
 //	http://github.com/owner/repo
 //
 // host is the remote's hostname, lowercased and with any port stripped. ok
-// reports whether the remote points at GitHub (GitHubHost) and a valid
-// owner/repo slug was found. A non-GitHub remote (GitLab, GitHub Enterprise,
-// Bitbucket, ...) yields ok == false but still fills in host and, when the path
-// parses, ownerRepo, so the caller can explain why no GitHub action is offered.
-// A URL that cannot be parsed at all yields an empty ownerRepo and host.
+// reports whether the remote points at GitHub or a GitHub Enterprise host (see
+// IsGitHubHost) and a valid owner/repo slug was found. A non-GitHub remote
+// (GitLab, Bitbucket, ...) yields ok == false but still fills in host and, when
+// the path parses, ownerRepo, so the caller can explain why no GitHub action is
+// offered. A URL that cannot be parsed at all yields an empty ownerRepo and
+// host.
 func ParseGitHubRemote(raw string) (ownerRepo, host string, ok bool) {
 	host, path, parsed := splitRemote(raw)
 	if !parsed {
@@ -44,7 +51,7 @@ func ParseGitHubRemote(raw string) (ownerRepo, host string, ok bool) {
 	if !valid {
 		return "", host, false
 	}
-	return slug, host, host == GitHubHost
+	return slug, host, IsGitHubHost(host)
 }
 
 // ArchiveCommand returns the `gh` invocation that archives ownerRepo on GitHub.
