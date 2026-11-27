@@ -244,6 +244,54 @@ Each hook in `hooks.d` sees the full environment and does its own
 control order. The `|| echo` keeps it best-effort, so one failing hook does not
 stop the rest — matching how wtg treats the top-level script.
 
+### Example: one tmux window per repo
+
+wtg itself does not use tmux, but a hook can give every space its own tmux
+session with one window per repo, and keep the windows in step as repos come and
+go. This is only an example for people who use tmux; adapt the window names and
+layout to taste.
+
+```bash
+#!/usr/bin/env bash
+# One tmux session per space, one window per repo.
+session="$WTG_SPACE_NAME"
+
+case "$WTG_SPACE_EVENT" in
+  create)
+    tmux new-session -d -s "$session" -c "$WTG_SPACE_ROOT" -n root
+    while IFS= read -r path; do
+      tmux new-window -t "=$session:" -c "$path" -n "$(basename "$path")"
+    done <<< "$WTG_REPO_PATHS"
+    tmux select-window -t "=$session:root"
+    ;;
+  add)
+    tmux has-session -t "=$session" 2>/dev/null || exit 0
+    existing=$(tmux list-windows -t "=$session" -F '#{window_name}')
+    # WTG_REPOS and WTG_REPO_PATHS are aligned, so paste pairs each name with its path.
+    paste -d '\t' <(echo "$WTG_REPOS") <(echo "$WTG_REPO_PATHS") |
+      while IFS=$'\t' read -r repo path; do
+        grep -qxF -- "$repo" <<< "$WTG_EVENT_REPOS" || continue   # not added by this event
+        name=$(basename "$path")
+        grep -qxF -- "$name" <<< "$existing" && continue          # already has a window
+        tmux new-window -t "=$session:" -c "$path" -n "$name"
+      done
+    ;;
+  remove)
+    tmux has-session -t "=$session" 2>/dev/null || exit 0
+    while IFS= read -r repo; do
+      tmux kill-window -t "=$session:=$(basename "$repo")" 2>/dev/null
+    done <<< "$WTG_EVENT_REPOS"
+    ;;
+  delete)
+    tmux kill-session -t "=$session" 2>/dev/null
+    ;;
+esac
+```
+
+Windows are named after the last path component of the repo, so a repo called
+`myorg/frontend` gets a window called `frontend`. The `add` and `remove` branches
+do nothing if the session does not exist, for example because it was closed by hand.
+
 ## See it run
 
 The config below sets all four keys. `api` has a local `.env` that is not on any branch; `docs` has none. The hook is a one-line script that prints the event and the space name.
